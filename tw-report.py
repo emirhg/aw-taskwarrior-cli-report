@@ -862,6 +862,13 @@ def get_task_info(active_task: Event) -> Tuple[str, str]:
     return task_name, project
 
 
+def task_has_offline_tag(task_event: Event) -> bool:
+    """Check if a task event has the 'offline' tag (case-insensitive)."""
+    raw_tags = task_event.data.get("tags", [])
+    tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+    return "offline" in (t.lower() for t in tags)
+
+
 # --- Report Formatting and Printing ---
 
 
@@ -3039,6 +3046,37 @@ def main():
         matches_any=_matches_any,
         excluded=_excluded,
     )
+
+    # Collect and aggregate OFFLINE task events (tagged "offline")
+    # For each (project, task) pair with OFFLINE tag, calculate duration as
+    # the span from the earliest start to the latest end across all events.
+    offline_task_durations: Dict[Tuple[str, str], timedelta] = {}
+    if task_events:
+        offline_events_by_key: Dict[Tuple[str, str], List[Event]] = {}
+        for event in task_events:
+            if task_has_offline_tag(event):
+                task_name, project = get_task_info(event)
+                key = (project, task_name)
+                if key not in offline_events_by_key:
+                    offline_events_by_key[key] = []
+                offline_events_by_key[key].append(event)
+
+        # Calculate actual duration for each OFFLINE task (span of all events)
+        for key, events in offline_events_by_key.items():
+            start_times = [e.timestamp for e in events]
+            end_times = [e.timestamp + e.duration for e in events]
+            earliest_start = min(start_times)
+            latest_end = max(end_times)
+            offline_task_durations[key] = latest_end - earliest_start
+
+    # Exclude window events correlated with OFFLINE tasks — their time comes from
+    # the raw task event duration, not from window activity.
+    if offline_task_durations:
+        canonical_events = [
+            rep for rep in canonical_events
+            if rep.active_task is None or not task_has_offline_tag(rep.active_task)
+        ]
+
     metrics = compute_metrics(
         canonical_events=canonical_events,
         cat_score_map=cat_score_map,
@@ -3069,6 +3107,39 @@ def main():
         normalize_title=normalize_title,
     )
 
+    # Replace task durations for OFFLINE tasks with aggregated event duration
+    # (calculated from span of all task events for that project/task)
+    # Skip if --exclude-offline flag is set
+    if not args.exclude_offline:
+        for (project, task_name), offline_duration in offline_task_durations.items():
+            if project in report_data and task_name in report_data[project]["tasks"]:
+                # Task exists in report from aggregate_hierarchy; replace its duration
+                task_node = report_data[project]["tasks"][task_name]
+                old_duration = task_node["total_duration"]
+                task_node["total_duration"] = offline_duration
+                # Update project node to reflect new task duration
+                report_data[project]["total_duration"] = report_data[project]["total_duration"] - old_duration + offline_duration
+                # Replace categories: clear existing and add only the Offline category
+                task_node["categories"] = {
+                    "Offline": {
+                        "total_duration": offline_duration,
+                        "apps": {},
+                        "prod_score": 0.0,
+                    }
+                }
+            else:
+                # Task not in report (no window events); add it from scratch
+                proj_node = report_data.setdefault(
+                    project, {"total_duration": timedelta(0), "tasks": {}, "prod_score": 0.0}
+                )
+                task_node = proj_node["tasks"].setdefault(
+                    task_name, {"total_duration": offline_duration, "categories": {}, "prod_score": 0.0}
+                )
+                proj_node["total_duration"] += offline_duration
+                cat_node = task_node["categories"].setdefault(
+                    "Offline", {"total_duration": offline_duration, "apps": {}, "prod_score": 0.0}
+                )
+
     # Generate timeline report if --timesheet is specified
     if args.timesheet:
         timeline_events = [
@@ -3087,6 +3158,48 @@ def main():
             detail_level=args.detail_level,
             deduplicate_categories=args.deduplicate_categories,
         )
+
+        # Inject synthetic slots for OFFLINE task events
+        # (these use aggregated task event duration from span of all events)
+        # Skip if --exclude-offline flag is set
+        if offline_task_durations and not args.exclude_offline:
+            # Need to get the actual event times for these tasks to use as slot boundaries
+            if task_events:
+                for event in task_events:
+                    if task_has_offline_tag(event):
+                        task_name, project = get_task_info(event)
+                        key = (project, task_name)
+                        if key in offline_task_durations:
+                            # Find the time span for this task
+                            task_events_for_key = [e for e in task_events
+                                                  if get_task_info(e) == (task_name, project)
+                                                  and task_has_offline_tag(e)]
+                            if task_events_for_key:
+                                start_times = [e.timestamp for e in task_events_for_key]
+                                end_times = [e.timestamp + e.duration for e in task_events_for_key]
+                                slot_start = min(start_times)
+                                slot_end = max(end_times)
+                                slot_duration = offline_task_durations[key]
+
+                                # Get tags from any event in this group
+                                raw_tags = task_events_for_key[0].data.get("tags", [])
+                                task_tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+
+                                # Only add if not already in slots (avoid duplicates)
+                                existing = [s for s in slots if s.get("project") == project and s.get("task") == task_name]
+                                if not existing:
+                                    slots.append({
+                                        "type": "regular",
+                                        "start": slot_start.astimezone(),
+                                        "end": slot_end.astimezone(),
+                                        "duration": slot_duration,
+                                        "productive_duration": timedelta(0),
+                                        "project": project,
+                                        "task": task_name,
+                                        "tags": task_tags,
+                                    })
+
+        slots = sorted(slots, key=lambda s: s["start"])
 
         # Add AFK slots and OFFLINE markers unless excluded
         if not args.exclude_offline:
