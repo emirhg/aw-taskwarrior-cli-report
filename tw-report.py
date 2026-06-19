@@ -888,10 +888,12 @@ def print_summary_total(
 
     Used by both hierarchical and timeline reports for consistent output.
     Format: Total Time: HH:MM:SS  [prod XX%]
+    Right-aligned to terminal width for visual consistency.
     """
+    width = get_terminal_width()
     # Use the same formatting as timesheet report for consistency
     summary_line = f"Total Time: {format_duration_tracked_prod(total_duration, productive_duration or timedelta(0))}"
-    print(summary_line)
+    print(summary_line.rjust(width))
 
 
 def format_duration(duration: timedelta) -> str:
