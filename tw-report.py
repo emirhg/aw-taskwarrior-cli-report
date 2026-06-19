@@ -64,6 +64,10 @@ DEFAULT_CATEGORIES_FILE = os.path.expanduser(
     "~/.config/activitywatch/aw-server/settings.json"
 )
 
+# OFFLINE task aggregation cap: maximum span duration for offline sessions
+# Prevents unrealistic multi-day durations from gaps between task start and actual activity
+OFFLINE_HARD_CAP = timedelta(hours=16)
+
 # Sentinel values for unassigned events
 NO_PROJECT = "No project assigned"
 NO_TASK = "No task assigned"
@@ -3107,13 +3111,123 @@ def main():
                     offline_events_by_key[key] = []
                 offline_events_by_key[key].append(event)
 
-        # Calculate actual duration for each OFFLINE task (span of all events)
+        # Calculate actual duration for each OFFLINE task (sum of sandwiched sessions)
+        # A session = Event1 + Gap + Event2, sandwiched if no other tasks/interruptions
         for key, events in offline_events_by_key.items():
-            start_times = [e.timestamp for e in events]
-            end_times = [e.timestamp + e.duration for e in events]
-            earliest_start = min(start_times)
-            latest_end = max(end_times)
-            offline_task_durations[key] = latest_end - earliest_start
+            sorted_events = sorted(events, key=lambda e: e.timestamp)
+
+            total_offline_time = timedelta(0)
+            valid_sessions = []
+
+            # Process each pair of consecutive events
+            for i in range(len(sorted_events) - 1):
+                event1 = sorted_events[i]
+                event2 = sorted_events[i + 1]
+
+                event1_end = event1.timestamp + event1.duration
+                gap_start = event1_end
+                gap_end = event2.timestamp
+                session_start = event1.timestamp
+                session_end = event2.timestamp + event2.duration
+
+                gap = gap_end - gap_start
+                session_duration = event1.duration + gap + event2.duration
+
+                # Check if any OTHER tasks were active during this entire session
+                other_task_active = False
+                for other_event in task_events:
+                    other_key = (get_task_info(other_event)[1], get_task_info(other_event)[0])
+                    if other_key == key:  # Skip events from this same task
+                        continue
+                    # Check if other task overlaps with session
+                    if (other_event.timestamp < session_end and
+                        other_event.timestamp + other_event.duration > session_start):
+                        other_task_active = True
+                        break
+
+                # Check if there are unassigned window events during the gap
+                unassigned_window_active = False
+                for window_event in window_events:
+                    # Check if window event overlaps with gap
+                    if (window_event.timestamp < gap_end and
+                        window_event.timestamp + window_event.duration > gap_start):
+                        # This window event is during the gap - check if it has a task
+                        has_task = False
+                        for task_event in task_events:
+                            if (task_event.timestamp < window_event.timestamp + window_event.duration and
+                                task_event.timestamp + task_event.duration > window_event.timestamp):
+                                has_task = True
+                                break
+                        if not has_task:
+                            unassigned_window_active = True
+                            break
+
+                # Only add this session if no other task was active AND no unassigned window events in gap
+                if not other_task_active and not unassigned_window_active:
+                    total_offline_time += session_duration
+                    valid_sessions.append((i, session_duration))
+
+            offline_task_durations[key] = total_offline_time
+
+            # Debug: show which sessions were valid for this task
+            if os.environ.get('DEBUG_OFFLINE'):
+                project, task_name = key
+                print(f"\n[DEBUG] OFFLINE task: {project} > {task_name}", file=sys.stderr)
+                print(f"[DEBUG] Found {len(sorted_events)} raw task event(s):", file=sys.stderr)
+                for i, e in enumerate(sorted_events, 1):
+                    e_start = e.timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                    e_end = (e.timestamp + e.duration).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                    e_duration = e.duration.total_seconds()
+                    print(f"[DEBUG]   Event {i}: {e_start} to {e_end} ({e_duration:.0f}s)", file=sys.stderr)
+
+                # Show all sessions with validation
+                print(f"[DEBUG] Sessions (Event + Gap + Event):", file=sys.stderr)
+                for i in range(len(sorted_events) - 1):
+                    event1 = sorted_events[i]
+                    event2 = sorted_events[i + 1]
+                    event1_end = event1.timestamp + event1.duration
+                    session_start = event1.timestamp
+                    session_end = event2.timestamp + event2.duration
+                    gap = event2.timestamp - event1_end
+                    session_duration = event1.duration + gap + event2.duration
+
+                    # Check validation
+                    other_task_active = False
+                    for other_event in task_events:
+                        other_key = (get_task_info(other_event)[1], get_task_info(other_event)[0])
+                        if other_key == key:
+                            continue
+                        if (other_event.timestamp < session_end and
+                            other_event.timestamp + other_event.duration > session_start):
+                            other_task_active = True
+                            break
+
+                    unassigned_window_active = False
+                    for window_event in window_events:
+                        if (window_event.timestamp < event2.timestamp and
+                            window_event.timestamp + window_event.duration > event1_end):
+                            has_task = False
+                            for task_event in task_events:
+                                if (task_event.timestamp < window_event.timestamp + window_event.duration and
+                                    task_event.timestamp + task_event.duration > window_event.timestamp):
+                                    has_task = True
+                                    break
+                            if not has_task:
+                                unassigned_window_active = True
+                                break
+
+                    status = ""
+                    if other_task_active:
+                        status = " [EXCLUDED: OTHER TASK]"
+                    elif unassigned_window_active:
+                        status = " [EXCLUDED: UNASSIGNED WINDOW]"
+                    else:
+                        status = " [VALID]"
+
+                    dur_str = f"{session_duration.total_seconds()/3600:.1f}h"
+                    print(f"[DEBUG]   Session {i+1}: Event{i+1} + Gap + Event{i+2} = {dur_str}{status}", file=sys.stderr)
+
+                print(f"[DEBUG] Total offline time: {offline_task_durations[key]}", file=sys.stderr)
 
     # Exclude window events correlated with OFFLINE tasks — their time comes from
     # the raw task event duration, not from window activity.
