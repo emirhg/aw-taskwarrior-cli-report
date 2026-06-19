@@ -3267,7 +3267,25 @@ def main():
     # (calculated from span of all task events for that project/task)
     # Skip if --exclude-offline flag is set
     if not args.exclude_offline:
+        # Apply user filters to OFFLINE tasks
+        search_value = getattr(args, 'search', None)
+        has_filters = bool(search_value or args.project or args.task or args.app)
+
         for (project, task_name), offline_duration in offline_task_durations.items():
+            # Filter OFFLINE tasks based on user's search/project/task/app filters
+            if has_filters:
+                # Check if task matches any filter
+                project_match = (search_value and _matches_any(project, [search_value], args.exact)) or \
+                              (args.project and _matches_any(project, args.project, args.exact))
+                task_match = (search_value and _matches_any(task_name, [search_value], args.exact)) or \
+                            (args.task and _matches_any(task_name, args.task, args.exact))
+
+                if not (project_match or task_match):
+                    continue  # Skip this OFFLINE task, doesn't match filter
+
+                if _excluded(project, args.exclude_project) or _excluded(task_name, args.exclude_task):
+                    continue  # Skip excluded task
+
             offline_cat = build_offline_category_structure(offline_duration)
             if project in report_data and task_name in report_data[project]["tasks"]:
                 # Task exists in report from aggregate_hierarchy; replace its duration
@@ -3314,11 +3332,30 @@ def main():
         # (these use aggregated task event duration from span of all events)
         # Skip if --exclude-offline flag is set
         if offline_task_durations and not args.exclude_offline:
+            # Apply user filters to OFFLINE tasks
+            search_value = getattr(args, 'search', None)
+            has_filters = bool(search_value or args.project or args.task or args.app)
+
             # Need to get the actual event times for these tasks to use as slot boundaries
             if task_events:
                 for event in task_events:
                     if task_has_offline_tag(event):
                         task_name, project = get_task_info(event)
+
+                        # Apply filters to OFFLINE tasks
+                        if has_filters:
+                            # Check if task matches any filter
+                            project_match = (search_value and _matches_any(project, [search_value], args.exact)) or \
+                                          (args.project and _matches_any(project, args.project, args.exact))
+                            task_match = (search_value and _matches_any(task_name, [search_value], args.exact)) or \
+                                        (args.task and _matches_any(task_name, args.task, args.exact))
+
+                            if not (project_match or task_match):
+                                continue  # Skip this OFFLINE task, doesn't match filter
+
+                            if _excluded(project, args.exclude_project) or _excluded(task_name, args.exclude_task):
+                                continue  # Skip excluded task
+
                         key = (project, task_name)
                         if key in offline_task_durations:
                             # Find the time span for this task
@@ -3370,6 +3407,33 @@ def main():
                 context.task_events,
                 window_events=window_events,
             )
+            # Filter gap_entries based on user's search/project/task/app filters
+            search_value = getattr(args, 'search', None)
+            has_filters = bool(search_value or args.project or args.task or args.app)
+            if has_filters:
+                filtered_gaps = []
+                for gap in gap_entries:
+                    project = gap.get("project", NO_PROJECT)
+                    task = gap.get("task", NO_TASK)
+
+                    # Apply exclusions first
+                    if _excluded(project, args.exclude_project) or _excluded(task, args.exclude_task):
+                        continue
+
+                    # Check if gap matches any filter
+                    gap_matches = False
+                    if search_value:
+                        gap_matches = (_matches_any(project, [search_value], args.exact) or
+                                      _matches_any(task, [search_value], args.exact))
+                    if args.project:
+                        gap_matches = gap_matches or _matches_any(project, args.project, args.exact)
+                    if args.task:
+                        gap_matches = gap_matches or _matches_any(task, args.task, args.exact)
+
+                    if gap_matches:
+                        filtered_gaps.append(gap)
+                gap_entries = filtered_gaps
+
             slots = sorted(slots + gap_entries, key=lambda s: s["start"])
             # Attach OFFLINE gaps to OFFLINE-tagged tasks as extensions
             slots = attach_offline_extensions(slots)

@@ -85,12 +85,15 @@ def matches_user_filters(
     if args.exclude_app and excluded(app_name, args.exclude_app):
         return False
 
-    has_filters = bool(args.search or args.project or args.task or args.app)
+    # Check if args.search exists (it's manually set in main(), but be defensive)
+    search_value = getattr(args, 'search', None)
+
+    has_filters = bool(search_value or args.project or args.task or args.app)
     if not has_filters:
         return True
 
-    if args.search:
-        search_patterns = [args.search]
+    if search_value:
+        search_patterns = [search_value]
         if (
             matches_any(project, search_patterns, args.exact)
             or matches_any(task, search_patterns, args.exact)
