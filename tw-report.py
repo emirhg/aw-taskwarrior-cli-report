@@ -879,6 +879,21 @@ def get_terminal_width() -> int:
         return 80
 
 
+def print_summary_total(
+    total_duration: timedelta,
+    productive_duration: Optional[timedelta] = None,
+    total_score: Optional[float] = None,
+) -> None:
+    """Print a summary total line with duration and productivity.
+
+    Used by both hierarchical and timeline reports for consistent output.
+    Format: Total Time: HH:MM:SS  [prod XX%]
+    """
+    # Use the same formatting as timesheet report for consistency
+    summary_line = f"Total Time: {format_duration_tracked_prod(total_duration, productive_duration or timedelta(0))}"
+    print(summary_line)
+
+
 def format_duration(duration: timedelta) -> str:
     total_seconds = int(duration.total_seconds())
     hours, remainder = divmod(total_seconds, 3600)
@@ -1338,6 +1353,8 @@ def print_report(
             if detail_level >= 2:
                 print()
 
+    # Print summary total (excluding "No project assigned" sentinel)
+    print_summary_total(total_duration, productive_task_time, total_score)
     print("=" * width)
 
 
