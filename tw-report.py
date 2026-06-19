@@ -64,10 +64,6 @@ DEFAULT_CATEGORIES_FILE = os.path.expanduser(
     "~/.config/activitywatch/aw-server/settings.json"
 )
 
-# OFFLINE task aggregation cap: maximum span duration for offline sessions
-# Prevents unrealistic multi-day durations from gaps between task start and actual activity
-OFFLINE_HARD_CAP = timedelta(hours=16)
-
 # Sentinel values for unassigned events
 NO_PROJECT = "No project assigned"
 NO_TASK = "No task assigned"

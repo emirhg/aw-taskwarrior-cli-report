@@ -153,12 +153,13 @@ For Taskwarrior tasks tagged `+offline`:
 
 **Problem**: Offline work (no window events recorded) would show zero or minimal duration because the tool normally measures time from window focus periods.
 
-**Solution**: For OFFLINE tasks, use the **raw task event time span** (from earliest start to latest end across all task events in ActivityWatch), ignoring window activity.
+**Solution**: For OFFLINE tasks, sum all **valid "sandwiched" sessions** between consecutive task events, where each session is **Event1 + Gap + Event2**.
 
 **How it works:**
-- Filters out window events for OFFLINE tasks
-- Calculates task duration as: `max(all event end times) - min(all event start times)`
-- Reports full aggregated duration instead of window-based duration
+- For each pair of consecutive task events of the same OFFLINE task
+- Calculate: `Event1_duration + Gap + Event2_duration` = one session
+- Only include sessions where the task is "sandwiched" (no other tasks active, no unassigned windows in the gap)
+- Sum all valid sessions to get total offline duration
 - Creates "Offline" category with zero productivity score
 - Can be completely hidden with `--exclude-offline` flag
 
@@ -312,10 +313,11 @@ Both hierarchical and timeline reports show a unified summary line:
 - **Disadvantage**: Offline work (no window events) shows zero duration
 
 **For OFFLINE-tagged tasks:**
-- Task duration = span of task event in ActivityWatch (earliest start to latest end)
-- Ignores intermediate window events (they're filtered out)
-- **Advantage**: Captures work done away from computer
-- **Disadvantage**: May include non-work gaps if task remained "active" in Taskwarrior
+- Task duration = sum of all **valid sandwiched sessions** between consecutive task events
+- Each session = Event1 duration + Gap + Event2 duration (only if no other tasks or interruptions during gap)
+- Filters out window events for OFFLINE tasks (they're not counted)
+- **Advantage**: Captures work done away from computer, excluding task switches and interruptions
+- **Disadvantage**: Requires proper task event markers (start/resume events) to be recorded
 - **See**: Special Handling: OFFLINE Tasks section
 
 ### Event Correlation
