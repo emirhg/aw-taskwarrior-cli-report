@@ -869,6 +869,33 @@ def task_has_offline_tag(task_event: Event) -> bool:
     return "offline" in (t.lower() for t in tags)
 
 
+def build_offline_category_structure(duration: timedelta, start_time: Optional[datetime] = None, end_time: Optional[datetime] = None) -> Dict:
+    """Build an Offline category structure for both hierarchical and timeline reports.
+
+    Args:
+        duration: Total duration of the offline task
+        start_time: Optional start time for timeline reports
+        end_time: Optional end time for timeline reports
+
+    Returns:
+        A dict representing the Offline category that can be used in both report types
+    """
+    if start_time is not None and end_time is not None:
+        return {
+            "category": "Offline",
+            "duration": duration,
+            "start": start_time,
+            "end": end_time,
+            "apps": [],
+        }
+    else:
+        return {
+            "total_duration": duration,
+            "apps": {},
+            "prod_score": 0.0,
+        }
+
+
 # --- Report Formatting and Printing ---
 
 
@@ -3131,6 +3158,7 @@ def main():
     # Skip if --exclude-offline flag is set
     if not args.exclude_offline:
         for (project, task_name), offline_duration in offline_task_durations.items():
+            offline_cat = build_offline_category_structure(offline_duration)
             if project in report_data and task_name in report_data[project]["tasks"]:
                 # Task exists in report from aggregate_hierarchy; replace its duration
                 task_node = report_data[project]["tasks"][task_name]
@@ -3140,11 +3168,7 @@ def main():
                 report_data[project]["total_duration"] = report_data[project]["total_duration"] - old_duration + offline_duration
                 # Replace categories: clear existing and add only the Offline category
                 task_node["categories"] = {
-                    "Offline": {
-                        "total_duration": offline_duration,
-                        "apps": {},
-                        "prod_score": 0.0,
-                    }
+                    "Offline": offline_cat
                 }
             else:
                 # Task not in report (no window events); add it from scratch
@@ -3155,9 +3179,7 @@ def main():
                     task_name, {"total_duration": offline_duration, "categories": {}, "prod_score": 0.0}
                 )
                 proj_node["total_duration"] += offline_duration
-                cat_node = task_node["categories"].setdefault(
-                    "Offline", {"total_duration": offline_duration, "apps": {}, "prod_score": 0.0}
-                )
+                task_node["categories"]["Offline"] = offline_cat
 
     # Generate timeline report if --timesheet is specified
     if args.timesheet:
@@ -3207,15 +3229,24 @@ def main():
                                 # Only add if not already in slots (avoid duplicates)
                                 existing = [s for s in slots if s.get("project") == project and s.get("task") == task_name]
                                 if not existing:
+                                    slot_start_tz = slot_start.astimezone()
+                                    slot_end_tz = slot_end.astimezone()
                                     slots.append({
                                         "type": "regular",
-                                        "start": slot_start.astimezone(),
-                                        "end": slot_end.astimezone(),
+                                        "start": slot_start_tz,
+                                        "end": slot_end_tz,
                                         "duration": slot_duration,
                                         "productive_duration": timedelta(0),
                                         "project": project,
                                         "task": task_name,
                                         "tags": task_tags,
+                                        "categories": [
+                                            build_offline_category_structure(
+                                                slot_duration,
+                                                start_time=slot_start_tz,
+                                                end_time=slot_end_tz
+                                            )
+                                        ],
                                     })
 
         slots = sorted(slots, key=lambda s: s["start"])
