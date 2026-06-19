@@ -162,9 +162,9 @@ For Taskwarrior tasks tagged `+offline`:
 - Creates "Offline" category with zero productivity score
 - Can be completely hidden with `--exclude-offline` flag
 
-**Example output:**
+**Example output (consistent across both report types):**
 
-Without `--exclude-offline` (default):
+Hierarchical report with `--detail-level 3` (default behavior):
 ```
 ▶ Project: Ecosistema > Tratamiento de residuos > Orgánicos (0.00)    0:18:44
   • Task: Disposición de restos de cocina (0.00)                      0:18:44
@@ -173,7 +173,16 @@ Without `--exclude-offline` (default):
                                                 Total Time: 0:19:02  [prod   0%]
 ```
 
-With `--exclude-offline`:
+Timeline report with `--timesheet --detail-level 3`:
+```
+       17:20-17:38  ▶ Ecosi... > Orgánicos ▶▶ Disposición de restos de cocina 0:18:44  [prod   0%]
+                     - Offline                                           0:18:44
+       17:38-18:04  ▶ No project assigned ▶▶ No task assigned 0:25:49  [prod  32%]
+```
+
+Both report types now display consistent category information. The "Offline" category appears in hierarchical reports at detail-level 2+ and in timeline reports at detail-level 3+.
+
+With `--exclude-offline` flag (hides all OFFLINE tasks):
 ```
 ▶ Project: Ecosistema > Cultivo > Higuera (0.10)                      0:00:18
   • Task: Control de plagas (0.10)                                    0:00:18
