@@ -25,6 +25,10 @@
 # TODO: Introduce --exclude-{project/task/app} which should exclude the exact project matching from the results
 # TODO: Add a --resume argument to print only project and task information and supress the app/title output information
 # TEST: --timesheet produces a timeline report for the activites organizaed by projects, its continuity cant be broken if the events contain blank spots
+#
+# FIX: --exclude-non-projects still reports AFK time for non-project time
+# FIX: --exclude-offline excludes the whole OFFLINE event, and not just the time slot where the machine was OFF
+# FIX: --exclude-afk is not implemented, only --include-afk exists
 
 import argparse
 import json
@@ -869,7 +873,11 @@ def task_has_offline_tag(task_event: Event) -> bool:
     return "offline" in (t.lower() for t in tags)
 
 
-def build_offline_category_structure(duration: timedelta, start_time: Optional[datetime] = None, end_time: Optional[datetime] = None) -> Dict:
+def build_offline_category_structure(
+    duration: timedelta,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+) -> Dict:
     """Build an Offline category structure for both hierarchical and timeline reports.
 
     Args:
@@ -1514,7 +1522,9 @@ def generate_timeline_data(
             active_task = report_event["active_task"]
 
             app_name = event.data.get("app", "Unknown App")
-            window_title = event.data.get("title", "No Title") if detail_level >= 5 else None
+            window_title = (
+                event.data.get("title", "No Title") if detail_level >= 5 else None
+            )
 
             # Include the active_task instance to distinguish between paused/resumed sessions
             # In no-task mode, use a constant session key since there's no task tracking
@@ -1536,14 +1546,16 @@ def generate_timeline_data(
                 }
                 # For non-dedup mode: track current category/app/title to detect continuity breaks
                 if not deduplicate_categories:
-                    current_slot.update({
-                        "_cur_cat": None,
-                        "_cur_cat_block": None,
-                        "_cur_app": None,
-                        "_cur_app_block": None,
-                        "_cur_title": None,
-                        "_cur_title_entry": None,
-                    })
+                    current_slot.update(
+                        {
+                            "_cur_cat": None,
+                            "_cur_cat_block": None,
+                            "_cur_app": None,
+                            "_cur_app_block": None,
+                            "_cur_title": None,
+                            "_cur_title_entry": None,
+                        }
+                    )
                 slots_in_period.append(current_slot)
             else:
                 # Same (project, task, task_event), add event to current slot (window switching doesn't break continuity)
@@ -1586,7 +1598,9 @@ def generate_timeline_data(
                             }
                         else:
                             # Update start/end to expand range
-                            app_data = current_slot["categories"][category]["apps"][app_name]
+                            app_data = current_slot["categories"][category]["apps"][
+                                app_name
+                            ]
                             if event_ts < app_data["start"]:
                                 app_data["start"] = event_ts
                             if event_end_ts > app_data["end"]:
@@ -1600,17 +1614,21 @@ def generate_timeline_data(
                         if window_title:
                             normalized_title = normalize_title(window_title)
                             clean_title = sanitize_title(normalized_title)
-                            titles = current_slot["categories"][category]["apps"][app_name][
-                                "titles"
-                            ]
+                            titles = current_slot["categories"][category]["apps"][
+                                app_name
+                            ]["titles"]
                             if clean_title not in titles:
                                 titles[clean_title] = {
                                     "duration": timedelta(0),
-                                    "events": [{"start": event_ts, "end": event_end_ts}],
+                                    "events": [
+                                        {"start": event_ts, "end": event_end_ts}
+                                    ],
                                 }
                             else:
                                 title_data = titles[clean_title]
-                                title_data["events"].append({"start": event_ts, "end": event_end_ts})
+                                title_data["events"].append(
+                                    {"start": event_ts, "end": event_end_ts}
+                                )
 
                             titles[clean_title]["duration"] += event.duration
                 else:
@@ -1669,16 +1687,22 @@ def generate_timeline_data(
                                 new_title_entry = {
                                     "title": clean_title,
                                     "duration": event.duration,
-                                    "events": [{"start": event_ts, "end": event_end_ts}],
+                                    "events": [
+                                        {"start": event_ts, "end": event_end_ts}
+                                    ],
                                 }
-                                current_slot["_cur_app_block"]["titles"].append(new_title_entry)
+                                current_slot["_cur_app_block"]["titles"].append(
+                                    new_title_entry
+                                )
                                 current_slot["_cur_title"] = clean_title
                                 current_slot["_cur_title_entry"] = new_title_entry
                             else:
                                 # Same title: add event to current title entry
                                 te = current_slot["_cur_title_entry"]
                                 te["duration"] += event.duration
-                                te["events"].append({"start": event_ts, "end": event_end_ts})
+                                te["events"].append(
+                                    {"start": event_ts, "end": event_end_ts}
+                                )
 
         # Create final slots from collected (project, task) continuity groups
         for slot_data in slots_in_period:
@@ -1698,7 +1722,9 @@ def generate_timeline_data(
                 # OLD PATH: Convert dict to list (deduplicated)
                 categories_list = []
                 # Sort categories by start time (chronological order)
-                for cat, cat_data in sorted(slot_data["categories"].items(), key=lambda x: x[1].get("start", "")):
+                for cat, cat_data in sorted(
+                    slot_data["categories"].items(), key=lambda x: x[1].get("start", "")
+                ):
                     cat_info = {
                         "category": cat,
                         "duration": cat_data["duration"],
@@ -1718,25 +1744,41 @@ def generate_timeline_data(
                                         {
                                             "title": t,
                                             "duration": title_data["duration"],
-                                            "events": title_data.get("events") if isinstance(title_data, dict) else None,
+                                            "events": title_data.get("events")
+                                            if isinstance(title_data, dict)
+                                            else None,
                                         }
                                         for t, title_data in sorted(
                                             app_data["titles"].items(),
-                                            key=lambda x: (x[1].get("events") or [{}])[0].get("start") if isinstance(x[1], dict) else x[1]
+                                            key=lambda x: (x[1].get("events") or [{}])[
+                                                0
+                                            ].get("start")
+                                            if isinstance(x[1], dict)
+                                            else x[1],
                                         )
                                     ]
                                     if detail_level >= 5
                                     else []
                                 ),
                             }
-                            for app_name, app_data in sorted(cat_data["apps"].items(), key=lambda x: x[1].get("start", ""))
+                            for app_name, app_data in sorted(
+                                cat_data["apps"].items(),
+                                key=lambda x: x[1].get("start", ""),
+                            )
                         ]
                     categories_list.append(cat_info)
             else:
                 # NEW PATH: Categories already in list form (timeline order)
                 # Just clean up internal tracking fields
                 categories_list = slot_data["categories"]
-                for k in ("_cur_cat", "_cur_cat_block", "_cur_app", "_cur_app_block", "_cur_title", "_cur_title_entry"):
+                for k in (
+                    "_cur_cat",
+                    "_cur_cat_block",
+                    "_cur_app",
+                    "_cur_app_block",
+                    "_cur_title",
+                    "_cur_title_entry",
+                ):
                     slot_data.pop(k, None)
 
             productive_in_slot = sum(
@@ -1752,7 +1794,9 @@ def generate_timeline_data(
                 active_task_event = events[0].get("active_task")
                 if active_task_event is not None:
                     raw_tags = active_task_event.data.get("tags", [])
-                    task_tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+                    task_tags = (
+                        [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+                    )
 
             slot = {
                 "type": "regular",
@@ -1781,7 +1825,9 @@ def _slots_overlap(slot_a: Dict, slot_b: Dict) -> bool:
     return slot_a["start"] < slot_b["end"] and slot_b["start"] < slot_a["end"]
 
 
-def consolidate_timeline_slots(slots: List[Dict], ignore_offline: bool = False) -> List[Dict]:
+def consolidate_timeline_slots(
+    slots: List[Dict], ignore_offline: bool = False
+) -> List[Dict]:
     """Consolidate timeline slots by merging all sessions of the same task on same date.
 
     For consolidated timesheet display, merges slots (regular and AFK) that belong to the
@@ -1883,7 +1929,11 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
 
     # Track OFFLINE extension duration: sum of all offline_extension slots in this group
     offline_extension_duration = sum(
-        (s.get("duration", timedelta(0)) for s in group if s.get("type") == "offline_extension"),
+        (
+            s.get("duration", timedelta(0))
+            for s in group
+            if s.get("type") == "offline_extension"
+        ),
         timedelta(0),
     )
 
@@ -1904,9 +1954,14 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
                 # Update start/end to expand range across all slots in group
                 cat_start = cat_info.get("start")
                 cat_end = cat_info.get("end")
-                if cat_start and (not _merged_cats[cat]["start"] or cat_start < _merged_cats[cat]["start"]):
+                if cat_start and (
+                    not _merged_cats[cat]["start"]
+                    or cat_start < _merged_cats[cat]["start"]
+                ):
                     _merged_cats[cat]["start"] = cat_start
-                if cat_end and (not _merged_cats[cat]["end"] or cat_end > _merged_cats[cat]["end"]):
+                if cat_end and (
+                    not _merged_cats[cat]["end"] or cat_end > _merged_cats[cat]["end"]
+                ):
                     _merged_cats[cat]["end"] = cat_end
 
             _merged_cats[cat]["duration"] += cat_info["duration"]
@@ -1925,9 +1980,15 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
                     # Update start/end to expand range
                     app_start = app_info.get("start")
                     app_end = app_info.get("end")
-                    if app_start and (not _merged_cats[cat]["apps"][app]["start"] or app_start < _merged_cats[cat]["apps"][app]["start"]):
+                    if app_start and (
+                        not _merged_cats[cat]["apps"][app]["start"]
+                        or app_start < _merged_cats[cat]["apps"][app]["start"]
+                    ):
                         _merged_cats[cat]["apps"][app]["start"] = app_start
-                    if app_end and (not _merged_cats[cat]["apps"][app]["end"] or app_end > _merged_cats[cat]["apps"][app]["end"]):
+                    if app_end and (
+                        not _merged_cats[cat]["apps"][app]["end"]
+                        or app_end > _merged_cats[cat]["apps"][app]["end"]
+                    ):
                         _merged_cats[cat]["apps"][app]["end"] = app_end
 
                 _merged_cats[cat]["apps"][app]["duration"] += app_info["duration"]
@@ -1935,9 +1996,19 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
                 # Merge titles nested under app
                 for title_info in app_info.get("titles", []):
                     t = title_info["title"]
-                    title_duration = title_info.get("duration", timedelta(0)) if isinstance(title_info, dict) else title_info
-                    title_start = title_info.get("start") if isinstance(title_info, dict) else None
-                    title_end = title_info.get("end") if isinstance(title_info, dict) else None
+                    title_duration = (
+                        title_info.get("duration", timedelta(0))
+                        if isinstance(title_info, dict)
+                        else title_info
+                    )
+                    title_start = (
+                        title_info.get("start")
+                        if isinstance(title_info, dict)
+                        else None
+                    )
+                    title_end = (
+                        title_info.get("end") if isinstance(title_info, dict) else None
+                    )
 
                     if t not in _merged_cats[cat]["apps"][app]["titles"]:
                         title_dict = {
@@ -1950,7 +2021,9 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
                         else:
                             title_dict["events"] = []
                         _merged_cats[cat]["apps"][app]["titles"][t] = (
-                            title_dict if isinstance(title_info, dict) else title_duration
+                            title_dict
+                            if isinstance(title_info, dict)
+                            else title_duration
                         )
                     else:
                         existing = _merged_cats[cat]["apps"][app]["titles"][t]
@@ -1971,7 +2044,9 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
 
     merged_categories = []
     # Sort categories by start time (chronological order)
-    for cat, cat_data in sorted(_merged_cats.items(), key=lambda x: x[1].get("start", "")):
+    for cat, cat_data in sorted(
+        _merged_cats.items(), key=lambda x: x[1].get("start", "")
+    ):
         cat_info = {
             "category": cat,
             "duration": cat_data["duration"],
@@ -1990,23 +2065,37 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
                         [
                             {
                                 "title": t,
-                                "duration": title_data["duration"] if isinstance(title_data, dict) else title_data,
-                                "events": title_data.get("events") if isinstance(title_data, dict) else None,
+                                "duration": title_data["duration"]
+                                if isinstance(title_data, dict)
+                                else title_data,
+                                "events": title_data.get("events")
+                                if isinstance(title_data, dict)
+                                else None,
                             }
                             for t, title_data in sorted(
                                 app_data["titles"].items(),
                                 key=lambda x: (
-                                    str((x[1].get("events") or [{}])[0].get("start") or (x[1].get("start") if isinstance(x[1], dict) else None) or "2000-01-01")
+                                    str(
+                                        (x[1].get("events") or [{}])[0].get("start")
+                                        or (
+                                            x[1].get("start")
+                                            if isinstance(x[1], dict)
+                                            else None
+                                        )
+                                        or "2000-01-01"
+                                    )
                                 )
                                 if isinstance(x[1], dict)
-                                else str(x[1])
+                                else str(x[1]),
                             )
                         ]
                         if app_data["titles"]
                         else []
                     ),
                 }
-                for app_name, app_data in sorted(cat_data["apps"].items(), key=lambda x: x[1].get("start", ""))
+                for app_name, app_data in sorted(
+                    cat_data["apps"].items(), key=lambda x: x[1].get("start", "")
+                )
             ]
 
             # App and category start/end are already set from event processing (titles no longer have start/end)
@@ -2201,7 +2290,9 @@ def generate_gap_entries(
 
             for window_event in window_events:
                 window_start = window_event.timestamp.astimezone()
-                window_end = (window_event.timestamp + window_event.duration).astimezone()
+                window_end = (
+                    window_event.timestamp + window_event.duration
+                ).astimezone()
 
                 # Check if window event overlaps with AFK period
                 if window_start < afk_end and window_end > afk_start:
@@ -2222,7 +2313,7 @@ def generate_gap_entries(
                                 "duration": timedelta(0),
                                 "start": overlap_start,
                                 "end": overlap_end,
-                                "apps": {}
+                                "apps": {},
                             }
                         else:
                             # Expand time window (don't accumulate duration here, do it from apps later)
@@ -2240,7 +2331,7 @@ def generate_gap_entries(
                                 "duration": timedelta(0),
                                 "start": overlap_start,
                                 "end": overlap_end,
-                                "titles": {}
+                                "titles": {},
                             }
                         else:
                             app_data = categories[cat]["apps"][app_name]
@@ -2258,10 +2349,14 @@ def generate_gap_entries(
                                 "duration": overlap_duration,
                                 "start": overlap_start,
                                 "end": overlap_end,
-                                "events": [window_event],  # Store raw window event for CatPanel
+                                "events": [
+                                    window_event
+                                ],  # Store raw window event for CatPanel
                             }
                         else:
-                            title_data = categories[cat]["apps"][app_name]["titles"][title]
+                            title_data = categories[cat]["apps"][app_name]["titles"][
+                                title
+                            ]
                             title_data["duration"] += overlap_duration
                             if overlap_start < title_data["start"]:
                                 title_data["start"] = overlap_start
@@ -2272,7 +2367,9 @@ def generate_gap_entries(
                                 title_data["events"] = []
                             title_data["events"].append(window_event)
 
-                        categories[cat]["apps"][app_name]["duration"] += overlap_duration
+                        categories[cat]["apps"][app_name]["duration"] += (
+                            overlap_duration
+                        )
 
             # Convert categories dict to list format for consistency with regular slots
             merged_categories = []
@@ -2280,7 +2377,7 @@ def generate_gap_entries(
                 # Compute category duration from sum of app durations (to avoid double-counting)
                 cat_duration = sum(
                     (app_data["duration"] for app_data in cat_data["apps"].values()),
-                    timedelta(0)
+                    timedelta(0),
                 )
 
                 # Recalculate category start/end from app children's actual times
@@ -2311,7 +2408,9 @@ def generate_gap_entries(
                         for title_data in app_data.get("titles", {}).values():
                             title_start = title_data.get("start")
                             title_end = title_data.get("end")
-                            if title_start and (app_start is None or title_start < app_start):
+                            if title_start and (
+                                app_start is None or title_start < app_start
+                            ):
                                 app_start = title_start
                             if title_end and (app_end is None or title_end > app_end):
                                 app_end = title_end
@@ -2333,10 +2432,14 @@ def generate_gap_entries(
                                     "duration": title_data["duration"],
                                     "start": title_data.get("start"),
                                     "end": title_data.get("end"),
-                                    "events": title_data.get("events", []),  # Include raw events for CatPanel
+                                    "events": title_data.get(
+                                        "events", []
+                                    ),  # Include raw events for CatPanel
                                 }
                                 for t, title_data in app_data["titles"].items()
-                            ] if app_data["titles"] else []
+                            ]
+                            if app_data["titles"]
+                            else [],
                         }
                         apps_list.append(app_info)
 
@@ -2435,7 +2538,11 @@ def _render_slot_detail(slot: Dict, detail_level: int, width: int) -> None:
                             title_dur_str = format_duration(title_info["duration"])
                             clean = truncate_title(title_info["title"], 75)
                             left = " " * 29 + clean
-                            print(left.ljust(width - len(title_dur_str) - 1) + " " + title_dur_str)
+                            print(
+                                left.ljust(width - len(title_dur_str) - 1)
+                                + " "
+                                + title_dur_str
+                            )
 
 
 def print_timeline_report(
@@ -2476,15 +2583,10 @@ def print_timeline_report(
     # Use actual_duration for merged slots, duration for others
     # Exclude AFK and OFFLINE slots from totals (informational only)
     all_regular_slots = [
-        s for s in slots
-        if s.get("type") != "afk"
-        and s.get("type") != "offline"
+        s for s in slots if s.get("type") != "afk" and s.get("type") != "offline"
     ]
     # Project-tracked time (excluding "No project assigned")
-    tracked_slots = [
-        s for s in all_regular_slots
-        if s.get("project") != NO_PROJECT
-    ]
+    tracked_slots = [s for s in all_regular_slots if s.get("project") != NO_PROJECT]
 
     total_duration = sum(
         (slot.get("actual_duration", slot["duration"]) for slot in tracked_slots),
@@ -2681,7 +2783,9 @@ def print_timeline_report(
                     print(
                         (
                             "Week total (tracked):  "
-                            + format_duration_tracked_prod(week_duration, week_productive)
+                            + format_duration_tracked_prod(
+                                week_duration, week_productive
+                            )
                         ).rjust(width)
                     )
                 print()
@@ -2707,7 +2811,9 @@ def print_timeline_report(
                 print(
                     (
                         "Day total:   "
-                        + format_duration_tracked_prod(total_day_with_afk, day_productive)
+                        + format_duration_tracked_prod(
+                            total_day_with_afk, day_productive
+                        )
                     ).rjust(width)
                 )
                 print()
@@ -2732,15 +2838,16 @@ def print_timeline_report(
             # Indent [OFFLINE] to align with descriptions (after time and arrow)
             # Format: indent + [OFFLINE] + filler + right-aligned duration (11 chars)
             indent = " " * 22  # Position to align with where descriptions start
-            offline_label = "[OFFLINE]"
+            offline_label = "OFF"
             # Right-align duration to 11 chars to match label width (same as [prod 100%])
-            padded_dur = offline_dur.rjust(11)
+            # padded_dur = offline_dur.ljust(21)
             # Fill remaining space between label and duration
             remaining_width = (
-                width - len(indent) - len(offline_label) - len(padded_dur) - 2
+                width - len(indent) - len(offline_label) - len(offline_dur) - 25
             )
             filler = " " * max(remaining_width, 0)
-            print(indent + offline_label + filler + padded_dur)
+            # print(indent + offline_label + filler + padded_dur)
+            print(indent + filler + "(" + offline_dur + " " + offline_label + ")")
             # OFFLINE slots are NOT added to day_duration or week_duration
             continue
 
@@ -2777,7 +2884,7 @@ def print_timeline_report(
                 if pending_date_prefix is not None:
                     print(pending_date_prefix)
                     pending_date_prefix = None
-                left = f"       {start_str}-{end_str}  {content}"
+                left = f"             {start_str}  {content}"
                 print(format_timeline_line(left, duration_str, max_left_width=95))
 
         elif group_is_rollup:
@@ -2806,7 +2913,11 @@ def print_timeline_report(
                 abbrev_project = abbreviate_project_path(project_name, task_name)
                 content = f"▶ {abbrev_project} ▶▶ {task_name}"
                 left = f"      *{s_start}-{s_end}   {content}"
-                print(format_timeline_line(left, duration_str=slot_dur_str, max_left_width=95))
+                print(
+                    format_timeline_line(
+                        left, duration_str=slot_dur_str, max_left_width=95
+                    )
+                )
                 # Render AFK slot details (categories/apps/titles)
                 _render_slot_detail(slot, detail_level, width)
 
@@ -2823,10 +2934,14 @@ def print_timeline_report(
                 abbrev_project = abbreviate_project_path(project_name, task_name)
                 content = f"▶ {abbrev_project} ▶▶ {task_name}"
                 if slot.get("type") == "afk":
-                    slot_dur_str = format_afk_label(slot.get("actual_duration", slot["duration"]))
+                    slot_dur_str = format_afk_label(
+                        slot.get("actual_duration", slot["duration"])
+                    )
                     left = f"      *{start_str}-{end_str}   {content}"
                 elif slot.get("type") == "offline_extension":
-                    slot_dur_str = format_offline_label(slot.get("actual_duration", slot["duration"]))
+                    slot_dur_str = format_offline_label(
+                        slot.get("actual_duration", slot["duration"])
+                    )
                     left = f"      *{start_str}-{end_str}   {content}"
                 else:
                     left = f"       {start_str}-{end_str}  {content}"
@@ -2844,7 +2959,11 @@ def print_timeline_report(
                             slot.get("productive_duration", timedelta(0)),
                             slot.get("afk_duration"),
                         )
-                print(format_timeline_line(left, duration_str=slot_dur_str, max_left_width=95))
+                print(
+                    format_timeline_line(
+                        left, duration_str=slot_dur_str, max_left_width=95
+                    )
+                )
                 _render_slot_detail(slot, detail_level, width)
             else:
                 # Multiple slots for this project today — one row each
@@ -2879,7 +2998,11 @@ def print_timeline_report(
                             )
                         left = f"       {s_start}-{s_end}  {content}"
 
-                    print(format_timeline_line(left, duration_str=slot_dur_str, max_left_width=95))
+                    print(
+                        format_timeline_line(
+                            left, duration_str=slot_dur_str, max_left_width=95
+                        )
+                    )
                     _render_slot_detail(slot, detail_level, width)
 
         # Accumulate totals for all slot types
@@ -2941,7 +3064,9 @@ def print_timeline_report(
     # Display "Total Time" as all time (project-tracked + untracked + AFK)
     # Note: In consolidated mode, AFK time is already included in total_time_all,
     # so we only add it in regular (non-consolidated) mode
-    total_time_final = total_time_all + total_afk_time if not has_consolidated_afk else total_time_all
+    total_time_final = (
+        total_time_all + total_afk_time if not has_consolidated_afk else total_time_all
+    )
     print(
         (
             "Total Time: "
@@ -2974,12 +3099,18 @@ def parse_positional_args(args_list: List[str]) -> tuple:
     iso_date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}(T| |$)")
 
     # Find period (starts with ':' or is an ISO date)
-    period_args = [arg for arg in args_list if arg.startswith(":") or iso_date_pattern.match(arg)]
+    period_args = [
+        arg for arg in args_list if arg.startswith(":") or iso_date_pattern.match(arg)
+    ]
     if period_args:
         period = period_args[0]  # Use first period specification
 
     # Find search terms (everything that's not a period)
-    search_terms = [arg for arg in args_list if not arg.startswith(":") and not iso_date_pattern.match(arg)]
+    search_terms = [
+        arg
+        for arg in args_list
+        if not arg.startswith(":") and not iso_date_pattern.match(arg)
+    ]
     if search_terms:
         search_term = search_terms[0]  # Use first search term as the main one
 
@@ -3132,12 +3263,17 @@ def main():
                 # Check if any OTHER tasks were active during this entire session
                 other_task_active = False
                 for other_event in task_events:
-                    other_key = (get_task_info(other_event)[1], get_task_info(other_event)[0])
+                    other_key = (
+                        get_task_info(other_event)[1],
+                        get_task_info(other_event)[0],
+                    )
                     if other_key == key:  # Skip events from this same task
                         continue
                     # Check if other task overlaps with session
-                    if (other_event.timestamp < session_end and
-                        other_event.timestamp + other_event.duration > session_start):
+                    if (
+                        other_event.timestamp < session_end
+                        and other_event.timestamp + other_event.duration > session_start
+                    ):
                         other_task_active = True
                         break
 
@@ -3145,13 +3281,19 @@ def main():
                 unassigned_window_active = False
                 for window_event in window_events:
                     # Check if window event overlaps with gap
-                    if (window_event.timestamp < gap_end and
-                        window_event.timestamp + window_event.duration > gap_start):
+                    if (
+                        window_event.timestamp < gap_end
+                        and window_event.timestamp + window_event.duration > gap_start
+                    ):
                         # This window event is during the gap - check if it has a task
                         has_task = False
                         for task_event in task_events:
-                            if (task_event.timestamp < window_event.timestamp + window_event.duration and
-                                task_event.timestamp + task_event.duration > window_event.timestamp):
+                            if (
+                                task_event.timestamp
+                                < window_event.timestamp + window_event.duration
+                                and task_event.timestamp + task_event.duration
+                                > window_event.timestamp
+                            ):
                                 has_task = True
                                 break
                         if not has_task:
@@ -3166,15 +3308,27 @@ def main():
             offline_task_durations[key] = total_offline_time
 
             # Debug: show which sessions were valid for this task
-            if os.environ.get('DEBUG_OFFLINE'):
+            if os.environ.get("DEBUG_OFFLINE"):
                 project, task_name = key
-                print(f"\n[DEBUG] OFFLINE task: {project} > {task_name}", file=sys.stderr)
-                print(f"[DEBUG] Found {len(sorted_events)} raw task event(s):", file=sys.stderr)
+                print(
+                    f"\n[DEBUG] OFFLINE task: {project} > {task_name}", file=sys.stderr
+                )
+                print(
+                    f"[DEBUG] Found {len(sorted_events)} raw task event(s):",
+                    file=sys.stderr,
+                )
                 for i, e in enumerate(sorted_events, 1):
                     e_start = e.timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                    e_end = (e.timestamp + e.duration).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+                    e_end = (
+                        (e.timestamp + e.duration)
+                        .astimezone()
+                        .strftime("%Y-%m-%d %H:%M:%S")
+                    )
                     e_duration = e.duration.total_seconds()
-                    print(f"[DEBUG]   Event {i}: {e_start} to {e_end} ({e_duration:.0f}s)", file=sys.stderr)
+                    print(
+                        f"[DEBUG]   Event {i}: {e_start} to {e_end} ({e_duration:.0f}s)",
+                        file=sys.stderr,
+                    )
 
                 # Show all sessions with validation
                 print(f"[DEBUG] Sessions (Event + Gap + Event):", file=sys.stderr)
@@ -3190,22 +3344,35 @@ def main():
                     # Check validation
                     other_task_active = False
                     for other_event in task_events:
-                        other_key = (get_task_info(other_event)[1], get_task_info(other_event)[0])
+                        other_key = (
+                            get_task_info(other_event)[1],
+                            get_task_info(other_event)[0],
+                        )
                         if other_key == key:
                             continue
-                        if (other_event.timestamp < session_end and
-                            other_event.timestamp + other_event.duration > session_start):
+                        if (
+                            other_event.timestamp < session_end
+                            and other_event.timestamp + other_event.duration
+                            > session_start
+                        ):
                             other_task_active = True
                             break
 
                     unassigned_window_active = False
                     for window_event in window_events:
-                        if (window_event.timestamp < event2.timestamp and
-                            window_event.timestamp + window_event.duration > event1_end):
+                        if (
+                            window_event.timestamp < event2.timestamp
+                            and window_event.timestamp + window_event.duration
+                            > event1_end
+                        ):
                             has_task = False
                             for task_event in task_events:
-                                if (task_event.timestamp < window_event.timestamp + window_event.duration and
-                                    task_event.timestamp + task_event.duration > window_event.timestamp):
+                                if (
+                                    task_event.timestamp
+                                    < window_event.timestamp + window_event.duration
+                                    and task_event.timestamp + task_event.duration
+                                    > window_event.timestamp
+                                ):
                                     has_task = True
                                     break
                             if not has_task:
@@ -3220,16 +3387,23 @@ def main():
                     else:
                         status = " [VALID]"
 
-                    dur_str = f"{session_duration.total_seconds()/3600:.1f}h"
-                    print(f"[DEBUG]   Session {i+1}: Event{i+1} + Gap + Event{i+2} = {dur_str}{status}", file=sys.stderr)
+                    dur_str = f"{session_duration.total_seconds() / 3600:.1f}h"
+                    print(
+                        f"[DEBUG]   Session {i + 1}: Event{i + 1} + Gap + Event{i + 2} = {dur_str}{status}",
+                        file=sys.stderr,
+                    )
 
-                print(f"[DEBUG] Total offline time: {offline_task_durations[key]}", file=sys.stderr)
+                print(
+                    f"[DEBUG] Total offline time: {offline_task_durations[key]}",
+                    file=sys.stderr,
+                )
 
     # Exclude window events correlated with OFFLINE tasks — their time comes from
     # the raw task event duration, not from window activity.
     if offline_task_durations:
         canonical_events = [
-            rep for rep in canonical_events
+            rep
+            for rep in canonical_events
             if rep.active_task is None or not task_has_offline_tag(rep.active_task)
         ]
 
@@ -3268,22 +3442,26 @@ def main():
     # Skip if --exclude-offline flag is set
     if not args.exclude_offline:
         # Apply user filters to OFFLINE tasks
-        search_value = getattr(args, 'search', None)
+        search_value = getattr(args, "search", None)
         has_filters = bool(search_value or args.project or args.task or args.app)
 
         for (project, task_name), offline_duration in offline_task_durations.items():
             # Filter OFFLINE tasks based on user's search/project/task/app filters
             if has_filters:
                 # Check if task matches any filter
-                project_match = (search_value and _matches_any(project, [search_value], args.exact)) or \
-                              (args.project and _matches_any(project, args.project, args.exact))
-                task_match = (search_value and _matches_any(task_name, [search_value], args.exact)) or \
-                            (args.task and _matches_any(task_name, args.task, args.exact))
+                project_match = (
+                    search_value and _matches_any(project, [search_value], args.exact)
+                ) or (args.project and _matches_any(project, args.project, args.exact))
+                task_match = (
+                    search_value and _matches_any(task_name, [search_value], args.exact)
+                ) or (args.task and _matches_any(task_name, args.task, args.exact))
 
                 if not (project_match or task_match):
                     continue  # Skip this OFFLINE task, doesn't match filter
 
-                if _excluded(project, args.exclude_project) or _excluded(task_name, args.exclude_task):
+                if _excluded(project, args.exclude_project) or _excluded(
+                    task_name, args.exclude_task
+                ):
                     continue  # Skip excluded task
 
             offline_cat = build_offline_category_structure(offline_duration)
@@ -3293,18 +3471,26 @@ def main():
                 old_duration = task_node["total_duration"]
                 task_node["total_duration"] = offline_duration
                 # Update project node to reflect new task duration
-                report_data[project]["total_duration"] = report_data[project]["total_duration"] - old_duration + offline_duration
+                report_data[project]["total_duration"] = (
+                    report_data[project]["total_duration"]
+                    - old_duration
+                    + offline_duration
+                )
                 # Replace categories: clear existing and add only the Offline category
-                task_node["categories"] = {
-                    "Offline": offline_cat
-                }
+                task_node["categories"] = {"Offline": offline_cat}
             else:
                 # Task not in report (no window events); add it from scratch
                 proj_node = report_data.setdefault(
-                    project, {"total_duration": timedelta(0), "tasks": {}, "prod_score": 0.0}
+                    project,
+                    {"total_duration": timedelta(0), "tasks": {}, "prod_score": 0.0},
                 )
                 task_node = proj_node["tasks"].setdefault(
-                    task_name, {"total_duration": offline_duration, "categories": {}, "prod_score": 0.0}
+                    task_name,
+                    {
+                        "total_duration": offline_duration,
+                        "categories": {},
+                        "prod_score": 0.0,
+                    },
                 )
                 proj_node["total_duration"] += offline_duration
                 task_node["categories"]["Offline"] = offline_cat
@@ -3333,7 +3519,7 @@ def main():
         # Skip if --exclude-offline flag is set
         if offline_task_durations and not args.exclude_offline:
             # Apply user filters to OFFLINE tasks
-            search_value = getattr(args, 'search', None)
+            search_value = getattr(args, "search", None)
             has_filters = bool(search_value or args.project or args.task or args.app)
 
             # Need to get the actual event times for these tasks to use as slot boundaries
@@ -3345,56 +3531,85 @@ def main():
                         # Apply filters to OFFLINE tasks
                         if has_filters:
                             # Check if task matches any filter
-                            project_match = (search_value and _matches_any(project, [search_value], args.exact)) or \
-                                          (args.project and _matches_any(project, args.project, args.exact))
-                            task_match = (search_value and _matches_any(task_name, [search_value], args.exact)) or \
-                                        (args.task and _matches_any(task_name, args.task, args.exact))
+                            project_match = (
+                                search_value
+                                and _matches_any(project, [search_value], args.exact)
+                            ) or (
+                                args.project
+                                and _matches_any(project, args.project, args.exact)
+                            )
+                            task_match = (
+                                search_value
+                                and _matches_any(task_name, [search_value], args.exact)
+                            ) or (
+                                args.task
+                                and _matches_any(task_name, args.task, args.exact)
+                            )
 
                             if not (project_match or task_match):
                                 continue  # Skip this OFFLINE task, doesn't match filter
 
-                            if _excluded(project, args.exclude_project) or _excluded(task_name, args.exclude_task):
+                            if _excluded(project, args.exclude_project) or _excluded(
+                                task_name, args.exclude_task
+                            ):
                                 continue  # Skip excluded task
 
                         key = (project, task_name)
                         if key in offline_task_durations:
                             # Find the time span for this task
-                            task_events_for_key = [e for e in task_events
-                                                  if get_task_info(e) == (task_name, project)
-                                                  and task_has_offline_tag(e)]
+                            task_events_for_key = [
+                                e
+                                for e in task_events
+                                if get_task_info(e) == (task_name, project)
+                                and task_has_offline_tag(e)
+                            ]
                             if task_events_for_key:
                                 start_times = [e.timestamp for e in task_events_for_key]
-                                end_times = [e.timestamp + e.duration for e in task_events_for_key]
+                                end_times = [
+                                    e.timestamp + e.duration
+                                    for e in task_events_for_key
+                                ]
                                 slot_start = min(start_times)
                                 slot_end = max(end_times)
                                 slot_duration = offline_task_durations[key]
 
                                 # Get tags from any event in this group
                                 raw_tags = task_events_for_key[0].data.get("tags", [])
-                                task_tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+                                task_tags = (
+                                    [raw_tags]
+                                    if isinstance(raw_tags, str)
+                                    else list(raw_tags)
+                                )
 
                                 # Only add if not already in slots (avoid duplicates)
-                                existing = [s for s in slots if s.get("project") == project and s.get("task") == task_name]
+                                existing = [
+                                    s
+                                    for s in slots
+                                    if s.get("project") == project
+                                    and s.get("task") == task_name
+                                ]
                                 if not existing:
                                     slot_start_tz = slot_start.astimezone()
                                     slot_end_tz = slot_end.astimezone()
-                                    slots.append({
-                                        "type": "regular",
-                                        "start": slot_start_tz,
-                                        "end": slot_end_tz,
-                                        "duration": slot_duration,
-                                        "productive_duration": timedelta(0),
-                                        "project": project,
-                                        "task": task_name,
-                                        "tags": task_tags,
-                                        "categories": [
-                                            build_offline_category_structure(
-                                                slot_duration,
-                                                start_time=slot_start_tz,
-                                                end_time=slot_end_tz
-                                            )
-                                        ],
-                                    })
+                                    slots.append(
+                                        {
+                                            "type": "regular",
+                                            "start": slot_start_tz,
+                                            "end": slot_end_tz,
+                                            "duration": slot_duration,
+                                            "productive_duration": timedelta(0),
+                                            "project": project,
+                                            "task": task_name,
+                                            "tags": task_tags,
+                                            "categories": [
+                                                build_offline_category_structure(
+                                                    slot_duration,
+                                                    start_time=slot_start_tz,
+                                                    end_time=slot_end_tz,
+                                                )
+                                            ],
+                                        }
+                                    )
 
         slots = sorted(slots, key=lambda s: s["start"])
 
@@ -3408,7 +3623,7 @@ def main():
                 window_events=window_events,
             )
             # Filter gap_entries based on user's search/project/task/app filters
-            search_value = getattr(args, 'search', None)
+            search_value = getattr(args, "search", None)
             has_filters = bool(search_value or args.project or args.task or args.app)
             if has_filters:
                 filtered_gaps = []
@@ -3417,18 +3632,25 @@ def main():
                     task = gap.get("task", NO_TASK)
 
                     # Apply exclusions first
-                    if _excluded(project, args.exclude_project) or _excluded(task, args.exclude_task):
+                    if _excluded(project, args.exclude_project) or _excluded(
+                        task, args.exclude_task
+                    ):
                         continue
 
                     # Check if gap matches any filter
                     gap_matches = False
                     if search_value:
-                        gap_matches = (_matches_any(project, [search_value], args.exact) or
-                                      _matches_any(task, [search_value], args.exact))
+                        gap_matches = _matches_any(
+                            project, [search_value], args.exact
+                        ) or _matches_any(task, [search_value], args.exact)
                     if args.project:
-                        gap_matches = gap_matches or _matches_any(project, args.project, args.exact)
+                        gap_matches = gap_matches or _matches_any(
+                            project, args.project, args.exact
+                        )
                     if args.task:
-                        gap_matches = gap_matches or _matches_any(task, args.task, args.exact)
+                        gap_matches = gap_matches or _matches_any(
+                            task, args.task, args.exact
+                        )
 
                     if gap_matches:
                         filtered_gaps.append(gap)
@@ -3441,7 +3663,9 @@ def main():
         # Optionally consolidate sessions: merge consecutive sessions of the same task
         # unless interrupted by another task
         if args.consolidate:
-            slots = consolidate_timeline_slots(slots, ignore_offline=getattr(args, "ignore_offline", False))
+            slots = consolidate_timeline_slots(
+                slots, ignore_offline=getattr(args, "ignore_offline", False)
+            )
 
         TimelineReport(print_timeline_report).present(
             slots=slots,
