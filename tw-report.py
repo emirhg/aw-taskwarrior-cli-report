@@ -19,16 +19,7 @@
 # - Customizable through command-line arguments and a categories JSON file.
 #
 #
-# TODO: Filter by project/task/app thru parameters, unnamed parameter, matches agains all types (project/task/app), for each specific type a named argument should be passed, p.e. --project "Ianua", that would return all projects with partial matching.
-# TODO: Introduce --exact parameter that should work in conjuntion with the project task app filter to return only exact matchings
-# TODO: Multiple filter especifications should be treated as "OR"
-# TODO: Introduce --exclude-{project/task/app} which should exclude the exact project matching from the results
 # TODO: Add a --resume argument to print only project and task information and supress the app/title output information
-# TEST: --timesheet produces a timeline report for the activites organizaed by projects, its continuity cant be broken if the events contain blank spots
-#
-# FIX: --exclude-non-projects still reports AFK time for non-project time
-# FIX: --exclude-offline excludes the whole OFFLINE event, and not just the time slot where the machine was OFF
-# FIX: --exclude-afk is not implemented, only --include-afk exists
 
 import argparse
 import json
@@ -145,6 +136,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--include-afk", action="store_true", help="Include AFK time in the report."
+    )
+    parser.add_argument(
+        "--exclude-afk",
+        action="store_true",
+        help="Exclude AFK periods from the timeline report (default: shown as AFK slots).",
     )
     parser.add_argument(
         "--categories",
@@ -2835,18 +2831,12 @@ def print_timeline_report(
         if is_offline_group:
             offline_slot = group_slots[0]
             offline_dur = format_duration(offline_slot["duration"])
-            # Indent [OFFLINE] to align with descriptions (after time and arrow)
-            # Format: indent + [OFFLINE] + filler + right-aligned duration (11 chars)
             indent = " " * 22  # Position to align with where descriptions start
             offline_label = "OFF"
-            # Right-align duration to 11 chars to match label width (same as [prod 100%])
-            # padded_dur = offline_dur.ljust(21)
-            # Fill remaining space between label and duration
             remaining_width = (
                 width - len(indent) - len(offline_label) - len(offline_dur) - 25
             )
             filler = " " * max(remaining_width, 0)
-            # print(indent + offline_label + filler + padded_dur)
             print(indent + filler + "(" + offline_dur + " " + offline_label + ")")
             # OFFLINE slots are NOT added to day_duration or week_duration
             continue
@@ -3613,50 +3603,69 @@ def main():
 
         slots = sorted(slots, key=lambda s: s["start"])
 
-        # Add AFK slots and OFFLINE markers unless excluded
+        # Generate AFK slots and OFFLINE markers unconditionally
+        # (filtering happens below to allow independent control of each type)
+        # Pass original window_events to extract categories from AFK periods
+        # (canonical_events are filtered to not-afk only, so can't detect overlaps with AFK)
+        gap_entries = generate_gap_entries(
+            context.afk_events,
+            context.task_events,
+            window_events=window_events,
+        )
+
+        # Filter gap_entries based on user's search/project/task/app filters
+        search_value = getattr(args, "search", None)
+        has_filters = bool(search_value or args.project or args.task or args.app)
+        if has_filters:
+            filtered_gaps = []
+            for gap in gap_entries:
+                project = gap.get("project", NO_PROJECT)
+                task = gap.get("task", NO_TASK)
+
+                # Apply exclusions first
+                if _excluded(project, args.exclude_project) or _excluded(
+                    task, args.exclude_task
+                ):
+                    continue
+
+                # Check if gap matches any filter
+                gap_matches = False
+                if search_value:
+                    gap_matches = _matches_any(
+                        project, [search_value], args.exact
+                    ) or _matches_any(task, [search_value], args.exact)
+                if args.project:
+                    gap_matches = gap_matches or _matches_any(
+                        project, args.project, args.exact
+                    )
+                if args.task:
+                    gap_matches = gap_matches or _matches_any(
+                        task, args.task, args.exact
+                    )
+
+                if gap_matches:
+                    filtered_gaps.append(gap)
+            gap_entries = filtered_gaps
+
+        # FIX: --exclude-offline should only remove machine-off gaps, not AFK slots
+        if args.exclude_offline:
+            gap_entries = [g for g in gap_entries if g.get("type") != "offline"]
+
+        # FIX: --exclude-afk removes AFK period slots from the timeline
+        if args.exclude_afk:
+            gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
+
+        # FIX: --exclude-non-project should suppress AFK slots that have no active task
+        if args.exclude_non_project:
+            gap_entries = [
+                g for g in gap_entries
+                if not (g.get("type") == "afk" and g.get("project") == NO_PROJECT)
+            ]
+
+        slots = sorted(slots + gap_entries, key=lambda s: s["start"])
+
+        # Only attach OFFLINE extensions when offline markers are present
         if not args.exclude_offline:
-            # Pass original window_events to extract categories from AFK periods
-            # (canonical_events are filtered to not-afk only, so can't detect overlaps with AFK)
-            gap_entries = generate_gap_entries(
-                context.afk_events,
-                context.task_events,
-                window_events=window_events,
-            )
-            # Filter gap_entries based on user's search/project/task/app filters
-            search_value = getattr(args, "search", None)
-            has_filters = bool(search_value or args.project or args.task or args.app)
-            if has_filters:
-                filtered_gaps = []
-                for gap in gap_entries:
-                    project = gap.get("project", NO_PROJECT)
-                    task = gap.get("task", NO_TASK)
-
-                    # Apply exclusions first
-                    if _excluded(project, args.exclude_project) or _excluded(
-                        task, args.exclude_task
-                    ):
-                        continue
-
-                    # Check if gap matches any filter
-                    gap_matches = False
-                    if search_value:
-                        gap_matches = _matches_any(
-                            project, [search_value], args.exact
-                        ) or _matches_any(task, [search_value], args.exact)
-                    if args.project:
-                        gap_matches = gap_matches or _matches_any(
-                            project, args.project, args.exact
-                        )
-                    if args.task:
-                        gap_matches = gap_matches or _matches_any(
-                            task, args.task, args.exact
-                        )
-
-                    if gap_matches:
-                        filtered_gaps.append(gap)
-                gap_entries = filtered_gaps
-
-            slots = sorted(slots + gap_entries, key=lambda s: s["start"])
             # Attach OFFLINE gaps to OFFLINE-tagged tasks as extensions
             slots = attach_offline_extensions(slots)
 

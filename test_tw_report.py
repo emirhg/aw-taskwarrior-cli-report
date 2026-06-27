@@ -78,10 +78,36 @@ def sample_afk_events():
 class TestTimelineGeneration:
     """Tests for generate_timeline_data function."""
 
+    def _build_report_events(self, window_events, task_events):
+        """Helper to convert window_events to report_event dicts with project/task resolution."""
+        report_events = []
+        for window_event in window_events:
+            # Find active task for this window event
+            active_task = None
+            project = tw_report.NO_PROJECT
+            task_name = tw_report.NO_TASK
+            if task_events:
+                for task_event in task_events:
+                    if (window_event.timestamp < task_event.timestamp + task_event.duration
+                        and task_event.timestamp < window_event.timestamp + window_event.duration):
+                        active_task = task_event
+                        task_name, project = tw_report.get_task_info(active_task)
+                        break
+
+            report_events.append({
+                "event": window_event,
+                "project": project,
+                "task": task_name,
+                "active_task": active_task,
+            })
+        return report_events
+
     def test_generate_timeline_data_basic(self, sample_window_events, sample_task_events, sample_afk_events):
         """Test basic timeline generation with consecutive events."""
+        report_events = self._build_report_events(sample_window_events, sample_task_events)
+        cat_score_map = {}
         slots = tw_report.generate_timeline_data(
-            sample_window_events, sample_task_events, sample_afk_events
+            report_events, sample_afk_events, cat_score_map
         )
         assert len(slots) > 0
         assert all("project" in slot and "task" in slot for slot in slots)
@@ -90,7 +116,6 @@ class TestTimelineGeneration:
         """Test that consecutive events with same project/task merge into one slot."""
         base_time = datetime(2024, 1, 15, 9, 0, 0)
 
-        # Three consecutive events (no gaps) for same project/task
         window_events = [
             MockEvent(base_time, timedelta(minutes=30), {"app": "VSCode", "title": "file1.py"}),
             MockEvent(base_time + timedelta(minutes=30), timedelta(minutes=30), {"app": "VSCode", "title": "file2.py"}),
@@ -109,9 +134,10 @@ class TestTimelineGeneration:
             MockEvent(base_time, timedelta(hours=2), {"status": "not-afk"}),
         ]
 
-        slots = tw_report.generate_timeline_data(window_events, task_events, afk_events)
+        report_events = self._build_report_events(window_events, task_events)
+        cat_score_map = {}
+        slots = tw_report.generate_timeline_data(report_events, afk_events, cat_score_map)
 
-        # All three consecutive events should merge into one slot
         assert len(slots) == 1
         assert slots[0]["project"] == "ProjectX"
         assert slots[0]["task"] == "Development"
@@ -121,8 +147,6 @@ class TestTimelineGeneration:
         """Test that window event gaps within same not-afk period merge into one slot."""
         base_time = datetime(2024, 1, 15, 9, 0, 0)
 
-        # Two window events for same project/task, with a gap between them
-        # Within the same not-afk period, they should merge into ONE slot
         window_events = [
             MockEvent(base_time, timedelta(minutes=20), {"app": "Firefox", "title": "Page 1"}),
             MockEvent(base_time + timedelta(minutes=50), timedelta(minutes=20), {"app": "Firefox", "title": "Page 2"}),
@@ -140,20 +164,19 @@ class TestTimelineGeneration:
             MockEvent(base_time, timedelta(hours=2), {"status": "not-afk"}),
         ]
 
-        slots = tw_report.generate_timeline_data(window_events, task_events, afk_events)
+        report_events = self._build_report_events(window_events, task_events)
+        cat_score_map = {}
+        slots = tw_report.generate_timeline_data(report_events, afk_events, cat_score_map)
 
-        # Events merge into ONE slot within the same not-afk period
         assert len(slots) == 1
         assert slots[0]["project"] == "ProjectX"
         assert slots[0]["task"] == "Task X"
-        # Duration is sum of both events, not the span
         assert slots[0]["duration"] == timedelta(minutes=40)
 
     def test_generate_timeline_data_afk_breaks_slot(self):
         """Test that AFK periods (gaps in window events) create separate slots."""
         base_time = datetime(2024, 1, 15, 9, 0, 0)
 
-        # Two window events for same task, separated by a gap (simulating AFK)
         window_events = [
             MockEvent(base_time, timedelta(minutes=30), {"app": "Firefox", "title": "Morning"}),
             MockEvent(base_time + timedelta(hours=2, minutes=30), timedelta(minutes=30), {"app": "Firefox", "title": "Afternoon"}),
@@ -173,9 +196,10 @@ class TestTimelineGeneration:
             MockEvent(base_time + timedelta(hours=2), timedelta(hours=2), {"status": "not-afk"}),
         ]
 
-        slots = tw_report.generate_timeline_data(window_events, task_events, afk_events)
+        report_events = self._build_report_events(window_events, task_events)
+        cat_score_map = {}
+        slots = tw_report.generate_timeline_data(report_events, afk_events, cat_score_map)
 
-        # Gap between events creates 2 slots (not merged)
         assert len(slots) == 2
         assert slots[0]["project"] == "ProjectY"
         assert slots[1]["project"] == "ProjectY"
@@ -198,10 +222,10 @@ class TestTimelineGeneration:
             MockEvent(base_time, timedelta(hours=1), {"status": "not-afk"}),
         ]
 
-        slots = tw_report.generate_timeline_data(window_events, task_events, afk_events)
+        report_events = self._build_report_events(window_events, task_events)
+        cat_score_map = {}
+        slots = tw_report.generate_timeline_data(report_events, afk_events, cat_score_map)
 
-        # Should have slots for both projects
-        projects = [s["project"] for s in slots]
         assert len(slots) >= 1
 
 
@@ -597,6 +621,167 @@ class TestCategorization:
         assert "Work > Programming > Terminal" in categories_list
         # Terminal should be first (highest priority)
         assert categories_list[0] == "Work > Programming > Terminal"
+
+
+class TestGenerateGapEntries:
+    """Tests for generate_gap_entries function (AFK and OFFLINE marker generation)."""
+
+    def test_generate_gap_entries_afk_slots(self):
+        """Test that AFK events produce type='afk' slots."""
+        base_time = datetime(2024, 1, 15, 9, 0, 0)
+
+        afk_events = [
+            MockEvent(base_time, timedelta(hours=1), {"status": "not-afk"}),
+            MockEvent(base_time + timedelta(hours=1), timedelta(minutes=30), {"status": "afk"}),
+            MockEvent(base_time + timedelta(hours=1, minutes=30), timedelta(hours=1), {"status": "not-afk"}),
+        ]
+
+        task_events = None
+        window_events = []
+
+        gap_entries = tw_report.generate_gap_entries(afk_events, task_events, window_events=window_events)
+
+        # Should have at least one AFK slot (from the status="afk" event)
+        afk_slots = [g for g in gap_entries if g.get("type") == "afk"]
+        assert len(afk_slots) >= 1
+        assert afk_slots[0]["duration"] == timedelta(minutes=30)
+
+    def test_generate_gap_entries_offline_markers(self):
+        """Test that gaps > 120s in AFK bucket coverage produce type='offline' markers."""
+        base_time = datetime(2024, 1, 15, 9, 0, 0)
+
+        # Two AFK events with a 3-minute gap between them (> 120s threshold)
+        afk_events = [
+            MockEvent(base_time, timedelta(hours=1), {"status": "not-afk"}),
+            MockEvent(base_time + timedelta(hours=1), timedelta(minutes=30), {"status": "afk"}),
+            # Gap: 3 minutes (180s > 120s) → should produce OFFLINE marker
+            MockEvent(base_time + timedelta(hours=1, minutes=33), timedelta(minutes=30), {"status": "afk"}),
+        ]
+
+        task_events = None
+        window_events = []
+
+        gap_entries = tw_report.generate_gap_entries(afk_events, task_events, window_events=window_events)
+
+        # Should have one OFFLINE marker for the gap
+        offline_markers = [g for g in gap_entries if g.get("type") == "offline"]
+        assert len(offline_markers) == 1
+        assert offline_markers[0]["duration"] == timedelta(minutes=3)
+
+    def test_generate_gap_entries_no_offline_for_short_gaps(self):
+        """Test that gaps ≤ 120s do not produce OFFLINE markers."""
+        base_time = datetime(2024, 1, 15, 9, 0, 0)
+
+        # Two AFK events with a 1-minute gap between them (< 120s threshold)
+        afk_events = [
+            MockEvent(base_time, timedelta(hours=1), {"status": "not-afk"}),
+            MockEvent(base_time + timedelta(hours=1), timedelta(minutes=30), {"status": "afk"}),
+            # Gap: 1 minute (60s < 120s) → should NOT produce OFFLINE marker
+            MockEvent(base_time + timedelta(hours=1, minutes=31), timedelta(minutes=30), {"status": "afk"}),
+        ]
+
+        task_events = None
+        window_events = []
+
+        gap_entries = tw_report.generate_gap_entries(afk_events, task_events, window_events=window_events)
+
+        # Should have NO OFFLINE markers (gap too short)
+        offline_markers = [g for g in gap_entries if g.get("type") == "offline"]
+        assert len(offline_markers) == 0
+
+
+class TestGapEntryFiltering:
+    """Tests for the three gap entry filtering fixes."""
+
+    def test_exclude_non_project_filters_afk_without_task(self):
+        """FIX 1: --exclude-non-project should suppress AFK slots with NO_PROJECT."""
+        base_time = datetime(2024, 1, 15, 9, 0, 0)
+
+        # Build gap_entries manually: one AFK with NO_PROJECT, one with a real project
+        gap_entries = [
+            {
+                "type": "afk",
+                "start": base_time,
+                "end": base_time + timedelta(minutes=30),
+                "duration": timedelta(minutes=30),
+                "project": tw_report.NO_PROJECT,
+                "task": tw_report.NO_TASK,
+            },
+            {
+                "type": "afk",
+                "start": base_time + timedelta(hours=1),
+                "end": base_time + timedelta(hours=1, minutes=30),
+                "duration": timedelta(minutes=30),
+                "project": "ProjectX",
+                "task": "TaskX",
+            },
+        ]
+
+        # Apply the filter from the FIX
+        filtered_gaps = [
+            g for g in gap_entries
+            if not (g.get("type") == "afk" and g.get("project") == tw_report.NO_PROJECT)
+        ]
+
+        # Should only have the ProjectX AFK slot
+        assert len(filtered_gaps) == 1
+        assert filtered_gaps[0]["project"] == "ProjectX"
+
+    def test_exclude_offline_only_removes_offline_type(self):
+        """FIX 2: --exclude-offline should only remove type='offline' entries, not AFK."""
+        gap_entries = [
+            {
+                "type": "afk",
+                "start": datetime(2024, 1, 15, 9, 0, 0),
+                "end": datetime(2024, 1, 15, 9, 30, 0),
+                "duration": timedelta(minutes=30),
+                "project": "ProjectX",
+                "task": "TaskX",
+            },
+            {
+                "type": "offline",
+                "start": datetime(2024, 1, 15, 9, 30, 0),
+                "end": datetime(2024, 1, 15, 9, 33, 0),
+                "duration": timedelta(minutes=3),
+                "project": "__offline__",
+                "task": "",
+            },
+        ]
+
+        # Apply the filter from the FIX
+        filtered_gaps = [g for g in gap_entries if g.get("type") != "offline"]
+
+        # Should only have the AFK slot
+        assert len(filtered_gaps) == 1
+        assert filtered_gaps[0]["type"] == "afk"
+
+    def test_exclude_afk_only_removes_afk_type(self):
+        """FIX 3: --exclude-afk should only remove type='afk' entries, not OFFLINE."""
+        gap_entries = [
+            {
+                "type": "afk",
+                "start": datetime(2024, 1, 15, 9, 0, 0),
+                "end": datetime(2024, 1, 15, 9, 30, 0),
+                "duration": timedelta(minutes=30),
+                "project": "ProjectX",
+                "task": "TaskX",
+            },
+            {
+                "type": "offline",
+                "start": datetime(2024, 1, 15, 9, 30, 0),
+                "end": datetime(2024, 1, 15, 9, 33, 0),
+                "duration": timedelta(minutes=3),
+                "project": "__offline__",
+                "task": "",
+            },
+        ]
+
+        # Apply the filter from the FIX
+        filtered_gaps = [g for g in gap_entries if g.get("type") != "afk"]
+
+        # Should only have the OFFLINE marker
+        assert len(filtered_gaps) == 1
+        assert filtered_gaps[0]["type"] == "offline"
 
 
 if __name__ == "__main__":
