@@ -20,6 +20,141 @@
 #
 #
 # TODO: Add a --resume argument to print only project and task information and supress the app/title output information
+# BUG: --exclude-non-project is including non-project data that overlaps with offline data.
+# ❯ ${HOME}/Desktop/ianua/work_report/tw-report.py --detail-level=2 --timesheet --consolidate :today --exclude-non-project
+"""
+    ================================================================================================== Timeline Report ==================================================================================================
+Period: :today (2026-06-27 to 2026-06-27)
+Active Time: 9:09:03 (2026-06-27 07:25 to 2026-06-27 22:40)
+  • AFK time: 0:58:13
+  • Project Tracking: 132.6% (10:51:01)
+  • Focus time: 6.2% (0:40:22)
+  • Untracked productivity: 0.0% (0:00:00)
+  • Overall productivity: 8.2% (0:40:22)
+  • Overall distracting time: 0.6% (0:03:04)
+  • Unscored time: 8.6% (0:42:07)
+Current Session: 0:38:08 (22:02 to 22:40)
+Last Break: 0:40:07 (21:22 to 22:02)
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Wk  Date       Day
+W26 2026-06-27 Sat
+                                                                                                                                                                                  (0:15:21 OFF)
+       08:07-08:18  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                                  0:11:36  [prod  97%]
+                                                                                                                                                                                  (0:48:49 OFF)
+       09:08-09:16  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                   (0:08:16 AFK)  0:08:44  [prod   5%]
+                                                                                                                                                                                  (0:12:08 OFF)
+       09:29-09:36  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                   (0:03:45 AFK)  0:07:21  [prod  35%]
+                                                                                                                                                                                  (0:11:55 OFF)
+       09:48-10:40  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                   (0:17:42 AFK)  0:51:53  [prod  36%]
+       10:42-11:44  ▶ Merca... > Micro1 ▶▶ Aplicación a vacante de Javascript                                                                                                     (0:28:30 AFK)  1:01:22  [prod   7%]
+                                                                                                                                                                                  (0:22:42 OFF)
+       12:09-20:37  ▶ Ecosi... > Recámara ▶▶ Lavar cortinas                                                                                                                                      8:27:30  [prod   0%]
+                                                                                                                                                                                  (0:05:11 OFF)
+                                                                                                                                                                                  (0:04:10 OFF)
+                                                                                                                                                                                  (0:05:38 OFF)
+                                                                                                                                                                                  (0:07:42 OFF)
+                                                                                                                                                                                  (0:04:52 OFF)
+       14:50-14:50  ▶ No project assigned ▶▶ No task assigned                                                                                                                                    0:00:09  [prod 100%]
+                                                                                                                                                                                  (0:12:22 OFF)
+       15:32-15:32  ▶ No project assigned ▶▶ No task assigned                                                                                                                                    0:00:08  [prod 100%]
+                                                                                                                                                                                  (0:14:27 OFF)
+                                                                                                                                                                                  (0:06:56 OFF)
+                                                                                                                                                                                  (0:11:56 OFF)
+                                                                                                                                                                                  (0:10:48 OFF)
+                                                                                                                                                                                  (0:05:52 OFF)
+                                                                                                                                                                                  (0:06:59 OFF)
+                                                                                                                                                                                  (0:05:45 OFF)
+                                                                                                                                                                                  (0:04:21 OFF)
+                                                                                                                                                                                  (0:17:25 OFF)
+                                                                                                                                                                                  (0:20:07 OFF)
+                                                                                                                                                                                  (0:29:22 OFF)
+                                                                                                                                                                                  (0:06:24 OFF)
+                                                                                                                                                                                  (0:40:07 OFF)
+       22:37-22:40  ▶ Organ... > Reporte ▶▶ Corregir el reporte de tiempos consolidados                                                                                                          0:02:32  [prod  99%]
+                                                                                                                                                                                               ----------------------
+                                                                                                                                                                                   Day total:   10:51:19  [prod   6%]
+
+                                                                                                                                                                                    Total Time: 10:51:19  [prod   6%]
+=====================================================================================================================================================================================================================
+"""
+
+# FIX: task duration for offline event is not consistent with OFF entries:
+"""
+  12:09-20:37  ▶ Ecosi... > Recámara ▶▶ Lavar cortinas                                                                                                                                      8:27:30  [prod   0%]
+                     - Offline                                                                                                                                                                                8:27:30
+                                                                                                                                                                                  (0:05:11 OFF)
+                                                                                                                                                                                  (0:04:10 OFF)
+                                                                                                                                                                                  (0:05:38 OFF)
+                                                                                                                                                                                  (0:07:42 OFF)
+                                                                                                                                                                                  (0:04:52 OFF)
+       14:50-14
+"""
+
+# FIX: Multiple OFF entries on a consolidated report.
+# FIX: detail-level=3 of a consolidated report shows some OFF entries that are not consistent with the event duration:
+"""
+      15:32-15:32  ▶ No project assigned ▶▶ No task assigned                                                                                                                                    0:00:08  [prod 100%]
+                     - Work > Programming > Terminal                                                                                                                                                          0:00:08
+                                                                                                                                                                                  (0:14:27 OFF)
+                                                                                                                                                                                  (0:06:56 OFF)
+                                                                                                                                                                                  (0:11:56 OFF)
+                                                                                                                                                                                  (0:10:48 OFF)
+                                                                                                                                                                                  (0:05:52 OFF)
+                                                                                                                                                                                  (0:06:59 OFF)
+                                                                                                                                                                                  (0:05:45 OFF)
+                                                                                                                                                                                  (0:04:21 OFF)
+                                                                                                                                                                                  (0:17:25 OFF)
+                                                                                                                                                                                  (0:20:07 OFF)
+                                                                                                                                                                                  (0:29:22 OFF)
+                                                                                                                                                                                  (0:06:24 OFF)
+                                                                                                                                                                                  (0:40:07 OFF)
+
+"""
+
+# FIX: time entries don't look completly consolidated as they show multiple entries for the continuos task
+"""
+❯ ${HOME}/Desktop/ianua/work_report/tw-report.py --detail-level=3 --timesheet --consolidate :today --ignore-offline
+================================================================================================== Timeline Report ==================================================================================================
+Period: :today (2026-06-27 to 2026-06-27)
+Active Time: 9:54:53 (2026-06-27 07:25 to 2026-06-27 22:51)
+  • AFK time: 1:33:08
+  • Project Tracking: 131.9% (11:01:35)
+  • Focus time: 7.7% (0:50:57)
+  • Untracked productivity: 21.3% (1:46:40)
+  • Overall productivity: 31.4% (2:37:37)
+  • Overall distracting time: 3.7% (0:18:23)
+  • Unscored time: 15.2% (1:16:09)
+Current Session: 0:49:04 (22:02 to 22:51)
+Last Break: 0:40:07 (21:22 to 22:02)
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Wk  Date       Day
+W26 2026-06-27 Sat
+       07:25-07:33  ▶ No project assigned ▶▶ No task assigned                                                                                                                                    0:07:54  [prod 100%]
+                     - Uncategorized                                                                                                                                                                          0:00:00
+                     - Work > Programming > Terminal                                                                                                                                                          0:07:53
+       07:49-08:07  ▶ No project assigned ▶▶ No task assigned                                                                                                                     (0:10:30 AFK)  0:18:03  [prod  40%]
+                     - Work > Programming > Terminal                                                                                                                                                          0:24:10
+                     - Uncategorized                                                                                                                                                                          0:00:24
+       08:07-08:18  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                                  0:11:36  [prod  97%]
+                     - Work > Programming > Terminal                                                                                                                                                          0:11:15
+                     - Uncategorized                                                                                                                                                                          0:00:21
+       09:08-09:16  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                   (0:08:16 AFK)  0:08:44  [prod   5%]
+                     - Work > Programming > Terminal                                                                                                                                                          0:08:44
+       09:29-09:36  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                   (0:03:45 AFK)  0:07:21  [prod  35%]
+                     - Work > Programming > Terminal                                                                                                                                                          0:10:01
+                     - Uncategorized                                                                                                                                                                          0:01:01
+       09:48-10:40  ▶ Organ... > Contabilidad y finanzas ▶▶ Depositar recursos a cuenta inve...                                                                                   (0:17:42 AFK)  0:51:53  [prod  36%]
+                     - Uncategorized                                                                                                                                                                          0:13:38
+                     - Work > Programming > Terminal                                                                                                                                                          0:32:10
+                     - Comms > Documentation                                                                                                                                                                  0:00:02
+                     - Finances > Trading                                                                                                                                                                     0:06:54
+                     - Comms > Email                                                                                                                                                                          0:00:28
+                     - Media > Video                                                                                                                                                                          0:01:39
+       10:42-10:42  ▶ No project assigned ▶▶ No task assigned                                                                                                                                    0:00:07  [prod  71%]
+                     - Media > Video                                                                                                                                                                          0:00:02
+                     - Work > Programming > Terminal                                                                                                                                                          0:00:05
+
+"""
 
 import argparse
 import json
@@ -3658,7 +3793,8 @@ def main():
         # FIX: --exclude-non-project should suppress AFK slots that have no active task
         if args.exclude_non_project:
             gap_entries = [
-                g for g in gap_entries
+                g
+                for g in gap_entries
                 if not (g.get("type") == "afk" and g.get("project") == NO_PROJECT)
             ]
 
