@@ -156,6 +156,77 @@ W26 2026-06-27 Sat
 
 """
 
+# FIX: OFFLINE work assigned to a task is not being reported properly in a consolidated report, in the next example, the ~4h entry OFFLINE should be in the "Disposicón de residuos" task
+"""
+❯ dat
+Total Duration: 4:22:30
+❯ tws
+
+Wk  Date       Day Tags                                                                                                                                                     Start      End    Time   Total
+W26 2026-06-28 Sun Ecosistema, Ecosistema.Tratamiento de residuos, Ecosistema.Tratamiento de residuos.Orgánicos, OFFLINE, fede6ab0-c7bf-4b8d-b550-edb1ad7cbf81, pomodoro 11:35:44 15:58:14 4:22:30 4:22:30
+                                                                                                                                                                                                          
+                                                                                                                                                                                                   4:22:30
+
+❯ t
+ID  Project                                                         Scheduled Prio Description                                                       ETC 
+372 Ecosistema.Cultivo.Higuera                                          10h   M    Control de plagas                                                 PT4H
+398 Ecosistema.Hábitat.Mantenimiento del hogar.Recámara                 10h   L    Instalar contactos y apagadores                                   PT3H
+ 48 Anarcademia.Ciencias de la computación.Mecanismo de Antikythera      8h        Documentar una presentación sobre el Mecanismo de Antikythera     PT1H
+433 Mercado laboral.Presentación.Curriculum Vitae                        7h   M    Revisar contenido del CV modular                                  PT2H
+❯ tw
+ID  Project                                                         Scheduled Prio Description                                                       ETC 
+372 Ecosistema.Cultivo.Higuera                                          10h   M    Control de plagas                                                 PT4H
+398 Ecosistema.Hábitat.Mantenimiento del hogar.Recámara                 10h   L    Instalar contactos y apagadores                                   PT3H
+ 48 Anarcademia.Ciencias de la computación.Mecanismo de Antikythera      8h        Documentar una presentación sobre el Mecanismo de Antikythera     PT1H
+433 Mercado laboral.Presentación.Curriculum Vitae                        7h   M    Revisar contenido del CV modular                                  PT2H
+                                                                                                                                                    =====
+                                                                                                                                                      10H
+❯ snt
+You have more urgent tasks.
+No matches.
+Tracking Ecosistema Ecosistema.Cultivo Ecosistema.Cultivo.Higuera OFFLINE "ac254fe0-ee17-47a6-be3e-5d6f069cdc67" pomodoro
+  Started 2026-06-28T16:00:07
+  Current                  07
+  Total               0:00:00
+❯ ${HOME}/Desktop/ianua/work_report/tw-report.py --detail-level=1 --timesheet --consolidate --ignore-offline --exclude-non-project :today
+================================================================================================== Timeline Report ==================================================================================================
+Period: :today (2026-06-28 to 2026-06-28)
+Active Time: 0:44:08 (2026-06-28 00:00 to 2026-06-28 16:00)
+  • Project Tracking: 0.0% (0:00:00)
+  • Untracked productivity: 0.0% (0:00:00)
+  • Overall productivity: 0.0% (0:00:00)
+Current Session: 0:06:05 (15:54 to 16:00)
+Last Break: 4:18:23 (11:35 to 15:54)
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Wk  Date       Day
+W26 2026-06-28 Sun  11:35-11:35  ▶ Ecosistema > Tratamiento de residuos > Orgánicos                                                                                                                           0:00:00
+                                                                                                                                                                                               ----------------------
+
+                                                                                                                                                                                                  Total Time: 0:00:00
+=====================================================================================================================================================================================================================
+❯ ${HOME}/Desktop/ianua/work_report/tw-report.py --detail-level=1 --timesheet --consolidate --exclude-non-project :today
+================================================================================================== Timeline Report ==================================================================================================
+Period: :today (2026-06-28 to 2026-06-28)
+Active Time: 0:44:29 (2026-06-28 00:00 to 2026-06-28 16:00)
+  • Project Tracking: 0.0% (0:00:00)
+  • Untracked productivity: 0.0% (0:00:00)
+  • Overall productivity: 0.0% (0:00:00)
+Current Session: 0:06:25 (15:54 to 16:00)
+Last Break: 4:18:23 (11:35 to 15:54)
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+Wk  Date       Day
+W26 2026-06-28 Sun
+                                                                                                                                                                                 (10:42:02 OFF)
+                                                                                                                                                                                  (4:18:23 OFF)
+             11:35  ▶ Ecosistema > Tratamiento de residuos > Orgánicos                                                                                                                                        0:00:00
+             16:00  ▶ Ecosistema > Cultivo > Higuera                                                                                                                                                          0:00:00
+                                                                                                                                                                                               ----------------------
+                                                                                                                                                                                                 Day total:   0:00:00
+
+                                                                                                                                                                                                  Total Time: 0:00:00
+================================
+"""
+
 import argparse
 import json
 import os
