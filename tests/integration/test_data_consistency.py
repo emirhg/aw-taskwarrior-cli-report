@@ -23,7 +23,7 @@ from sentinel_warrior.data import (
     build_canonical_events, build_context, merge_overlapping_afk_periods,
     load_slots
 )
-from report_pipeline import fill_short_event_gaps
+from tw_report.pipeline.processors import fill_short_event_gaps
 import os
 
 
