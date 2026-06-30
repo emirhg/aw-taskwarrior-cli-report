@@ -2910,7 +2910,9 @@ def print_timeline_report(
                 )
                 current_project_group = None
             # Add as singleton group (use marker for true OFFLINE gaps, full project for offline_task)
-            group_marker = "__offline__" if slot_project == "__offline__" else slot_project
+            group_marker = (
+                "__offline__" if slot_project == "__offline__" else slot_project
+            )
             slot_groups.append((group_marker, slot_date_val, [slot]))
             current_project_group_project = None
             current_project_group_date = None
@@ -3060,19 +3062,22 @@ def print_timeline_report(
                 pending_date_prefix = None
 
             offline_task_slot = group_slots[0]
-            project_name = offline_task_slot.get("project", NO_PROJECT).replace(".", " > ")
+            project_name = offline_task_slot.get("project", NO_PROJECT).replace(
+                ".", " > "
+            )
             task_name = offline_task_slot.get("task", NO_TASK)
             duration_val = offline_task_slot.get("duration", timedelta(0))
             duration_str = format_duration(duration_val)
             start_str = offline_task_slot["start"].strftime("%H:%M")
 
-            # Format: HH:MM       ▶ Project > Task                                                                         ( duration )
+            # Format: HH:MM       ▶ Project > Task                                                                  ( duration )
             # Pad time to 11 chars (matching time range width) for column alignment
-            # No productivity percentage for offline_task entries
+            # Include duration in left string (not right-aligned) for proper column alignment
             content = f"▶ {project_name} > {task_name}"
             time_padded = start_str.ljust(11)
-            left = f"       {time_padded}  {content}"
-            right = f"( {duration_str} )"
+            left = f"       {time_padded}  {content})"
+            right = f"({duration_str})".ljust(21)
+            # Pass empty duration to format_timeline_line so it doesn't right-align
             print(format_timeline_line(left, right, max_left_width=95))
             # offline_task slots are NOT added to day_duration or week_duration
             continue
@@ -3702,7 +3707,8 @@ def main():
         # Filter gap_entries using unified EventFilter for consistency
         # (replaces 50+ lines of scattered filter logic)
         gap_entries = [
-            g for g in gap_entries
+            g
+            for g in gap_entries
             if event_filter.should_include_entry(g, entry_type=g.get("type", "gap"))
         ]
 
