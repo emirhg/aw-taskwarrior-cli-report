@@ -183,6 +183,10 @@ class TimelineSlotManager:
             "task": first["task"],
         }
 
+        # Preserve type field from first slot (important for offline_task and other special types)
+        if "type" in first:
+            result["type"] = first["type"]
+
         if merged_categories:
             result["categories"] = merged_categories
 
