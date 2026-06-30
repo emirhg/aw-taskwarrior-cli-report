@@ -242,7 +242,7 @@ class OfflineTaskProcessor:
         )
 
         return {
-            "type": "regular",
+            "type": "offline_task",
             "start": slot_start.astimezone(),
             "end": slot_end.astimezone(),
             "duration": slot_duration,

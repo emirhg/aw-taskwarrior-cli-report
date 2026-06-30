@@ -2897,8 +2897,8 @@ def print_timeline_report(
         slot_date_val = slot_date(slot)
         slot_project = slot.get("project") or "__offline__"
 
-        # OFFLINE slots always break grouping (they're singletons)
-        if slot_project == "__offline__":
+        # OFFLINE and offline_task slots always break grouping (they're singletons)
+        if slot_project == "__offline__" or slot.get("type") == "offline_task":
             # Finalize current group if any
             if current_project_group is not None:
                 slot_groups.append(
@@ -2909,8 +2909,9 @@ def print_timeline_report(
                     )
                 )
                 current_project_group = None
-            # Add OFFLINE slot as singleton group
-            slot_groups.append(("__offline__", slot_date_val, [slot]))
+            # Add as singleton group (use marker for true OFFLINE gaps, full project for offline_task)
+            group_marker = "__offline__" if slot_project == "__offline__" else slot_project
+            slot_groups.append((group_marker, slot_date_val, [slot]))
             current_project_group_project = None
             current_project_group_date = None
             continue
@@ -2965,12 +2966,14 @@ def print_timeline_report(
 
         # Check if this is an OFFLINE group (singleton, informational only)
         is_offline_group = group_project == "__offline__"
+        is_offline_task_group = group_slots[0].get("type") == "offline_task"
 
-        # Rollup: collapse to inline when exactly one slot entry for this day (exclude OFFLINE)
+        # Rollup: collapse to inline when exactly one slot entry for this day (exclude OFFLINE and offline_task)
         group_is_rollup = (
             rollup
             and date_total_entries.get(group_date, 0) == 1
             and not is_offline_group
+            and not is_offline_task_group
         )
 
         if slot_week != current_week_key:
@@ -3048,6 +3051,28 @@ def print_timeline_report(
             filler = " " * max(remaining_width, 0)
             print(indent + filler + "(" + offline_dur + " " + offline_label + ")")
             # OFFLINE slots are NOT added to day_duration or week_duration
+            continue
+
+        # Handle offline_task slots (synthetic OFFLINE-tagged tasks formatted as gap entries)
+        if group_slots[0].get("type") == "offline_task":
+            if pending_date_prefix is not None:
+                print(pending_date_prefix)
+                pending_date_prefix = None
+
+            offline_task_slot = group_slots[0]
+            project_name = offline_task_slot.get("project", NO_PROJECT).replace(".", " > ")
+            task_name = offline_task_slot.get("task", NO_TASK)
+            duration_val = offline_task_slot.get("duration", timedelta(0))
+            duration_str = format_duration(duration_val)
+            start_str = offline_task_slot["start"].strftime("%H:%M")
+
+            # Format: HH:MM  ▶ Project > Task                                                                               ( duration )
+            # No productivity percentage for offline_task entries
+            content = f"▶ {project_name} > {task_name}"
+            left = f"             {start_str}  {content}"
+            right = f"( {duration_str} )"
+            print(format_timeline_line(left, right, max_left_width=95))
+            # offline_task slots are NOT added to day_duration or week_duration
             continue
 
         # Calculate project group totals
@@ -3642,7 +3667,7 @@ def main():
                                     slot_end_tz = slot_end.astimezone()
                                     slots.append(
                                         {
-                                            "type": "regular",
+                                            "type": "offline_task",
                                             "start": slot_start_tz,
                                             "end": slot_end_tz,
                                             "duration": slot_duration,
