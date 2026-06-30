@@ -258,6 +258,9 @@ from report_pipeline import (
     merge_overlapping_afk_periods,
 )
 from report_presenters import HierarchicalReport, TimelineReport
+from tw_report.event_filter import EventFilter
+from tw_report.slot_manager import TimelineSlotManager
+from tw_report.offline_processor import OfflineTaskProcessor
 
 # --- Constants and Configuration ---
 
@@ -3324,6 +3327,19 @@ def main():
         search_term  # Set search term from positional args (None if not provided)
     )
 
+    # Create unified event filter for consistent filtering across all entry types
+    event_filter = EventFilter(
+        project_patterns=args.project or [],
+        task_patterns=args.task or [],
+        app_patterns=args.app or [],
+        exclude_projects=args.exclude_project or [],
+        exclude_tasks=args.exclude_task or [],
+        exclude_apps=args.exclude_app or [],
+        exclude_non_project=args.exclude_non_project,
+        exact_match=args.exact,
+        search_term=args.search,
+    )
+
     start_time, end_time = parse_period(period)
     categories_json = load_categories(args.categories)
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
@@ -3420,179 +3436,16 @@ def main():
         excluded=_excluded,
     )
 
-    # Collect and aggregate OFFLINE task events (tagged "offline")
-    # For each (project, task) pair with OFFLINE tag, calculate duration as
-    # the span from the earliest start to the latest end across all events.
+    # Process OFFLINE task events using the extracted OfflineTaskProcessor
+    # This replaces ~150 lines of scattered logic with a clean, testable class
     offline_task_durations: Dict[Tuple[str, str], timedelta] = {}
     if task_events:
-        offline_events_by_key: Dict[Tuple[str, str], List[Event]] = {}
-        for event in task_events:
-            if task_has_offline_tag(event):
-                task_name, project = get_task_info(event)
-                key = (project, task_name)
-                if key not in offline_events_by_key:
-                    offline_events_by_key[key] = []
-                offline_events_by_key[key].append(event)
-
-        # Calculate actual duration for each OFFLINE task (sum of sandwiched sessions)
-        # A session = Event1 + Gap + Event2, sandwiched if no other tasks/interruptions
-        for key, events in offline_events_by_key.items():
-            sorted_events = sorted(events, key=lambda e: e.timestamp)
-
-            total_offline_time = timedelta(0)
-            valid_sessions = []
-
-            # Process each pair of consecutive events
-            for i in range(len(sorted_events) - 1):
-                event1 = sorted_events[i]
-                event2 = sorted_events[i + 1]
-
-                event1_end = event1.timestamp + event1.duration
-                gap_start = event1_end
-                gap_end = event2.timestamp
-                session_start = event1.timestamp
-                session_end = event2.timestamp + event2.duration
-
-                gap = gap_end - gap_start
-                session_duration = event1.duration + gap + event2.duration
-
-                # Check if any OTHER tasks were active during this entire session
-                other_task_active = False
-                for other_event in task_events:
-                    other_key = (
-                        get_task_info(other_event)[1],
-                        get_task_info(other_event)[0],
-                    )
-                    if other_key == key:  # Skip events from this same task
-                        continue
-                    # Check if other task overlaps with session
-                    if (
-                        other_event.timestamp < session_end
-                        and other_event.timestamp + other_event.duration > session_start
-                    ):
-                        other_task_active = True
-                        break
-
-                # Check if there are unassigned window events during the gap
-                unassigned_window_active = False
-                for window_event in window_events:
-                    # Check if window event overlaps with gap
-                    if (
-                        window_event.timestamp < gap_end
-                        and window_event.timestamp + window_event.duration > gap_start
-                    ):
-                        # This window event is during the gap - check if it has a task
-                        has_task = False
-                        for task_event in task_events:
-                            if (
-                                task_event.timestamp
-                                < window_event.timestamp + window_event.duration
-                                and task_event.timestamp + task_event.duration
-                                > window_event.timestamp
-                            ):
-                                has_task = True
-                                break
-                        if not has_task:
-                            unassigned_window_active = True
-                            break
-
-                # Only add this session if no other task was active AND no unassigned window events in gap
-                if not other_task_active and not unassigned_window_active:
-                    total_offline_time += session_duration
-                    valid_sessions.append((i, session_duration))
-
-            offline_task_durations[key] = total_offline_time
-
-            # Debug: show which sessions were valid for this task
-            if os.environ.get("DEBUG_OFFLINE"):
-                project, task_name = key
-                print(
-                    f"\n[DEBUG] OFFLINE task: {project} > {task_name}", file=sys.stderr
-                )
-                print(
-                    f"[DEBUG] Found {len(sorted_events)} raw task event(s):",
-                    file=sys.stderr,
-                )
-                for i, e in enumerate(sorted_events, 1):
-                    e_start = e.timestamp.astimezone().strftime("%Y-%m-%d %H:%M:%S")
-                    e_end = (
-                        (e.timestamp + e.duration)
-                        .astimezone()
-                        .strftime("%Y-%m-%d %H:%M:%S")
-                    )
-                    e_duration = e.duration.total_seconds()
-                    print(
-                        f"[DEBUG]   Event {i}: {e_start} to {e_end} ({e_duration:.0f}s)",
-                        file=sys.stderr,
-                    )
-
-                # Show all sessions with validation
-                print(f"[DEBUG] Sessions (Event + Gap + Event):", file=sys.stderr)
-                for i in range(len(sorted_events) - 1):
-                    event1 = sorted_events[i]
-                    event2 = sorted_events[i + 1]
-                    event1_end = event1.timestamp + event1.duration
-                    session_start = event1.timestamp
-                    session_end = event2.timestamp + event2.duration
-                    gap = event2.timestamp - event1_end
-                    session_duration = event1.duration + gap + event2.duration
-
-                    # Check validation
-                    other_task_active = False
-                    for other_event in task_events:
-                        other_key = (
-                            get_task_info(other_event)[1],
-                            get_task_info(other_event)[0],
-                        )
-                        if other_key == key:
-                            continue
-                        if (
-                            other_event.timestamp < session_end
-                            and other_event.timestamp + other_event.duration
-                            > session_start
-                        ):
-                            other_task_active = True
-                            break
-
-                    unassigned_window_active = False
-                    for window_event in window_events:
-                        if (
-                            window_event.timestamp < event2.timestamp
-                            and window_event.timestamp + window_event.duration
-                            > event1_end
-                        ):
-                            has_task = False
-                            for task_event in task_events:
-                                if (
-                                    task_event.timestamp
-                                    < window_event.timestamp + window_event.duration
-                                    and task_event.timestamp + task_event.duration
-                                    > window_event.timestamp
-                                ):
-                                    has_task = True
-                                    break
-                            if not has_task:
-                                unassigned_window_active = True
-                                break
-
-                    status = ""
-                    if other_task_active:
-                        status = " [EXCLUDED: OTHER TASK]"
-                    elif unassigned_window_active:
-                        status = " [EXCLUDED: UNASSIGNED WINDOW]"
-                    else:
-                        status = " [VALID]"
-
-                    dur_str = f"{session_duration.total_seconds() / 3600:.1f}h"
-                    print(
-                        f"[DEBUG]   Session {i + 1}: Event{i + 1} + Gap + Event{i + 2} = {dur_str}{status}",
-                        file=sys.stderr,
-                    )
-
-                print(
-                    f"[DEBUG] Total offline time: {offline_task_durations[key]}",
-                    file=sys.stderr,
-                )
+        offline_processor = OfflineTaskProcessor(
+            task_events=task_events,
+            window_events=window_events,
+            event_filter=event_filter,
+        )
+        offline_task_durations = offline_processor.process()
 
     # Exclude window events correlated with OFFLINE tasks — their time comes from
     # the raw task event duration, not from window activity.
@@ -3819,39 +3672,12 @@ def main():
             window_events=window_events,
         )
 
-        # Filter gap_entries based on user's search/project/task/app filters
-        search_value = getattr(args, "search", None)
-        has_filters = bool(search_value or args.project or args.task or args.app)
-        if has_filters:
-            filtered_gaps = []
-            for gap in gap_entries:
-                project = gap.get("project", NO_PROJECT)
-                task = gap.get("task", NO_TASK)
-
-                # Apply exclusions first
-                if _excluded(project, args.exclude_project) or _excluded(
-                    task, args.exclude_task
-                ):
-                    continue
-
-                # Check if gap matches any filter
-                gap_matches = False
-                if search_value:
-                    gap_matches = _matches_any(
-                        project, [search_value], args.exact
-                    ) or _matches_any(task, [search_value], args.exact)
-                if args.project:
-                    gap_matches = gap_matches or _matches_any(
-                        project, args.project, args.exact
-                    )
-                if args.task:
-                    gap_matches = gap_matches or _matches_any(
-                        task, args.task, args.exact
-                    )
-
-                if gap_matches:
-                    filtered_gaps.append(gap)
-            gap_entries = filtered_gaps
+        # Filter gap_entries using unified EventFilter for consistency
+        # (replaces 50+ lines of scattered filter logic)
+        gap_entries = [
+            g for g in gap_entries
+            if event_filter.should_include_entry(g, entry_type=g.get("type", "gap"))
+        ]
 
         # FIX: --exclude-offline should only remove machine-off gaps, not AFK slots
         if args.exclude_offline:
@@ -3860,14 +3686,6 @@ def main():
         # FIX: --exclude-afk removes AFK period slots from the timeline
         if args.exclude_afk:
             gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
-
-        # FIX: --exclude-non-project should suppress AFK slots that have no active task
-        if args.exclude_non_project:
-            gap_entries = [
-                g
-                for g in gap_entries
-                if not (g.get("type") == "afk" and g.get("project") == NO_PROJECT)
-            ]
 
         slots = sorted(slots + gap_entries, key=lambda s: s["start"])
 
@@ -3879,8 +3697,10 @@ def main():
         # Optionally consolidate sessions: merge consecutive sessions of the same task
         # unless interrupted by another task
         if args.consolidate:
-            slots = consolidate_timeline_slots(
-                slots, ignore_offline=getattr(args, "ignore_offline", False)
+            slot_manager = TimelineSlotManager(None, event_filter)
+            slot_manager.add_slots(slots)
+            slots = slot_manager.consolidate(
+                ignore_offline=getattr(args, "ignore_offline", False)
             )
 
         TimelineReport(print_timeline_report).present(
