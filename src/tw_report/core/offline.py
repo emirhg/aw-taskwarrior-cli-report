@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 from aw_core.models import Event
 
 if TYPE_CHECKING:
-    from tw_report.event_filter import EventFilter
+    from tw_report.core.filtering import EventFilter
 
 
 class OfflineTaskProcessor:

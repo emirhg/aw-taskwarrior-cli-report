@@ -19,8 +19,8 @@ class TestBasicConsolidation:
 
     def test_consolidate_same_project_task_date(self):
         """Should merge slots for same (date, project, task)."""
-        from tw_report.slot_manager import TimelineSlotManager
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.consolidation import TimelineSlotManager
+        from tw_report.core.filtering import EventFilter
         from datetime import datetime, timezone
 
         dt = datetime(2026, 6, 27, tzinfo=timezone.utc)
@@ -53,8 +53,8 @@ class TestBasicConsolidation:
 
     def test_consolidate_different_tasks_no_merge(self):
         """Should NOT merge different tasks even on same date."""
-        from tw_report.slot_manager import TimelineSlotManager
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.consolidation import TimelineSlotManager
+        from tw_report.core.filtering import EventFilter
         from datetime import datetime, timezone
 
         dt = datetime(2026, 6, 27, tzinfo=timezone.utc)
@@ -85,8 +85,8 @@ class TestBasicConsolidation:
 
     def test_consolidate_different_projects_no_merge(self):
         """Should NOT merge different projects."""
-        from tw_report.slot_manager import TimelineSlotManager
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.consolidation import TimelineSlotManager
+        from tw_report.core.filtering import EventFilter
         from datetime import datetime, timezone
 
         dt = datetime(2026, 6, 27, tzinfo=timezone.utc)
@@ -117,8 +117,8 @@ class TestBasicConsolidation:
 
     def test_consolidate_different_dates_no_merge(self):
         """Should NOT merge slots from different dates."""
-        from tw_report.slot_manager import TimelineSlotManager
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.consolidation import TimelineSlotManager
+        from tw_report.core.filtering import EventFilter
         from datetime import datetime, timezone
 
         tz = timezone.utc
@@ -178,8 +178,8 @@ class TestConsolidationWithOfflineGaps:
 
         AFTER FIX: Creates 1 consolidated slot (FIXED!)
         """
-        from tw_report.slot_manager import TimelineSlotManager
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.consolidation import TimelineSlotManager
+        from tw_report.core.filtering import EventFilter
         from datetime import datetime, timezone
 
         dt = datetime(2026, 6, 27, tzinfo=timezone.utc)
@@ -224,8 +224,8 @@ class TestConsolidationWithOfflineGaps:
 
         Task with 5 internal gaps should consolidate into single slot.
         """
-        from tw_report.slot_manager import TimelineSlotManager
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.consolidation import TimelineSlotManager
+        from tw_report.core.filtering import EventFilter
         from datetime import datetime, timezone
 
         dt = datetime(2026, 6, 27, tzinfo=timezone.utc)
@@ -275,8 +275,8 @@ class TestConsolidationWithOfflineGaps:
         Task A + OFFLINE gap + Task B
         EXPECTED: 2 separate slots (not consolidated because different task)
         """
-        from tw_report.slot_manager import TimelineSlotManager
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.consolidation import TimelineSlotManager
+        from tw_report.core.filtering import EventFilter
         from datetime import datetime, timezone
 
         dt = datetime(2026, 6, 27, tzinfo=timezone.utc)

@@ -227,6 +227,14 @@ W26 2026-06-28 Sun
 ================================
 """
 
+# Add src directory to path so we can import tw_report package
+import sys
+import os as _os
+_script_dir = _os.path.dirname(_os.path.abspath(__file__))
+_src_dir = _os.path.join(_script_dir, "src")
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
+
 import argparse
 import json
 import os
@@ -250,17 +258,17 @@ except ImportError:
     print("Please install them with: pip install aw-client", file=sys.stderr)
     exit(1)
 
-from report_pipeline import (
+from tw_report.pipeline.processors import (
     aggregate_hierarchy,
     build_canonical_events,
     build_context,
     compute_metrics,
     merge_overlapping_afk_periods,
 )
-from report_presenters import HierarchicalReport, TimelineReport
-from tw_report.event_filter import EventFilter
-from tw_report.slot_manager import TimelineSlotManager
-from tw_report.offline_processor import OfflineTaskProcessor
+from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
+from tw_report.core.filtering import EventFilter
+from tw_report.core.consolidation import TimelineSlotManager
+from tw_report.core.offline import OfflineTaskProcessor
 
 # --- Constants and Configuration ---
 

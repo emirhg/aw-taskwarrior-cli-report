@@ -20,7 +20,7 @@ class TestEventFilterBasics:
 
     def test_no_filter_accepts_all_entries(self, filter_no_options):
         """With no filters, should accept all entries."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter()
         entry = {"project": "Climb", "task": "Task1"}
@@ -28,7 +28,7 @@ class TestEventFilterBasics:
 
     def test_no_filter_accepts_no_project(self, filter_no_options):
         """With no filters, even NO_PROJECT entries should be accepted."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter()
         entry = {"project": "NO_PROJECT", "task": "NO_TASK"}
@@ -42,7 +42,7 @@ class TestExcludeNonProjectFilter:
         self, filter_exclude_non_project, issue_1_no_project_entry
     ):
         """--exclude-non-project should remove regular entries with NO_PROJECT."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(exclude_non_project=True)
         entry = {
@@ -54,7 +54,7 @@ class TestExcludeNonProjectFilter:
 
     def test_exclude_non_project_keeps_tracked_entries(self, filter_exclude_non_project):
         """--exclude-non-project should keep entries with a project."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(exclude_non_project=True)
         entry = {
@@ -68,7 +68,7 @@ class TestExcludeNonProjectFilter:
         self, filter_exclude_non_project
     ):
         """--exclude-non-project should remove AFK gaps without project/task."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(exclude_non_project=True)
         entry = {
@@ -90,7 +90,7 @@ class TestExcludeNonProjectFilter:
         Previously OFFLINE gaps were NOT filtered while AFK gaps were.
         Now they are filtered consistently.
         """
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(exclude_non_project=True)
         entry = {
@@ -111,7 +111,7 @@ class TestExcludeNonProjectFilter:
         THIS IS PART OF ISSUE #1 FIX:
         Synthetic slots created for offline-tagged tasks are now filtered consistently.
         """
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(exclude_non_project=True)
         entry = {
@@ -129,7 +129,7 @@ class TestProjectPatternFiltering:
 
     def test_project_pattern_substring_match(self):
         """Project pattern should match substrings (default exact_match=False)."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(project_patterns=["Climb"])
         entry = {"project": "Climb > Task > Subtask", "task": "Work"}
@@ -138,7 +138,7 @@ class TestProjectPatternFiltering:
 
     def test_project_pattern_exact_match_mode(self):
         """With exact_match=True, should only match exact strings."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(project_patterns=["Climb"], exact_match=True)
         entry1 = {"project": "Climb", "task": "Work"}
@@ -149,7 +149,7 @@ class TestProjectPatternFiltering:
 
     def test_project_filter_multiple_patterns_or_logic(self):
         """Multiple project patterns should use OR logic."""
-        from tw_report.event_filter import EventFilter
+        from tw_report.core.filtering import EventFilter
 
         f = EventFilter(project_patterns=["Climb", "Mercado"])
         entry1 = {"project": "Climb", "task": "Task1"}

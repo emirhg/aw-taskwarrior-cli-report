@@ -5,7 +5,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from aw_core.models import Event
 from aw_transform import filter_period_intersect
 
-from report_models import ReportContext, ReportEvent, ReportMetrics
+from tw_report.pipeline.models import ReportContext, ReportEvent, ReportMetrics
 
 
 def _overlaps(event: Event, other: Event) -> bool:
