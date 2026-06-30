@@ -3066,10 +3066,12 @@ def print_timeline_report(
             duration_str = format_duration(duration_val)
             start_str = offline_task_slot["start"].strftime("%H:%M")
 
-            # Format: HH:MM  ▶ Project > Task                                                                               ( duration )
+            # Format: HH:MM       ▶ Project > Task                                                                         ( duration )
+            # Pad time to 11 chars (matching time range width) for column alignment
             # No productivity percentage for offline_task entries
             content = f"▶ {project_name} > {task_name}"
-            left = f"             {start_str}  {content}"
+            time_padded = start_str.ljust(11)
+            left = f"       {time_padded}  {content}"
             right = f"( {duration_str} )"
             print(format_timeline_line(left, right, max_left_width=95))
             # offline_task slots are NOT added to day_duration or week_duration
