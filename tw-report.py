@@ -762,6 +762,23 @@ def format_duration_with_gaps(
     return base_format
 
 
+def format_offline_task_duration(total_duration: timedelta, gap_duration: timedelta) -> str:
+    """Format duration for offline tasks showing gap (OFF) and online time split.
+
+    Returns format: (HH:MM:SS OFF)  HH:MM:SS  [prod XX%]
+    where the last segment is online_duration / total_duration × 100.
+    """
+    online_duration = total_duration - gap_duration
+    gap_str = format_duration(gap_duration)
+    online_str = format_duration(online_duration)
+    if total_duration.total_seconds() > 0:
+        pct = online_duration.total_seconds() / total_duration.total_seconds() * 100
+        label = f"[prod {pct:>3.0f}%]"
+    else:
+        label = "[prod   0%]"
+    return f"({gap_str} OFF)  {online_str}  {label:>11}"
+
+
 def get_bucket_id(bucket_name: str) -> str:
     """Construct the full bucket ID from its name and the machine's hostname."""
     hostname = platform.node()
@@ -3077,23 +3094,14 @@ def print_timeline_report(
             )
             task_name = offline_task_slot.get("task", NO_TASK)
             duration_val = offline_task_slot.get("duration", timedelta(0))
-            duration_str = format_duration(duration_val)
+            gap_duration = offline_task_slot.get("gap_duration", timedelta(0))
             start_str = offline_task_slot["start"].strftime("%H:%M")
 
-            # Format OFFLINE task entries to align with regular time entries:
-            # CRITICAL: Use 13 fixed spaces (not padding) for indent, then HH:MM, then 2 spaces
-            # Duration MUST be right-aligned like other entries (ljust to 21 chars)
-            # This ensures column alignment: content on left, duration right-padded to match width of other durations
-            #
-            # Regular entry:   10:26-11:07  ▶ Project > Task  0:39:38  [prod  70%]
-            # OFFLINE entry:   13:01        ▶ Project > Task  (6:49:43)
-            #                  ^^^^^^^^^^^  (13 chars indent + time)
+            # Format OFFLINE task entries with gap (OFF) and online duration split
             content = f"▶ {project_name} > {task_name}"
             time_padded = start_str
             left = f"             {time_padded}  {content}"
-            # Right-pad duration to 21 chars to align with format_duration_with_afk output width
-            duration_formatted = f"({duration_str})".ljust(21)
-            # IMPORTANT: Pass duration as separate arg to format_timeline_line for proper right-alignment
+            duration_formatted = format_offline_task_duration(duration_val, gap_duration)
             print(format_timeline_line(left, duration_formatted, max_left_width=95))
             # offline_task slots are NOT added to day_duration or week_duration
             continue
@@ -3487,13 +3495,14 @@ def main():
     # Process OFFLINE task events using the extracted OfflineTaskProcessor
     # This replaces ~150 lines of scattered logic with a clean, testable class
     offline_task_durations: Dict[Tuple[str, str], timedelta] = {}
+    offline_gap_durations: Dict[Tuple[str, str], timedelta] = {}
     if task_events:
         offline_processor = OfflineTaskProcessor(
             task_events=task_events,
             window_events=window_events,
             event_filter=event_filter,
         )
-        offline_task_durations = offline_processor.process()
+        offline_task_durations, offline_gap_durations = offline_processor.process()
 
     # Exclude window events correlated with OFFLINE tasks — their time comes from
     # the raw task event duration, not from window activity.
@@ -3694,6 +3703,7 @@ def main():
                                             "start": slot_start_tz,
                                             "end": slot_end_tz,
                                             "duration": slot_duration,
+                                            "gap_duration": offline_gap_durations.get(key, timedelta(0)),
                                             "productive_duration": timedelta(0),
                                             "project": project,
                                             "task": task_name,

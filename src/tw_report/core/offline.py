@@ -45,8 +45,9 @@ class OfflineTaskProcessor:
         self.window_events = window_events
         self.event_filter = event_filter
         self.offline_durations: Dict[Tuple[str, str], timedelta] = {}
+        self.offline_gap_durations: Dict[Tuple[str, str], timedelta] = {}
 
-    def process(self) -> Dict[Tuple[str, str], timedelta]:
+    def process(self) -> Tuple[Dict[Tuple[str, str], timedelta], Dict[Tuple[str, str], timedelta]]:
         """
         Process all OFFLINE-tagged tasks.
 
@@ -54,18 +55,21 @@ class OfflineTaskProcessor:
         slots created later will respect --exclude-non-project and other filters.
 
         Returns:
-            Dictionary mapping (project, task) tuples to their durations
+            Tuple of (total_durations, gap_durations) dictionaries, both mapping
+            (project, task) tuples to their respective timedeltas
         """
         self._calculate_durations()
 
-        # NEW: Apply filter to results (Issue #1 fix)
+        # Apply filter to results (Issue #1 fix)
         filtered = {}
+        filtered_gaps = {}
         for (project, task), duration in self.offline_durations.items():
             entry = {"project": project, "task": task, "type": "offline_task"}
             if self.event_filter.should_include_entry(entry, "offline_task"):
                 filtered[(project, task)] = duration
+                filtered_gaps[(project, task)] = self.offline_gap_durations.get((project, task), timedelta(0))
 
-        return filtered
+        return filtered, filtered_gaps
 
     def _calculate_durations(self) -> None:
         """
@@ -97,6 +101,7 @@ class OfflineTaskProcessor:
         for key, events in offline_events_by_key.items():
             sorted_events = sorted(events, key=lambda e: e.timestamp)
             total_offline_time = timedelta(0)
+            gap_time = timedelta(0)
 
             # Sum all individual event durations (actual work time)
             for event in sorted_events:
@@ -116,9 +121,11 @@ class OfflineTaskProcessor:
                 if not self._other_task_interrupts(key, session_start, session_end):
                     if not self._unassigned_window_in_gap(event1_end, event2.timestamp):
                         # Gap is uninterrupted, include it as part of work time
+                        gap_time += gap
                         total_offline_time += gap
 
             self.offline_durations[key] = total_offline_time
+            self.offline_gap_durations[key] = gap_time
 
     def _task_has_offline_tag(self, task_event: Event) -> bool:
         """
