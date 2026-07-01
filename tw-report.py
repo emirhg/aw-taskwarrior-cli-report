@@ -3717,36 +3717,29 @@ def main():
                                     else list(raw_tags)
                                 )
 
-                                # Only add if not already in slots (avoid duplicates)
-                                existing = [
-                                    s
-                                    for s in slots
-                                    if s.get("project") == project
-                                    and s.get("task") == task_name
-                                ]
-                                if not existing:
-                                    slot_start_tz = slot_start.astimezone()
-                                    slot_end_tz = slot_end.astimezone()
-                                    slots.append(
-                                        {
-                                            "type": "offline_task",
-                                            "start": slot_start_tz,
-                                            "end": slot_end_tz,
-                                            "duration": slot_duration,
-                                            "event_duration": offline_event_durations.get(key, timedelta(0)),
-                                            "productive_duration": timedelta(0),
-                                            "project": project,
-                                            "task": task_name,
-                                            "tags": task_tags,
-                                            "categories": [
-                                                build_offline_category_structure(
-                                                    slot_duration,
-                                                    start_time=slot_start_tz,
-                                                    end_time=slot_end_tz,
-                                                )
-                                            ],
-                                        }
-                                    )
+                                # Add the slot (allow multiple entries for same task if split by interruptions)
+                                slot_start_tz = slot_start.astimezone()
+                                slot_end_tz = slot_end.astimezone()
+                                slots.append(
+                                    {
+                                        "type": "offline_task",
+                                        "start": slot_start_tz,
+                                        "end": slot_end_tz,
+                                        "duration": slot_duration,
+                                        "event_duration": offline_event_durations.get(key, timedelta(0)),
+                                        "productive_duration": timedelta(0),
+                                        "project": project,
+                                        "task": task_name,
+                                        "tags": task_tags,
+                                        "categories": [
+                                            build_offline_category_structure(
+                                                slot_duration,
+                                                start_time=slot_start_tz,
+                                                end_time=slot_end_tz,
+                                            )
+                                        ],
+                                    }
+                                )
 
         slots = sorted(slots, key=lambda s: s["start"])
 
