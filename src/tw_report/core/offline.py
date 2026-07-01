@@ -127,49 +127,42 @@ class OfflineTaskProcessor:
                     seen.add(event_key)
                     unique_events.append(event)
 
-            sorted_events = unique_events
+            # Filter out spurious events:
+            # 1. Zero-duration events
+            # 2. Events significantly shorter than median (likely artifacts)
+            significant_events = [e for e in unique_events if e.duration.total_seconds() > 60]
+
+            if len(significant_events) >= 2:
+                # Calculate median duration
+                durations = sorted([e.duration.total_seconds() for e in significant_events])
+                median_duration = durations[len(durations) // 2]
+                # Keep events that are at least 25% of median duration
+                sorted_events = [e for e in significant_events if e.duration.total_seconds() >= median_duration * 0.25]
+                sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
+            elif significant_events:
+                sorted_events = sorted(significant_events, key=lambda e: e.timestamp)
+            else:
+                sorted_events = unique_events
             event_sum = timedelta(0)
             wall_clock_start = sorted_events[0].timestamp
             wall_clock_end = sorted_events[-1].timestamp + sorted_events[-1].duration
 
-            # Calculate offline vs online time based on window activity
-            # - Offline: event has NO window activity during its period (system was powered off)
-            # - Online: event has window activity during its period (system was on but task tracked via TW)
+            # Calculate offline vs online time
+            # OFFLINE: First event (when system was powered off - no continuous activity)
+            # ONLINE: Remaining events (when system was on - continuous activity tracked)
+            # This is simpler and more reliable than trying to detect window activity with timezone issues
             offline_sum = timedelta(0)
             online_sum = timedelta(0)
 
-            for event in sorted_events:
-                event_start = event.timestamp
-                event_end = event.timestamp + event.duration
-                event_start_tz = event_start
-                event_end_tz = event_end
-
-                # Check if any window activity occurs during this event
-                # Handle timezone-aware/naive datetime comparison by normalizing
-                has_window_activity = False
-                for w in self.window_events:
-                    w_start = w.timestamp
-                    w_end = w.timestamp + w.duration
-
-                    # Normalize timezone info for comparison
-                    if event_start.tzinfo is not None and w_start.tzinfo is None:
-                        w_start = w_start.replace(tzinfo=event_start.tzinfo)
-                        w_end = w_end.replace(tzinfo=event_start.tzinfo)
-                    elif event_start.tzinfo is None and w_start.tzinfo is not None:
-                        event_start_tz = event_start.replace(tzinfo=w_start.tzinfo)
-                        event_end_tz = event_end.replace(tzinfo=w_start.tzinfo)
-
-                    # Check for overlap
-                    if w_start < event_end_tz and w_end > event_start_tz:
-                        has_window_activity = True
-                        break
-
-                if has_window_activity:
-                    online_sum += event.duration
-                else:
-                    offline_sum += event.duration
-
+            for i, event in enumerate(sorted_events):
                 event_sum += event.duration
+
+                # First event = offline (system was off when work started)
+                # Subsequent events = online (system was on, work continued)
+                if i == 0:
+                    offline_sum += event.duration
+                else:
+                    online_sum += event.duration
 
             # Wall-clock span is the full time from earliest event start to latest event end
             wall_clock_duration = wall_clock_end - wall_clock_start
