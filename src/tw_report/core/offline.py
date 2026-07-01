@@ -5,6 +5,23 @@ This module extracts and centralizes OFFLINE task handling that was previously
 scattered in tw-report.py. It handles detection, validation, and duration
 calculation for tasks with the 'offline' tag.
 
+OFFLINE TASK DEFINITION:
+An offline task is work done while the system is completely offline (powered off or
+severely disconnected). Within an offline task's time span:
+- offline_time = periods where the AFK bucket has NO events (system was truly off)
+- online_time = periods where the AFK bucket HAS events (system was on but task was being worked)
+
+EXPECTED OUTPUT (for a task worked 13:01-18:16):
+- Display: (3:04:00 OFF)  1:52:16  [prod  37%]
+- Interpretation: 3:04 hours system-off, 1:52:16 hours system-on, total 5:00:00
+
+CALCULATION:
+1. Collect all TaskWarrior events with 'offline' tag for the task
+2. Find wall-clock span: min(event_start) to max(event_end)
+3. Sum all event durations = online_time (when system was on)
+4. offline_time = wall_clock_span - online_time
+5. prod% = online_time / wall_clock_span × 100
+
 ISSUE #1 FIX: OFFLINE task results are now filtered consistently using
 EventFilter, preventing 0:00:00 duration display in consolidated reports.
 """
@@ -100,19 +117,50 @@ class OfflineTaskProcessor:
         # Calculate duration for each task
         for key, events in offline_events_by_key.items():
             sorted_events = sorted(events, key=lambda e: e.timestamp)
+
+            # Deduplicate events by (timestamp, duration) to avoid counting identical entries twice
+            seen = set()
+            unique_events = []
+            for event in sorted_events:
+                event_key = (event.timestamp, event.duration)
+                if event_key not in seen:
+                    seen.add(event_key)
+                    unique_events.append(event)
+
+            sorted_events = unique_events
             event_sum = timedelta(0)
             wall_clock_start = sorted_events[0].timestamp
             wall_clock_end = sorted_events[-1].timestamp + sorted_events[-1].duration
 
-            # Sum all individual event durations (actual logged work time)
+            # Calculate offline vs online time based on window activity
+            # - Offline: event has NO window activity during its period (system was powered off)
+            # - Online: event has window activity during its period (system was on but task tracked via TW)
+            offline_sum = timedelta(0)
+            online_sum = timedelta(0)
+
             for event in sorted_events:
+                event_start = event.timestamp
+                event_end = event.timestamp + event.duration
+
+                # Check if any window activity occurs during this event
+                has_window_activity = any(
+                    w.timestamp < event_end and w.timestamp + w.duration > event_start
+                    for w in self.window_events
+                )
+
+                if has_window_activity:
+                    online_sum += event.duration
+                else:
+                    offline_sum += event.duration
+
                 event_sum += event.duration
 
             # Wall-clock span is the full time from earliest event start to latest event end
             wall_clock_duration = wall_clock_end - wall_clock_start
 
+            # Store wall-clock duration as total, and event_sum as online (events with window activity)
             self.offline_durations[key] = wall_clock_duration
-            self.offline_event_durations[key] = event_sum
+            self.offline_event_durations[key] = online_sum
 
     def _task_has_offline_tag(self, task_event: Event) -> bool:
         """
