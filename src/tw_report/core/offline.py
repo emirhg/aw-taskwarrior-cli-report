@@ -20,14 +20,17 @@ Key characteristics:
 DETERMINING ONLINE vs OFFLINE TIME:
 
 The AFK bucket provides the ground truth for system state:
-- AFK event present during a time period → system was ON (user could interact)
-- NO AFK event during a time period → system was OFF (no user interaction recorded)
+- AFK event present during a time period → system was ON (AFK or not-AFK status)
+  - "afk" status = user away from keyboard but system running
+  - "not-afk" status = user active at keyboard
+  - BOTH indicate system was powered on and could record activity
+- NO AFK event during a time period → system was OFF (completely powered down)
 
 Therefore, for an OFFLINE task:
-- online_time = sum of AFK event durations that overlap with the task span
-                (periods when system was on and task was being worked)
+- online_time = sum of ALL AFK event durations (afk + not-afk) that overlap with task span
+                (periods when system was on, whether user was present or away)
 - offline_time = task_duration - online_time
-                 (periods when system was off but task was still being worked)
+                 (periods when system was completely off but task was still being worked)
 
 EXAMPLE:
 Task: 13:01-18:15 (5:14:01 total duration)
@@ -74,13 +77,15 @@ class OfflineTaskProcessor:
     DURATION CALCULATION:
 
     The duration of an OFFLINE event is split into two components:
-    1. online_time: Periods when the system WAS powered on (determined by AFK
-                   bucket events - if AFK bucket has events, system was on)
-    2. offline_time: Periods when the system was OFF (no AFK bucket events)
+    1. online_time: Periods when the system WAS powered on and running.
+                   Determined by ALL AFK bucket events (both "afk" and "not-afk" status).
+                   If bucket AFK has an event, system was on.
+    2. offline_time: Periods when the system was completely OFF (no AFK bucket events).
 
     Formula:
         task_duration (from TaskWarrior) = online_time + offline_time
-        online_time = sum(AFK events overlapping task period)
+        online_time = sum(ALL AFK bucket events overlapping task period)
+                    = sum("afk" events) + sum("not-afk" events)
         offline_time = task_duration - online_time
 
     WHY THIS MATTERS:
@@ -466,28 +471,29 @@ class OfflineTaskProcessor:
         Calculate online time during an OFFLINE task period using AFK bucket events.
 
         For OFFLINE events, the system state (on/off) is determined by the AFK bucket:
-        - AFK events = system was ON (user present, could interact)
-        - NO AFK events = system was OFF (no user activity recorded)
+        - AFK bucket has events (any status: "afk" OR "not-afk") = system was ON
+        - NO AFK bucket events = system was OFF (completely powered down)
 
-        online_time = sum of time periods where AFK bucket has events AND
-                      those events overlap with the OFFLINE task's time span
+        online_time = sum of ALL AFK bucket event durations (afk + not-afk) that
+                      overlap with the OFFLINE task's time span
 
-        This is the amount of time during the task that the system was powered on,
-        even though the task was marked as offline. The remaining time
-        (offline_time = task_duration - online_time) is when the system was off.
+        This represents the total amount of time during the task when the system
+        was powered on and could potentially record activity (whether the user was
+        at the keyboard or away). The remaining time (offline_time = task_duration
+        - online_time) is when the system was completely off.
 
         Example:
-        - Task period: 13:01-18:15 (5:14:01)
-        - AFK events in that period: 1:52:36 total
-        - online_time = 1:52:36
-        - offline_time = 5:14:01 - 1:52:36 = 3:21:25
+        - Task period: 13:01-18:15 (5:14:01 total)
+        - AFK bucket events during that period: 1:52:36 (sum of all afk+not-afk)
+        - online_time = 1:52:36 (system was on)
+        - offline_time = 5:14:01 - 1:52:36 = 3:21:25 (system was off)
 
         Args:
             period_start: Start of the offline task period
             period_end: End of the offline task period
 
         Returns:
-            Total online time (sum of AFK event intersections with period)
+            Total online time (sum of ALL AFK event intersections with period)
         """
         online_time = timedelta(0)
 
