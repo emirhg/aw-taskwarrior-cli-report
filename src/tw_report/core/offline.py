@@ -392,10 +392,11 @@ class OfflineTaskProcessor:
         wall_clock_duration = wall_clock_end - wall_clock_start
 
         # Calculate offline vs online time
-        online_sum = timedelta(0)
-        for i, event in enumerate(sorted_events):
-            if i > 0 and event.duration:  # Skip first event (it's offline), sum the rest
-                online_sum += event.duration
+        # Sum ALL event durations (all TW events represent system-on time; gaps between are offline)
+        online_sum = sum(
+            (e.duration for e in sorted_events if e.duration),
+            timedelta(0)
+        )
 
         # Store results
         self.offline_durations[group_key] = wall_clock_duration
