@@ -490,11 +490,13 @@ def parse_period(period_str: str) -> Tuple[datetime, datetime]:
 
     if period_str == ":today":
         start = today_start
-        end = today_end
+        # Query until start of next day to properly capture all events in timezone-aware queries
+        end = today_start + timedelta(days=1) - timedelta(microseconds=1)
     elif period_str == ":yesterday":
         yesterday = today_start - timedelta(days=1)
         start = yesterday
-        end = yesterday.replace(hour=23, minute=59, second=59, microsecond=999999)
+        # Query until start of next day (which is today_start)
+        end = today_start - timedelta(microseconds=1)
     elif period_str == ":week":
         start = today_start - timedelta(days=now.weekday())
         end = today_end
@@ -1953,7 +1955,9 @@ def generate_timeline_data(
             ]
             slot_start = min(event_starts)
             slot_end = max(event_ends)
-            slot_duration = sum((e["event"].duration for e in events), timedelta(0))
+            # Use wall-clock time span, not sum of event durations
+            # (sum excludes gaps/AFK time, but end_time display needs actual span)
+            slot_duration = slot_end - slot_start
 
             # Build nested category structure: {category, duration, start, end, apps: [{app, duration, start, end, titles}]}
             if deduplicate_categories:
@@ -2816,6 +2820,7 @@ def print_timeline_report(
     last_break_start: datetime = None,
     last_break_end: datetime = None,
     last_break_duration: timedelta = None,
+    afk_events: List[Event] = None,
 ):
     """Print a timeline report showing activity as continuous time slots with date/week headers and cumulative totals.
 
@@ -2906,6 +2911,14 @@ def print_timeline_report(
         print("No activity found for the specified period.")
         print("=" * width)
         return
+
+    # DEBUG: Show not-afk periods being used
+    import sys
+    not_afk_periods = [e for e in afk_events if e.data.get("status") == "not-afk"]
+    print(f"DEBUG: Not-afk periods for this report ({len(not_afk_periods)} total):", file=sys.stderr)
+    for e in not_afk_periods:
+        end_time_str = (e.timestamp + e.duration).strftime('%H:%M:%S')
+        print(f"  {e.timestamp.strftime('%H:%M:%S')} - {end_time_str} (UTC)", file=sys.stderr)
 
     # Print column header
     print("Wk  Date       Day")
@@ -3909,6 +3922,7 @@ def main():
             last_break_start=context.metrics.last_break_start,
             last_break_end=context.metrics.last_break_end,
             last_break_duration=context.metrics.last_break_duration,
+            afk_events=afk_events,
         )
     else:
         # If no task_events, treat as non-task-based report regardless of is_task_based_report
