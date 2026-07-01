@@ -230,6 +230,7 @@ W26 2026-06-28 Sun
 # Add src directory to path so we can import tw_report package
 import sys
 import os as _os
+
 _script_dir = _os.path.dirname(_os.path.abspath(__file__))
 _src_dir = _os.path.join(_script_dir, "src")
 if _src_dir not in sys.path:
@@ -3078,15 +3079,21 @@ def print_timeline_report(
             duration_str = format_duration(duration_val)
             start_str = offline_task_slot["start"].strftime("%H:%M")
 
-            # Format: HH:MM       ▶ Project > Task                                                                  ( duration )
-            # Pad time to 11 chars (matching time range width) for column alignment
-            # Include duration in left string (not right-aligned) for proper column alignment
+            # Format OFFLINE task entries to align with regular time entries:
+            # CRITICAL: Use 13 fixed spaces (not padding) for indent, then HH:MM, then 2 spaces
+            # Duration MUST be right-aligned like other entries (ljust to 21 chars)
+            # This ensures column alignment: content on left, duration right-padded to match width of other durations
+            #
+            # Regular entry:   10:26-11:07  ▶ Project > Task  0:39:38  [prod  70%]
+            # OFFLINE entry:   13:01        ▶ Project > Task  (6:49:43)
+            #                  ^^^^^^^^^^^  (13 chars indent + time)
             content = f"▶ {project_name} > {task_name}"
-            time_padded = start_str.ljust(11)
-            left = f"       {time_padded}  {content})"
-            right = f"({duration_str})".ljust(21)
-            # Pass empty duration to format_timeline_line so it doesn't right-align
-            print(format_timeline_line(left, right, max_left_width=95))
+            time_padded = start_str
+            left = f"             {time_padded}  {content}"
+            # Right-pad duration to 21 chars to align with format_duration_with_afk output width
+            duration_formatted = f"({duration_str})".ljust(21)
+            # IMPORTANT: Pass duration as separate arg to format_timeline_line for proper right-alignment
+            print(format_timeline_line(left, duration_formatted, max_left_width=95))
             # offline_task slots are NOT added to day_duration or week_duration
             continue
 
