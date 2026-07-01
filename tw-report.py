@@ -3636,6 +3636,7 @@ def main():
         offline_processor = OfflineTaskProcessor(
             task_events=task_events,
             window_events=window_events,
+            afk_events=afk_events,
             event_filter=event_filter,
             end_time=end_time,
         )

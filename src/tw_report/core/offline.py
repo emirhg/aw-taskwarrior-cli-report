@@ -49,6 +49,7 @@ class OfflineTaskProcessor:
     def __init__(self,
                  task_events: Optional[List[Event]],
                  window_events: List[Event],
+                 afk_events: Optional[List[Event]],
                  event_filter: 'EventFilter',
                  end_time: Optional[datetime] = None):
         """
@@ -57,11 +58,13 @@ class OfflineTaskProcessor:
         Args:
             task_events: List of TaskWarrior events
             window_events: List of window activity events
+            afk_events: List of AFK bucket events (used to determine online/offline time)
             event_filter: EventFilter instance for filtering results
             end_time: End time for the report period (used for incomplete/running tasks)
         """
         self.task_events = task_events or []
         self.window_events = window_events
+        self.afk_events = afk_events or []
         self.event_filter = event_filter
         self.end_time = end_time
         self.offline_durations: Dict[Tuple, timedelta] = {}
@@ -397,17 +400,49 @@ class OfflineTaskProcessor:
 
         wall_clock_duration = wall_clock_end - wall_clock_start
 
-        # Calculate offline vs online time
-        # Sum ALL event durations (all TW events represent system-on time; gaps between are offline)
-        online_sum = sum(
-            (e.duration for e in sorted_events if e.duration),
-            timedelta(0)
+        # Calculate offline vs online time using AFK bucket
+        # online_time = periods where AFK bucket has events (system was on)
+        # offline_time = periods where AFK bucket has NO events (system was off)
+        online_time = self._calculate_online_time_from_afk(
+            wall_clock_start, wall_clock_end
         )
 
         # Store results
         self.offline_durations[group_key] = wall_clock_duration
-        self.offline_event_durations[group_key] = online_sum
+        self.offline_event_durations[group_key] = online_time
         self.event_groups[group_key] = sorted_events  # Store events for this group
+
+    def _calculate_online_time_from_afk(
+        self, period_start: datetime, period_end: datetime
+    ) -> timedelta:
+        """
+        Calculate online time during a period based on AFK bucket events.
+
+        Online time = sum of AFK events that overlap with the period
+        (AFK events indicate system was on; no AFK = system was off)
+
+        Args:
+            period_start: Start of the offline task period
+            period_end: End of the offline task period
+
+        Returns:
+            Total online time (intersection with AFK events)
+        """
+        online_time = timedelta(0)
+
+        for afk_event in self.afk_events:
+            # Check if AFK event overlaps with period
+            afk_start = afk_event.timestamp
+            afk_end = afk_event.timestamp + afk_event.duration
+
+            if afk_start < period_end and afk_end > period_start:
+                # Calculate intersection
+                overlap_start = max(afk_start, period_start)
+                overlap_end = min(afk_end, period_end)
+                overlap = overlap_end - overlap_start
+                online_time += overlap
+
+        return online_time
 
     def get_synthetic_slot(
         self, project: str, task: str, task_events_for_key: List[Event]
