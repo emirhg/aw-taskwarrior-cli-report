@@ -2919,6 +2919,100 @@ def print_timeline_report(
         """Return slot date"""
         return slot["start"].date()
 
+    def split_slots_spanning_days(slots):
+        """
+        Split slots that span multiple days.
+
+        For each slot spanning midnight, creates separate slot entries for each day,
+        with duration proportionally allocated to each day.
+
+        Returns:
+            List of slots, with multi-day slots split into single-day pieces
+        """
+        split_slots = []
+
+        for slot in slots:
+            start_dt = slot["start"]
+            slot_duration = slot.get("actual_duration", slot["duration"])
+            end_dt = start_dt + slot_duration
+
+            start_date = start_dt.date()
+            end_date = end_dt.date()
+
+            # If slot stays within same day, keep as-is
+            if start_date == end_date:
+                split_slots.append(slot)
+                continue
+
+            # Slot spans multiple days - split it
+            current_dt = start_dt
+
+            while current_dt.date() <= end_date:
+                # Determine this day's end boundary (midnight of current day)
+                current_date = current_dt.date()
+                day_end = datetime.combine(
+                    current_date + timedelta(days=1),
+                    datetime.min.time(),
+                    tzinfo=current_dt.tzinfo
+                )
+
+                # Calculate overlap with this day
+                piece_start = current_dt
+                piece_end = min(day_end, end_dt)
+                piece_duration = piece_end - piece_start
+
+                # Create split slot for this day
+                split_slot = slot.copy()
+                split_slot["start"] = piece_start
+                split_slot["duration"] = piece_duration
+
+                # Proportionally allocate actual_duration and productive_duration
+                if slot_duration.total_seconds() > 0:
+                    ratio = piece_duration.total_seconds() / slot_duration.total_seconds()
+                    split_slot["actual_duration"] = piece_duration  # Use actual piece duration
+                    if "productive_duration" in slot:
+                        split_slot["productive_duration"] = timedelta(
+                            seconds=slot["productive_duration"].total_seconds() * ratio
+                        )
+                    # Proportionally allocate AFK and other duration fields
+                    for duration_field in ("afk_duration", "offline_extension_duration"):
+                        if duration_field in slot and slot[duration_field]:
+                            split_slot[duration_field] = timedelta(
+                                seconds=slot[duration_field].total_seconds() * ratio
+                            )
+                else:
+                    split_slot["actual_duration"] = piece_duration
+
+                split_slots.append(split_slot)
+
+                # Move to next day
+                current_dt = day_end
+
+        return split_slots
+
+    # Split slots spanning multiple days
+    slots = split_slots_spanning_days(slots)
+
+    # Filter to only include slots within the requested date range
+    # After splitting, we should only show portions that fall within [start_time, end_time)
+    slots = [
+        s for s in slots
+        if s["start"] < end_time and (s["start"] + s.get("actual_duration", s["duration"])) > start_time
+    ]
+
+    # Recalculate total_time_all after filtering to match the displayed slots
+    all_regular_slots_filtered = [
+        s for s in slots if s.get("type") not in ("offline", "offline_extension")
+    ]
+    total_time_all = sum(
+        (slot.get("actual_duration", slot["duration"]) for slot in all_regular_slots_filtered),
+        timedelta(0),
+    )
+    total_productive_all = sum(
+        (slot.get("productive_duration", timedelta(0)) for slot in all_regular_slots_filtered),
+        timedelta(0),
+    )
+
     # Sort slots by start time
     slots = sorted(slots, key=lambda s: s["start"])
 
