@@ -2926,14 +2926,6 @@ def print_timeline_report(
         print("=" * width)
         return
 
-    # DEBUG: Show not-afk periods being used
-    import sys
-    not_afk_periods = [e for e in afk_events if e.data.get("status") == "not-afk"]
-    print(f"DEBUG: Not-afk periods for this report ({len(not_afk_periods)} total):", file=sys.stderr)
-    for e in not_afk_periods:
-        end_time_str = (e.timestamp + e.duration).strftime('%H:%M:%S')
-        print(f"  {e.timestamp.strftime('%H:%M:%S')} - {end_time_str} (UTC)", file=sys.stderr)
-
     # Print column header
     print("Wk  Date       Day")
 
