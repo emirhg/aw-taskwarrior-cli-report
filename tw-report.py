@@ -762,21 +762,24 @@ def format_duration_with_gaps(
     return base_format
 
 
-def format_offline_task_duration(total_duration: timedelta, gap_duration: timedelta) -> str:
-    """Format duration for offline tasks showing gap (OFF) and online time split.
+def format_offline_task_duration(wall_clock_duration: timedelta, event_duration: timedelta) -> str:
+    """Format duration for offline tasks showing offline (OFF) and online time split.
+
+    Offline time = wall_clock_duration - event_duration (untracked/system-off time)
+    Online time = event_duration (tracked TaskWarrior time)
 
     Returns format: (HH:MM:SS OFF)  HH:MM:SS  [prod XX%]
-    where the last segment is online_duration / total_duration × 100.
+    where the last segment is event_duration / wall_clock_duration × 100.
     """
-    online_duration = total_duration - gap_duration
-    gap_str = format_duration(gap_duration)
-    online_str = format_duration(online_duration)
-    if total_duration.total_seconds() > 0:
-        pct = online_duration.total_seconds() / total_duration.total_seconds() * 100
+    offline_duration = wall_clock_duration - event_duration
+    offline_str = format_duration(offline_duration)
+    online_str = format_duration(event_duration)
+    if wall_clock_duration.total_seconds() > 0:
+        pct = event_duration.total_seconds() / wall_clock_duration.total_seconds() * 100
         label = f"[prod {pct:>3.0f}%]"
     else:
         label = "[prod   0%]"
-    return f"({gap_str} OFF)  {online_str}  {label:>11}"
+    return f"({offline_str} OFF)  {online_str}  {label:>11}"
 
 
 def get_bucket_id(bucket_name: str) -> str:
@@ -2345,6 +2348,18 @@ def _merge_slot_group(group: List[Dict]) -> Dict:
     if merged_categories:
         result["categories"] = merged_categories
 
+    # Preserve type for offline_task entries
+    if first.get("type"):
+        result["type"] = first["type"]
+
+    # Preserve event_duration for offline_task entries (sum from all slots in group)
+    if first.get("type") == "offline_task":
+        event_sum = sum(
+            (s.get("event_duration", timedelta(0)) for s in group),
+            timedelta(0),
+        )
+        result["event_duration"] = event_sum
+
     # Only include afk_duration if there's AFK time
     if afk_duration.total_seconds() > 0:
         result["afk_duration"] = afk_duration
@@ -3093,15 +3108,15 @@ def print_timeline_report(
                 ".", " > "
             )
             task_name = offline_task_slot.get("task", NO_TASK)
-            duration_val = offline_task_slot.get("duration", timedelta(0))
-            gap_duration = offline_task_slot.get("gap_duration", timedelta(0))
+            wall_clock_duration = offline_task_slot.get("duration", timedelta(0))
+            event_duration = offline_task_slot.get("event_duration", timedelta(0))
             start_str = offline_task_slot["start"].strftime("%H:%M")
 
-            # Format OFFLINE task entries with gap (OFF) and online duration split
+            # Format OFFLINE task entries showing offline (system-off) vs online (logged) time
             content = f"▶ {project_name} > {task_name}"
             time_padded = start_str
             left = f"             {time_padded}  {content}"
-            duration_formatted = format_offline_task_duration(duration_val, gap_duration)
+            duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration)
             print(format_timeline_line(left, duration_formatted, max_left_width=95))
             # offline_task slots are NOT added to day_duration or week_duration
             continue
@@ -3495,14 +3510,14 @@ def main():
     # Process OFFLINE task events using the extracted OfflineTaskProcessor
     # This replaces ~150 lines of scattered logic with a clean, testable class
     offline_task_durations: Dict[Tuple[str, str], timedelta] = {}
-    offline_gap_durations: Dict[Tuple[str, str], timedelta] = {}
+    offline_event_durations: Dict[Tuple[str, str], timedelta] = {}
     if task_events:
         offline_processor = OfflineTaskProcessor(
             task_events=task_events,
             window_events=window_events,
             event_filter=event_filter,
         )
-        offline_task_durations, offline_gap_durations = offline_processor.process()
+        offline_task_durations, offline_event_durations = offline_processor.process()
 
     # Exclude window events correlated with OFFLINE tasks — their time comes from
     # the raw task event duration, not from window activity.
@@ -3703,7 +3718,7 @@ def main():
                                             "start": slot_start_tz,
                                             "end": slot_end_tz,
                                             "duration": slot_duration,
-                                            "gap_duration": offline_gap_durations.get(key, timedelta(0)),
+                                            "event_duration": offline_event_durations.get(key, timedelta(0)),
                                             "productive_duration": timedelta(0),
                                             "project": project,
                                             "task": task_name,

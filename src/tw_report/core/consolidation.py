@@ -187,6 +187,14 @@ class TimelineSlotManager:
         if "type" in first:
             result["type"] = first["type"]
 
+        # Preserve event_duration for offline_task entries (sum from all slots in group)
+        if first.get("type") == "offline_task":
+            event_sum = sum(
+                (s.get("event_duration", timedelta(0)) for s in group),
+                timedelta(0),
+            )
+            result["event_duration"] = event_sum
+
         if merged_categories:
             result["categories"] = merged_categories
 

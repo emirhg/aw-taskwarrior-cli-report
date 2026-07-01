@@ -45,7 +45,7 @@ class OfflineTaskProcessor:
         self.window_events = window_events
         self.event_filter = event_filter
         self.offline_durations: Dict[Tuple[str, str], timedelta] = {}
-        self.offline_gap_durations: Dict[Tuple[str, str], timedelta] = {}
+        self.offline_event_durations: Dict[Tuple[str, str], timedelta] = {}
 
     def process(self) -> Tuple[Dict[Tuple[str, str], timedelta], Dict[Tuple[str, str], timedelta]]:
         """
@@ -55,21 +55,21 @@ class OfflineTaskProcessor:
         slots created later will respect --exclude-non-project and other filters.
 
         Returns:
-            Tuple of (total_durations, gap_durations) dictionaries, both mapping
+            Tuple of (wall_clock_durations, event_durations) dictionaries, both mapping
             (project, task) tuples to their respective timedeltas
         """
         self._calculate_durations()
 
         # Apply filter to results (Issue #1 fix)
         filtered = {}
-        filtered_gaps = {}
+        filtered_events = {}
         for (project, task), duration in self.offline_durations.items():
             entry = {"project": project, "task": task, "type": "offline_task"}
             if self.event_filter.should_include_entry(entry, "offline_task"):
                 filtered[(project, task)] = duration
-                filtered_gaps[(project, task)] = self.offline_gap_durations.get((project, task), timedelta(0))
+                filtered_events[(project, task)] = self.offline_event_durations.get((project, task), timedelta(0))
 
-        return filtered, filtered_gaps
+        return filtered, filtered_events
 
     def _calculate_durations(self) -> None:
         """
@@ -100,32 +100,19 @@ class OfflineTaskProcessor:
         # Calculate duration for each task
         for key, events in offline_events_by_key.items():
             sorted_events = sorted(events, key=lambda e: e.timestamp)
-            total_offline_time = timedelta(0)
-            gap_time = timedelta(0)
+            event_sum = timedelta(0)
+            wall_clock_start = sorted_events[0].timestamp
+            wall_clock_end = sorted_events[-1].timestamp + sorted_events[-1].duration
 
-            # Sum all individual event durations (actual work time)
+            # Sum all individual event durations (actual logged work time)
             for event in sorted_events:
-                total_offline_time += event.duration
+                event_sum += event.duration
 
-            # Add validated gaps between consecutive events (breaks during work session)
-            for i in range(len(sorted_events) - 1):
-                event1 = sorted_events[i]
-                event2 = sorted_events[i + 1]
+            # Wall-clock span is the full time from earliest event start to latest event end
+            wall_clock_duration = wall_clock_end - wall_clock_start
 
-                event1_end = event1.timestamp + event1.duration
-                session_start = event1.timestamp
-                session_end = event2.timestamp + event2.duration
-                gap = event2.timestamp - event1_end
-
-                # Validate: No other tasks interrupt this session AND no unassigned activity in gap
-                if not self._other_task_interrupts(key, session_start, session_end):
-                    if not self._unassigned_window_in_gap(event1_end, event2.timestamp):
-                        # Gap is uninterrupted, include it as part of work time
-                        gap_time += gap
-                        total_offline_time += gap
-
-            self.offline_durations[key] = total_offline_time
-            self.offline_gap_durations[key] = gap_time
+            self.offline_durations[key] = wall_clock_duration
+            self.offline_event_durations[key] = event_sum
 
     def _task_has_offline_tag(self, task_event: Event) -> bool:
         """
