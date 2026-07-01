@@ -3639,7 +3639,7 @@ def main():
             event_filter=event_filter,
             end_time=end_time,
         )
-        offline_task_durations, offline_event_durations, offline_event_groups = offline_processor.process()
+        offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
 
     # Exclude window events correlated with OFFLINE tasks — their time comes from
     # the raw task event duration, not from window activity.
@@ -3822,7 +3822,8 @@ def main():
                                 else:
                                     slot_start = min(start_times) if start_times else datetime.now()
                                     slot_end = max(end_times) if end_times else slot_start
-                                slot_duration = offline_duration
+                                # Use the real task duration from TaskWarrior, not the span of AW events
+                                slot_duration = offline_task_real_durations.get(key, offline_duration)
 
                                 # Get tags from any event in this group
                                 raw_tags = task_events_for_key[0].data.get("tags", [])

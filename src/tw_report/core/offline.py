@@ -66,9 +66,10 @@ class OfflineTaskProcessor:
         self.end_time = end_time
         self.offline_durations: Dict[Tuple, timedelta] = {}
         self.offline_event_durations: Dict[Tuple, timedelta] = {}
-        self.event_groups: Dict[Tuple, List[Event]] = {}  # Store events per group
+        self.event_groups: Dict[Tuple, List[Event]] = {}
+        self.task_real_durations: Dict[Tuple, timedelta] = {}  # Store events per group
 
-    def process(self) -> Tuple[Dict, Dict, Dict[Tuple, List[Event]]]:
+    def process(self) -> Tuple[Dict, Dict, Dict[Tuple, List[Event]], Dict]:
         """
         Process all OFFLINE-tagged tasks.
 
@@ -76,7 +77,7 @@ class OfflineTaskProcessor:
         slots created later will respect --exclude-non-project and other filters.
 
         Returns:
-            Tuple of (wall_clock_durations, event_durations, event_groups) dictionaries.
+            Tuple of (wall_clock_durations, event_durations, event_groups, task_real_durations) dictionaries.
             Keys can be 2-element tuples (project, task) or 3-element tuples (project, task, group_idx)
             for split groups.
         """
@@ -86,6 +87,7 @@ class OfflineTaskProcessor:
         filtered = {}
         filtered_events = {}
         filtered_groups = {}
+        filtered_real = {}
         for key, duration in self.offline_durations.items():
             # Extract project and task from key (handle both 2-element and 3-element tuples)
             project = key[0] if isinstance(key, tuple) else ""
@@ -96,8 +98,9 @@ class OfflineTaskProcessor:
                 filtered[key] = duration
                 filtered_events[key] = self.offline_event_durations.get(key, timedelta(0))
                 filtered_groups[key] = self.event_groups.get(key, [])
+                filtered_real[key] = self.task_real_durations.get(key, duration)
 
-        return filtered, filtered_events, filtered_groups
+        return filtered, filtered_events, filtered_groups, filtered_real
 
     def _calculate_durations(self) -> None:
         """
@@ -123,6 +126,9 @@ class OfflineTaskProcessor:
 
                 if key not in offline_events_by_key:
                     offline_events_by_key[key] = []
+                    # Store the real task duration from the first TaskWarrior event
+                    if event.duration:
+                        self.task_real_durations[key] = event.duration
                 offline_events_by_key[key].append(event)
 
         # Calculate duration for each task
