@@ -270,6 +270,7 @@ from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
 from tw_report.core.filtering import EventFilter
 from tw_report.core.consolidation import TimelineSlotManager
 from tw_report.core.offline import OfflineTaskProcessor
+from tw_report.core.timeline import Timeline, TimelineSlot
 
 # --- Constants and Configuration ---
 
@@ -3642,13 +3643,18 @@ def main():
             }
             for rep in context.canonical_events
         ]
-        slots = generate_timeline_data(
+        # Use Timeline for internal slot management (Phase 3 migration)
+        timeline = Timeline()
+
+        # Add slots from timeline data
+        initial_slots = generate_timeline_data(
             timeline_events,
             context.afk_events,
             context.cat_score_map,
             detail_level=args.detail_level,
             deduplicate_categories=args.deduplicate_categories,
         )
+        timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
 
         # Inject synthetic slots for OFFLINE task events
         # (these use aggregated task event duration from span of all events)
@@ -3720,28 +3726,27 @@ def main():
                                 # Add the slot (allow multiple entries for same task if split by interruptions)
                                 slot_start_tz = slot_start.astimezone()
                                 slot_end_tz = slot_end.astimezone()
-                                slots.append(
-                                    {
-                                        "type": "offline_task",
-                                        "start": slot_start_tz,
-                                        "end": slot_end_tz,
-                                        "duration": slot_duration,
-                                        "event_duration": offline_event_durations.get(key, timedelta(0)),
-                                        "productive_duration": timedelta(0),
-                                        "project": project,
-                                        "task": task_name,
-                                        "tags": task_tags,
-                                        "categories": [
-                                            build_offline_category_structure(
-                                                slot_duration,
-                                                start_time=slot_start_tz,
-                                                end_time=slot_end_tz,
-                                            )
-                                        ],
-                                    }
-                                )
+                                offline_slot_dict = {
+                                    "type": "offline_task",
+                                    "start": slot_start_tz,
+                                    "end": slot_end_tz,
+                                    "duration": slot_duration,
+                                    "event_duration": offline_event_durations.get(key, timedelta(0)),
+                                    "productive_duration": timedelta(0),
+                                    "project": project,
+                                    "task": task_name,
+                                    "tags": task_tags,
+                                    "categories": [
+                                        build_offline_category_structure(
+                                            slot_duration,
+                                            start_time=slot_start_tz,
+                                            end_time=slot_end_tz,
+                                        )
+                                    ],
+                                }
+                                timeline.add_from_dict(offline_slot_dict)
 
-        slots = sorted(slots, key=lambda s: s["start"])
+        # Timeline auto-sorts on insertion, no need to manually sort
 
         # Generate AFK slots and OFFLINE markers unconditionally
         # (filtering happens below to allow independent control of each type)
@@ -3769,7 +3774,11 @@ def main():
         if args.exclude_afk:
             gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
 
-        slots = sorted(slots + gap_entries, key=lambda s: s["start"])
+        # Add gap entries to timeline (auto-sorts on insertion)
+        timeline.add_slots([TimelineSlot.from_dict(g) for g in gap_entries])
+
+        # Convert timeline to dicts for downstream processing
+        slots = timeline.get_slots_as_dicts()
 
         # Only attach OFFLINE extensions when offline markers are present
         if not args.exclude_offline:
