@@ -1957,17 +1957,13 @@ def generate_timeline_data(
             slot_end = max(event_ends)
             # Duration fields for the slot:
             # - slot_duration: wall-clock time span (for display end_time calculation)
-            # - actual_duration: intersection of TW task duration with this not-afk period
+            # - actual_duration: TaskWarrior task duration (ground truth)
             slot_duration = slot_end - slot_start
 
-            # Use TaskWarrior task duration as the source of truth, intersected with this not-afk period
+            # Use TaskWarrior task duration as the source of truth
             active_task_event = events[0]["active_task"] if events else None
             if active_task_event and active_task_event.duration:
-                task_start = active_task_event.timestamp
-                task_end = active_task_event.timestamp + active_task_event.duration
-                overlap_start = max(task_start, afk_event.timestamp)
-                overlap_end = min(task_end, afk_event.timestamp + afk_event.duration)
-                actual_duration = max(timedelta(0), overlap_end - overlap_start)
+                actual_duration = active_task_event.duration
             else:
                 # Fallback for --no-taskwarrior mode: sum window event durations
                 actual_duration = sum((e["event"].duration for e in events), timedelta(0))
