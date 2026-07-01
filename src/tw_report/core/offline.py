@@ -49,7 +49,8 @@ class OfflineTaskProcessor:
     def __init__(self,
                  task_events: Optional[List[Event]],
                  window_events: List[Event],
-                 event_filter: 'EventFilter'):
+                 event_filter: 'EventFilter',
+                 end_time: Optional[datetime] = None):
         """
         Initialize processor.
 
@@ -57,10 +58,12 @@ class OfflineTaskProcessor:
             task_events: List of TaskWarrior events
             window_events: List of window activity events
             event_filter: EventFilter instance for filtering results
+            end_time: End time for the report period (used for incomplete/running tasks)
         """
         self.task_events = task_events or []
         self.window_events = window_events
         self.event_filter = event_filter
+        self.end_time = end_time
         self.offline_durations: Dict[Tuple[str, str], timedelta] = {}
         self.offline_event_durations: Dict[Tuple[str, str], timedelta] = {}
 
@@ -128,23 +131,42 @@ class OfflineTaskProcessor:
                     unique_events.append(event)
 
             # Filter out spurious events:
-            # 1. Zero-duration events
+            # 1. Zero-duration events (but keep events without duration - they're running/incomplete)
             # 2. Events significantly shorter than median (likely artifacts)
-            significant_events = [e for e in unique_events if e.duration.total_seconds() > 60]
+            significant_events = [
+                e for e in unique_events
+                if e.duration is None or e.duration.total_seconds() > 60
+            ]
 
             if len(significant_events) >= 2:
-                # Calculate median duration
-                durations = sorted([e.duration.total_seconds() for e in significant_events])
-                median_duration = durations[len(durations) // 2]
-                # Keep events that are at least 25% of median duration
-                sorted_events = [e for e in significant_events if e.duration.total_seconds() >= median_duration * 0.25]
-                sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
+                # Calculate median duration (excluding events without duration)
+                durations_with_values = [
+                    e.duration.total_seconds() for e in significant_events
+                    if e.duration is not None
+                ]
+                if durations_with_values:
+                    durations = sorted(durations_with_values)
+                    median_duration = durations[len(durations) // 2]
+                    # Keep events that are at least 25% of median duration, PLUS any events without duration (running tasks)
+                    sorted_events = [
+                        e for e in significant_events
+                        if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
+                    ]
+                    sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
+                else:
+                    # No events with duration (all are running/incomplete)
+                    sorted_events = sorted(significant_events, key=lambda e: e.timestamp)
 
                 # Filter out events separated by large gaps (likely different work sessions)
                 # Keep only continuous or closely-timed events
                 filtered_continuous = [sorted_events[0]]
                 for i in range(1, len(sorted_events)):
-                    prev_end = filtered_continuous[-1].timestamp + filtered_continuous[-1].duration
+                    prev_event = filtered_continuous[-1]
+                    prev_end = (
+                        prev_event.timestamp + prev_event.duration
+                        if prev_event.duration
+                        else (self.end_time if self.end_time else prev_event.timestamp)
+                    )
                     curr_start = sorted_events[i].timestamp
                     gap = curr_start - prev_end
 
@@ -165,7 +187,23 @@ class OfflineTaskProcessor:
                 sorted_events = unique_events
             event_sum = timedelta(0)
             wall_clock_start = sorted_events[0].timestamp
-            wall_clock_end = sorted_events[-1].timestamp + sorted_events[-1].duration
+
+            # Handle wall_clock_end: use the latest end time across all events
+            # If any event has no duration (running/incomplete), extend to report end time
+            wall_clock_end = sorted_events[0].timestamp  # Start with first event's start
+            has_incomplete = False
+
+            for event in sorted_events:
+                if event.duration:
+                    event_end = event.timestamp + event.duration
+                    wall_clock_end = max(wall_clock_end, event_end)
+                else:
+                    # This is a running/incomplete event
+                    has_incomplete = True
+
+            # If any incomplete event found, extend to report end time
+            if has_incomplete and self.end_time:
+                wall_clock_end = self.end_time
 
             # Calculate offline vs online time
             # OFFLINE: First event (when system was powered off - no continuous activity)
@@ -175,7 +213,17 @@ class OfflineTaskProcessor:
             online_sum = timedelta(0)
 
             for i, event in enumerate(sorted_events):
-                event_sum += event.duration
+                # For events without duration, calculate from start to report end or next event
+                if event.duration:
+                    event_duration = event.duration
+                elif i == len(sorted_events) - 1 and self.end_time:
+                    # Last event without duration: extend to report end time
+                    event_duration = self.end_time - event.timestamp
+                else:
+                    # Shouldn't happen, but handle gracefully
+                    event_duration = timedelta(0)
+
+                event_sum += event_duration
 
                 # First event = offline (system was off when work started)
                 # Subsequent events = online (system was on, work continued)

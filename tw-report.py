@@ -3526,6 +3526,7 @@ def main():
             task_events=task_events,
             window_events=window_events,
             event_filter=event_filter,
+            end_time=end_time,
         )
         offline_task_durations, offline_event_durations = offline_processor.process()
 
