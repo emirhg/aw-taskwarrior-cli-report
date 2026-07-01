@@ -765,17 +765,20 @@ def format_duration_with_gaps(
 def format_offline_task_duration(wall_clock_duration: timedelta, event_duration: timedelta) -> str:
     """Format duration for offline tasks showing offline (OFF) and online time split.
 
-    Offline time = wall_clock_duration - event_duration (untracked/system-off time)
-    Online time = event_duration (tracked TaskWarrior time)
+    Offline time = wall_clock_duration - event_duration (system-off time)
+    Online time = event_duration (tracked TaskWarrior time while system was on)
+
+    For offline tasks, ALL offline time is assumed productive (system was off, no distractions).
+    Productivity % = offline_duration / wall_clock_duration × 100
 
     Returns format: (HH:MM:SS OFF)  HH:MM:SS  [prod XX%]
-    where the last segment is event_duration / wall_clock_duration × 100.
     """
     offline_duration = wall_clock_duration - event_duration
     offline_str = format_duration(offline_duration)
     online_str = format_duration(event_duration)
     if wall_clock_duration.total_seconds() > 0:
-        pct = event_duration.total_seconds() / wall_clock_duration.total_seconds() * 100
+        # For offline tasks, productivity = offline time / total (assume all offline work is productive)
+        pct = offline_duration.total_seconds() / wall_clock_duration.total_seconds() * 100
         label = f"[prod {pct:>3.0f}%]"
     else:
         label = "[prod   0%]"
