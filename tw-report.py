@@ -2680,8 +2680,8 @@ def generate_gap_entries(
                     "start": curr_end.astimezone(),
                     "end": next_start.astimezone(),
                     "duration": gap_duration,
-                    "project": "__offline__",
-                    "task": "",
+                    "project": NO_PROJECT,
+                    "task": NO_TASK,
                 }
                 result.append(offline_entry)
 
@@ -2795,9 +2795,10 @@ def print_timeline_report(
     width = get_terminal_width()
     is_single_day = start_time.date() == end_time.date()
     # Use actual_duration for merged slots, duration for others
-    # Exclude AFK and OFFLINE slots from totals (informational only)
+    # Exclude AFK and OFFLINE gap markers from totals (informational only)
+    # Keep offline_task slots (actual work sessions) in totals
     all_regular_slots = [
-        s for s in slots if s.get("type") != "afk" and s.get("type") != "offline"
+        s for s in slots if s.get("type") not in ("afk", "offline", "offline_extension")
     ]
     # Project-tracked time (excluding "No project assigned")
     tracked_slots = [s for s in all_regular_slots if s.get("project") != NO_PROJECT]

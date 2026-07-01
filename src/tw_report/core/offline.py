@@ -97,9 +97,12 @@ class OfflineTaskProcessor:
         for key, events in offline_events_by_key.items():
             sorted_events = sorted(events, key=lambda e: e.timestamp)
             total_offline_time = timedelta(0)
-            valid_sessions = []
 
-            # Process consecutive event pairs (Event1 + Gap + Event2)
+            # Sum all individual event durations (actual work time)
+            for event in sorted_events:
+                total_offline_time += event.duration
+
+            # Add validated gaps between consecutive events (breaks during work session)
             for i in range(len(sorted_events) - 1):
                 event1 = sorted_events[i]
                 event2 = sorted_events[i + 1]
@@ -109,16 +112,11 @@ class OfflineTaskProcessor:
                 session_end = event2.timestamp + event2.duration
                 gap = event2.timestamp - event1_end
 
-                session_duration = event1.duration + gap + event2.duration
-
-                # Validate: No other tasks interrupt this session
+                # Validate: No other tasks interrupt this session AND no unassigned activity in gap
                 if not self._other_task_interrupts(key, session_start, session_end):
-                    # Validate: No unassigned window activity in gap
-                    if not self._unassigned_window_in_gap(
-                        event1_end, event2.timestamp
-                    ):
-                        total_offline_time += session_duration
-                        valid_sessions.append((i, session_duration))
+                    if not self._unassigned_window_in_gap(event1_end, event2.timestamp):
+                        # Gap is uninterrupted, include it as part of work time
+                        total_offline_time += gap
 
             self.offline_durations[key] = total_offline_time
 
