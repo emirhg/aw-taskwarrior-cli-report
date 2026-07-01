@@ -3519,8 +3519,9 @@ def main():
 
     # Process OFFLINE task events using the extracted OfflineTaskProcessor
     # This replaces ~150 lines of scattered logic with a clean, testable class
-    offline_task_durations: Dict[Tuple[str, str], timedelta] = {}
-    offline_event_durations: Dict[Tuple[str, str], timedelta] = {}
+    offline_task_durations: Dict = {}
+    offline_event_durations: Dict = {}
+    offline_event_groups: Dict = {}
     if task_events:
         offline_processor = OfflineTaskProcessor(
             task_events=task_events,
@@ -3528,7 +3529,7 @@ def main():
             event_filter=event_filter,
             end_time=end_time,
         )
-        offline_task_durations, offline_event_durations = offline_processor.process()
+        offline_task_durations, offline_event_durations, offline_event_groups = offline_processor.process()
 
     # Exclude window events correlated with OFFLINE tasks — their time comes from
     # the raw task event duration, not from window activity.
@@ -3577,7 +3578,10 @@ def main():
         search_value = getattr(args, "search", None)
         has_filters = bool(search_value or args.project or args.task or args.app)
 
-        for (project, task_name), offline_duration in offline_task_durations.items():
+        for key, offline_duration in offline_task_durations.items():
+            # Handle both 2-element tuples (project, task) and 3-element tuples (project, task, group_idx)
+            project = key[0]
+            task_name = key[1]
             # Filter OFFLINE tasks based on user's search/project/task/app filters
             if has_filters:
                 # Check if task matches any filter
@@ -3654,77 +3658,56 @@ def main():
             search_value = getattr(args, "search", None)
             has_filters = bool(search_value or args.project or args.task or args.app)
 
-            # Need to get the actual event times for these tasks to use as slot boundaries
+            # Iterate through offline tasks (keys can be 2-element or 3-element tuples)
             if task_events:
-                for event in task_events:
-                    if task_has_offline_tag(event):
-                        task_name, project = get_task_info(event)
+                for key, offline_duration in offline_task_durations.items():
+                    # Extract project and task from key
+                    project = key[0]
+                    task_name = key[1]
 
-                        # Apply filters to OFFLINE tasks
-                        if has_filters:
-                            # Check if task matches any filter
-                            project_match = (
-                                search_value
-                                and _matches_any(project, [search_value], args.exact)
-                            ) or (
-                                args.project
-                                and _matches_any(project, args.project, args.exact)
-                            )
-                            task_match = (
-                                search_value
-                                and _matches_any(task_name, [search_value], args.exact)
-                            ) or (
-                                args.task
-                                and _matches_any(task_name, args.task, args.exact)
-                            )
+                    # Apply filters to OFFLINE tasks
+                    if has_filters:
+                        # Check if task matches any filter
+                        project_match = (
+                            search_value
+                            and _matches_any(project, [search_value], args.exact)
+                        ) or (
+                            args.project
+                            and _matches_any(project, args.project, args.exact)
+                        )
+                        task_match = (
+                            search_value
+                            and _matches_any(task_name, [search_value], args.exact)
+                        ) or (
+                            args.task
+                            and _matches_any(task_name, args.task, args.exact)
+                        )
 
-                            if not (project_match or task_match):
-                                continue  # Skip this OFFLINE task, doesn't match filter
+                        if not (project_match or task_match):
+                            continue  # Skip this OFFLINE task, doesn't match filter
 
-                            if _excluded(project, args.exclude_project) or _excluded(
-                                task_name, args.exclude_task
-                            ):
-                                continue  # Skip excluded task
+                        if _excluded(project, args.exclude_project) or _excluded(
+                            task_name, args.exclude_task
+                        ):
+                            continue  # Skip excluded task
 
-                        key = (project, task_name)
-                        if key in offline_task_durations:
-                            # Find the time span for this task
-                            task_events_for_key = [
-                                e
-                                for e in task_events
-                                if get_task_info(e) == (task_name, project)
-                                and task_has_offline_tag(e)
-                            ]
+                    if True:  # Key is already from offline_task_durations
+                            # Get events for this group from the offline processor
+                            task_events_for_key = offline_event_groups.get(key, [])
                             if task_events_for_key:
-                                # Apply same filtering as offline processor to avoid spurious events
-                                # (same dedup + median filtering)
-                                seen = set()
-                                unique_events = []
-                                for event in task_events_for_key:
-                                    event_key = (event.timestamp, event.duration)
-                                    if event_key not in seen:
-                                        seen.add(event_key)
-                                        unique_events.append(event)
-
-                                # Filter events >60s
-                                significant = [e for e in unique_events if e.duration.total_seconds() > 60]
-                                if len(significant) >= 2:
-                                    durations = sorted([e.duration.total_seconds() for e in significant])
-                                    median = durations[len(durations) // 2]
-                                    task_events_for_key = [e for e in significant if e.duration.total_seconds() >= median * 0.25]
-                                elif significant:
-                                    task_events_for_key = significant
-                                else:
-                                    task_events_for_key = unique_events
-
+                                # Events are already filtered by the offline processor
                                 start_times = [e.timestamp for e in task_events_for_key]
                                 end_times = [
                                     e.timestamp + e.duration
-                                    for e in task_events_for_key
+                                    for e in task_events_for_key if e.duration
                                 ]
-                                slot_start = min(start_times)
-                                slot_end = max(end_times)
-                                slot_duration = offline_task_durations[key]
+                                if start_times and end_times:
+                                    slot_start = min(start_times)
+                                    slot_end = max(end_times)
+                                else:
+                                    slot_start = min(start_times) if start_times else datetime.now()
+                                    slot_end = max(end_times) if end_times else slot_start
+                                slot_duration = offline_duration
 
                                 # Get tags from any event in this group
                                 raw_tags = task_events_for_key[0].data.get("tags", [])

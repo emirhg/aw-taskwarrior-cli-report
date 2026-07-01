@@ -64,10 +64,11 @@ class OfflineTaskProcessor:
         self.window_events = window_events
         self.event_filter = event_filter
         self.end_time = end_time
-        self.offline_durations: Dict[Tuple[str, str], timedelta] = {}
-        self.offline_event_durations: Dict[Tuple[str, str], timedelta] = {}
+        self.offline_durations: Dict[Tuple, timedelta] = {}
+        self.offline_event_durations: Dict[Tuple, timedelta] = {}
+        self.event_groups: Dict[Tuple, List[Event]] = {}  # Store events per group
 
-    def process(self) -> Tuple[Dict[Tuple[str, str], timedelta], Dict[Tuple[str, str], timedelta]]:
+    def process(self) -> Tuple[Dict, Dict, Dict[Tuple, List[Event]]]:
         """
         Process all OFFLINE-tagged tasks.
 
@@ -75,21 +76,28 @@ class OfflineTaskProcessor:
         slots created later will respect --exclude-non-project and other filters.
 
         Returns:
-            Tuple of (wall_clock_durations, event_durations) dictionaries, both mapping
-            (project, task) tuples to their respective timedeltas
+            Tuple of (wall_clock_durations, event_durations, event_groups) dictionaries.
+            Keys can be 2-element tuples (project, task) or 3-element tuples (project, task, group_idx)
+            for split groups.
         """
         self._calculate_durations()
 
         # Apply filter to results (Issue #1 fix)
         filtered = {}
         filtered_events = {}
-        for (project, task), duration in self.offline_durations.items():
+        filtered_groups = {}
+        for key, duration in self.offline_durations.items():
+            # Extract project and task from key (handle both 2-element and 3-element tuples)
+            project = key[0] if isinstance(key, tuple) else ""
+            task = key[1] if isinstance(key, tuple) and len(key) > 1 else ""
+
             entry = {"project": project, "task": task, "type": "offline_task"}
             if self.event_filter.should_include_entry(entry, "offline_task"):
-                filtered[(project, task)] = duration
-                filtered_events[(project, task)] = self.offline_event_durations.get((project, task), timedelta(0))
+                filtered[key] = duration
+                filtered_events[key] = self.offline_event_durations.get(key, timedelta(0))
+                filtered_groups[key] = self.event_groups.get(key, [])
 
-        return filtered, filtered_events
+        return filtered, filtered_events, filtered_groups
 
     def _calculate_durations(self) -> None:
         """
@@ -130,7 +138,7 @@ class OfflineTaskProcessor:
                     seen.add(event_key)
                     unique_events.append(event)
 
-            # Filter out spurious events:
+            # Filter out spurious events BEFORE splitting
             # 1. Zero-duration events (but keep events without duration - they're running/incomplete)
             # 2. Events significantly shorter than median (likely artifacts)
             significant_events = [
@@ -138,106 +146,33 @@ class OfflineTaskProcessor:
                 if e.duration is None or e.duration.total_seconds() > 60
             ]
 
-            if len(significant_events) >= 2:
-                # Calculate median duration (excluding events without duration)
-                durations_with_values = [
-                    e.duration.total_seconds() for e in significant_events
-                    if e.duration is not None
+            if not significant_events:
+                continue
+
+            # Calculate median duration (excluding events without duration) for filtering
+            durations_with_values = [
+                e.duration.total_seconds() for e in significant_events
+                if e.duration is not None
+            ]
+            if durations_with_values:
+                durations = sorted(durations_with_values)
+                median_duration = durations[len(durations) // 2]
+                # Keep events that are at least 25% of median duration, PLUS any events without duration
+                filtered_for_split = [
+                    e for e in significant_events
+                    if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
                 ]
-                if durations_with_values:
-                    durations = sorted(durations_with_values)
-                    median_duration = durations[len(durations) // 2]
-                    # Keep events that are at least 25% of median duration, PLUS any events without duration (running tasks)
-                    sorted_events = [
-                        e for e in significant_events
-                        if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
-                    ]
-                    sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
-                else:
-                    # No events with duration (all are running/incomplete)
-                    sorted_events = sorted(significant_events, key=lambda e: e.timestamp)
-
-                # Filter out events separated by large gaps (likely different work sessions)
-                # Keep only continuous or closely-timed events
-                filtered_continuous = [sorted_events[0]]
-                for i in range(1, len(sorted_events)):
-                    prev_event = filtered_continuous[-1]
-                    prev_end = (
-                        prev_event.timestamp + prev_event.duration
-                        if prev_event.duration
-                        else (self.end_time if self.end_time else prev_event.timestamp)
-                    )
-                    curr_start = sorted_events[i].timestamp
-                    gap = curr_start - prev_end
-
-                    # Check if events are on different days or separated by large gap
-                    prev_day = prev_end.date()
-                    curr_day = curr_start.date()
-                    is_different_day = prev_day != curr_day
-                    is_large_gap = gap > timedelta(hours=3)
-
-                    # Keep event only if same day AND gap < 3 hours
-                    if not is_different_day and not is_large_gap:
-                        filtered_continuous.append(sorted_events[i])
-
-                sorted_events = filtered_continuous
-            elif significant_events:
-                sorted_events = sorted(significant_events, key=lambda e: e.timestamp)
             else:
-                sorted_events = unique_events
-            event_sum = timedelta(0)
-            wall_clock_start = sorted_events[0].timestamp
+                filtered_for_split = significant_events
 
-            # Handle wall_clock_end: use the latest end time across all events
-            # If any event has no duration (running/incomplete), extend to report end time
-            wall_clock_end = sorted_events[0].timestamp  # Start with first event's start
-            has_incomplete = False
+            # Split filtered events into groups based on interruptions from other tasks
+            event_groups = self._split_by_task_interruptions(filtered_for_split, key)
 
-            for event in sorted_events:
-                if event.duration:
-                    event_end = event.timestamp + event.duration
-                    wall_clock_end = max(wall_clock_end, event_end)
-                else:
-                    # This is a running/incomplete event
-                    has_incomplete = True
-
-            # If any incomplete event found, extend to report end time
-            if has_incomplete and self.end_time:
-                wall_clock_end = self.end_time
-
-            # Calculate offline vs online time
-            # OFFLINE: First event (when system was powered off - no continuous activity)
-            # ONLINE: Remaining events (when system was on - continuous activity tracked)
-            # This is simpler and more reliable than trying to detect window activity with timezone issues
-            offline_sum = timedelta(0)
-            online_sum = timedelta(0)
-
-            for i, event in enumerate(sorted_events):
-                # For events without duration, calculate from start to report end or next event
-                if event.duration:
-                    event_duration = event.duration
-                elif i == len(sorted_events) - 1 and self.end_time:
-                    # Last event without duration: extend to report end time
-                    event_duration = self.end_time - event.timestamp
-                else:
-                    # Shouldn't happen, but handle gracefully
-                    event_duration = timedelta(0)
-
-                event_sum += event_duration
-
-                # First event = offline (system was off when work started)
-                # Subsequent events = online (system was on, work continued)
-                if i == 0:
-                    offline_sum += event.duration
-                else:
-                    online_sum += event.duration
-
-            # Wall-clock span is the full time from earliest event start to latest event end
-            wall_clock_duration = wall_clock_end - wall_clock_start
-
-            # Store wall-clock duration as total, and event_sum as online (events with window activity)
-            self.offline_durations[key] = wall_clock_duration
-            self.offline_event_durations[key] = online_sum
+            # Process each uninterrupted group separately
+            for group_idx, group_events in enumerate(event_groups):
+                # Use modified key with group index if there are multiple groups
+                group_key = key if len(event_groups) == 1 else (key[0], key[1], group_idx)
+                self._process_event_group(group_key, group_events)
 
     def _task_has_offline_tag(self, task_event: Event) -> bool:
         """
@@ -324,6 +259,148 @@ class OfflineTaskProcessor:
                     return True
 
         return False
+
+    def _split_by_task_interruptions(
+        self, events: List[Event], task_key: Tuple[str, str]
+    ) -> List[List[Event]]:
+        """
+        Split offline task events into groups when interrupted by other tasks.
+
+        Groups consecutive events that are not interrupted. If another task occurs
+        between events, starts a new group.
+
+        Args:
+            events: List of offline task events (already sorted and deduplicated)
+            task_key: (project, task) tuple for this offline task
+
+        Returns:
+            List of event groups, each representing an uninterrupted session
+        """
+        if not events:
+            return []
+
+        groups: List[List[Event]] = []
+        current_group: List[Event] = [events[0]]
+
+        for i in range(1, len(events)):
+            curr_event = events[i]
+            prev_event = current_group[-1]
+
+            # Calculate gap between prev_event end and curr_event start
+            prev_end = prev_event.timestamp + prev_event.duration if prev_event.duration else prev_event.timestamp
+            curr_start = curr_event.timestamp
+            gap_start = prev_end
+            gap_end = curr_start
+
+            # Check if any other task is active in this gap
+            interruption_found = False
+            for other_event in self.task_events:
+                # Skip if this is the same offline task
+                other_project = other_event.data.get("project", "")
+                other_task = (
+                    other_event.data.get("title")
+                    or other_event.data.get("label")
+                    or other_event.data.get("task")
+                    or ""
+                )
+                other_key = (other_project, other_task)
+
+                if other_key == task_key:
+                    continue
+
+                # Check if other task overlaps with the gap
+                other_start = other_event.timestamp
+                other_end = other_event.timestamp + other_event.duration if other_event.duration else other_event.timestamp
+
+                if other_start < gap_end and other_end > gap_start:
+                    interruption_found = True
+                    break
+
+            if interruption_found:
+                # End current group and start new one
+                groups.append(current_group)
+                current_group = [curr_event]
+            else:
+                # Continue current group
+                current_group.append(curr_event)
+
+        # Add final group
+        if current_group:
+            groups.append(current_group)
+
+        return groups
+
+    def _process_event_group(self, group_key: Tuple, group_events: List[Event]) -> None:
+        """
+        Process one group of offline task events.
+
+        Calculates wall-clock duration and online time for the group.
+
+        Args:
+            group_key: Key for this group (project, task) or (project, task, group_index)
+            group_events: List of events in this group
+        """
+        if not group_events:
+            return
+
+        # Filter out spurious events
+        significant_events = [
+            e for e in group_events
+            if e.duration is None or e.duration.total_seconds() > 60
+        ]
+
+        if not significant_events:
+            return
+
+        # Calculate median duration (excluding events without duration)
+        durations_with_values = [
+            e.duration.total_seconds() for e in significant_events
+            if e.duration is not None
+        ]
+
+        # Keep events that are at least 25% of median duration, plus incomplete events
+        if durations_with_values:
+            durations = sorted(durations_with_values)
+            median_duration = durations[len(durations) // 2]
+            sorted_events = [
+                e for e in significant_events
+                if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
+            ]
+            sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
+        else:
+            sorted_events = sorted(significant_events, key=lambda e: e.timestamp)
+
+        if not sorted_events:
+            return
+
+        # Calculate wall-clock span
+        wall_clock_start = sorted_events[0].timestamp
+        wall_clock_end = sorted_events[0].timestamp
+        has_incomplete = False
+
+        for event in sorted_events:
+            if event.duration:
+                event_end = event.timestamp + event.duration
+                wall_clock_end = max(wall_clock_end, event_end)
+            else:
+                has_incomplete = True
+
+        # If any incomplete event found, extend to report end time
+        if has_incomplete and self.end_time:
+            wall_clock_end = self.end_time
+
+        wall_clock_duration = wall_clock_end - wall_clock_start
+
+        # Calculate offline vs online time
+        online_sum = timedelta(0)
+        for i, event in enumerate(sorted_events):
+            if i > 0 and event.duration:  # Skip first event (it's offline), sum the rest
+                online_sum += event.duration
+
+        # Store results
+        self.offline_durations[group_key] = wall_clock_duration
+        self.offline_event_durations[group_key] = online_sum
+        self.event_groups[group_key] = sorted_events  # Store events for this group
 
     def get_synthetic_slot(
         self, project: str, task: str, task_events_for_key: List[Event]
