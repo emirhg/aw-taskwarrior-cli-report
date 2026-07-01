@@ -1955,9 +1955,11 @@ def generate_timeline_data(
             ]
             slot_start = min(event_starts)
             slot_end = max(event_ends)
-            # Use wall-clock time span, not sum of event durations
-            # (sum excludes gaps/AFK time, but end_time display needs actual span)
+            # Duration fields for the slot:
+            # - slot_duration: wall-clock time span (for display end_time calculation)
+            # - actual_duration: sum of event durations (for actual work time, excluding gaps)
             slot_duration = slot_end - slot_start
+            actual_duration = sum((e["event"].duration for e in events), timedelta(0))
 
             # Build nested category structure: {category, duration, start, end, apps: [{app, duration, start, end, titles}]}
             if deduplicate_categories:
@@ -2045,6 +2047,7 @@ def generate_timeline_data(
                 "start": slot_start,
                 "end": slot_end,
                 "duration": slot_duration,
+                "actual_duration": actual_duration,
                 "productive_duration": productive_in_slot,
                 "project": slot_data["project"],
                 "task": slot_data["task"],

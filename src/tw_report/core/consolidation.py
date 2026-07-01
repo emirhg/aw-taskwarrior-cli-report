@@ -159,10 +159,10 @@ class TimelineSlotManager:
         """
         first = group[0]
 
-        # Calculate time window
+        # Calculate time window using wall-clock duration (not actual_duration which excludes gaps)
         time_window_start = first["start"]
         time_window_end = max(
-            s["start"] + s.get("actual_duration", s["duration"]) for s in group
+            s["start"] + s["duration"] for s in group
         )
         time_window = time_window_end - time_window_start
 
