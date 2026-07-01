@@ -139,6 +139,26 @@ class OfflineTaskProcessor:
                 # Keep events that are at least 25% of median duration
                 sorted_events = [e for e in significant_events if e.duration.total_seconds() >= median_duration * 0.25]
                 sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
+
+                # Filter out events separated by large gaps (likely different work sessions)
+                # Keep only continuous or closely-timed events
+                filtered_continuous = [sorted_events[0]]
+                for i in range(1, len(sorted_events)):
+                    prev_end = filtered_continuous[-1].timestamp + filtered_continuous[-1].duration
+                    curr_start = sorted_events[i].timestamp
+                    gap = curr_start - prev_end
+
+                    # Check if events are on different days or separated by large gap
+                    prev_day = prev_end.date()
+                    curr_day = curr_start.date()
+                    is_different_day = prev_day != curr_day
+                    is_large_gap = gap > timedelta(hours=3)
+
+                    # Keep event only if same day AND gap < 3 hours
+                    if not is_different_day and not is_large_gap:
+                        filtered_continuous.append(sorted_events[i])
+
+                sorted_events = filtered_continuous
             elif significant_events:
                 sorted_events = sorted(significant_events, key=lambda e: e.timestamp)
             else:

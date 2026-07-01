@@ -3685,6 +3685,27 @@ def main():
                                 and task_has_offline_tag(e)
                             ]
                             if task_events_for_key:
+                                # Apply same filtering as offline processor to avoid spurious events
+                                # (same dedup + median filtering)
+                                seen = set()
+                                unique_events = []
+                                for event in task_events_for_key:
+                                    event_key = (event.timestamp, event.duration)
+                                    if event_key not in seen:
+                                        seen.add(event_key)
+                                        unique_events.append(event)
+
+                                # Filter events >60s
+                                significant = [e for e in unique_events if e.duration.total_seconds() > 60]
+                                if len(significant) >= 2:
+                                    durations = sorted([e.duration.total_seconds() for e in significant])
+                                    median = durations[len(durations) // 2]
+                                    task_events_for_key = [e for e in significant if e.duration.total_seconds() >= median * 0.25]
+                                elif significant:
+                                    task_events_for_key = significant
+                                else:
+                                    task_events_for_key = unique_events
+
                                 start_times = [e.timestamp for e in task_events_for_key]
                                 end_times = [
                                     e.timestamp + e.duration
