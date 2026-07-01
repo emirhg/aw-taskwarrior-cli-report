@@ -5,22 +5,39 @@ This module extracts and centralizes OFFLINE task handling that was previously
 scattered in tw-report.py. It handles detection, validation, and duration
 calculation for tasks with the 'offline' tag.
 
-OFFLINE TASK DEFINITION:
-An offline task is work done while the system is completely offline (powered off or
-severely disconnected). Within an offline task's time span:
-- offline_time = periods where the AFK bucket has NO events (system was truly off)
-- online_time = periods where the AFK bucket HAS events (system was on but task was being worked)
+═══════════════════════════════════════════════════════════════════════════════
 
-EXPECTED OUTPUT (for a task worked 13:01-18:16):
-- Display: (3:04:00 OFF)  1:52:16  [prod  37%]
-- Interpretation: 3:04 hours system-off, 1:52:16 hours system-on, total 5:00:00
+OFFLINE EVENT DEFINITION:
 
-CALCULATION:
-1. Collect all TaskWarrior events with 'offline' tag for the task
-2. Find wall-clock span: min(event_start) to max(event_end)
-3. Sum all event durations = online_time (when system was on)
-4. offline_time = wall_clock_span - online_time
-5. prod% = online_time / wall_clock_span × 100
+An OFFLINE event is a TaskWarrior task event that was recorded while the
+system (computer) was completely powered off or disconnected.
+
+Key characteristics:
+1. Must have the 'offline' tag in TaskWarrior
+2. The task duration spans from when the work was started to when it was paused
+3. Within that timespan, the system may have been ON or OFF at different periods
+
+DETERMINING ONLINE vs OFFLINE TIME:
+
+The AFK bucket provides the ground truth for system state:
+- AFK event present during a time period → system was ON (user could interact)
+- NO AFK event during a time period → system was OFF (no user interaction recorded)
+
+Therefore, for an OFFLINE task:
+- online_time = sum of AFK event durations that overlap with the task span
+                (periods when system was on and task was being worked)
+- offline_time = task_duration - online_time
+                 (periods when system was off but task was still being worked)
+
+EXAMPLE:
+Task: 13:01-18:15 (5:14:01 total duration)
+AFK events during that period: 1:52:36 (system was on)
+Result:
+  - online_time = 1:52:36 (system on, user working)
+  - offline_time = 5:14:01 - 1:52:36 = 3:21:25 (system off, but task continues in background)
+  - Display: (3:21:25 OFF)  1:52:36  [prod  36%]
+
+═══════════════════════════════════════════════════════════════════════════════
 
 ISSUE #1 FIX: OFFLINE task results are now filtered consistently using
 EventFilter, preventing 0:00:00 duration display in consolidated reports.
@@ -44,6 +61,36 @@ class OfflineTaskProcessor:
 
     KEY FEATURE: Results are filtered before returning, ensuring consistency
     with EventFilter across all entry types.
+
+    ═══════════════════════════════════════════════════════════════════════════
+
+    WHAT IS AN OFFLINE EVENT?
+
+    An OFFLINE event is a TaskWarrior task marked with the 'offline' tag that
+    was worked on while the system (computer) was completely powered off or
+    unreachable. This represents work done without real-time ActivityWatch
+    tracking because the system was not running.
+
+    DURATION CALCULATION:
+
+    The duration of an OFFLINE event is split into two components:
+    1. online_time: Periods when the system WAS powered on (determined by AFK
+                   bucket events - if AFK bucket has events, system was on)
+    2. offline_time: Periods when the system was OFF (no AFK bucket events)
+
+    Formula:
+        task_duration (from TaskWarrior) = online_time + offline_time
+        online_time = sum(AFK events overlapping task period)
+        offline_time = task_duration - online_time
+
+    WHY THIS MATTERS:
+
+    - ActivityWatch cannot record activity when the system is off
+    - But TaskWarrior can be synced retroactively when the system comes back online
+    - The OFFLINE tag means: "work was done, but AW couldn't track it because
+      the system was off for part of that time"
+    - By checking the AFK bucket, we can determine WHICH parts of the task
+      actually had the system running
     """
 
     def __init__(self,
@@ -416,17 +463,31 @@ class OfflineTaskProcessor:
         self, period_start: datetime, period_end: datetime
     ) -> timedelta:
         """
-        Calculate online time during a period based on AFK bucket events.
+        Calculate online time during an OFFLINE task period using AFK bucket events.
 
-        Online time = sum of AFK events that overlap with the period
-        (AFK events indicate system was on; no AFK = system was off)
+        For OFFLINE events, the system state (on/off) is determined by the AFK bucket:
+        - AFK events = system was ON (user present, could interact)
+        - NO AFK events = system was OFF (no user activity recorded)
+
+        online_time = sum of time periods where AFK bucket has events AND
+                      those events overlap with the OFFLINE task's time span
+
+        This is the amount of time during the task that the system was powered on,
+        even though the task was marked as offline. The remaining time
+        (offline_time = task_duration - online_time) is when the system was off.
+
+        Example:
+        - Task period: 13:01-18:15 (5:14:01)
+        - AFK events in that period: 1:52:36 total
+        - online_time = 1:52:36
+        - offline_time = 5:14:01 - 1:52:36 = 3:21:25
 
         Args:
             period_start: Start of the offline task period
             period_end: End of the offline task period
 
         Returns:
-            Total online time (intersection with AFK events)
+            Total online time (sum of AFK event intersections with period)
         """
         online_time = timedelta(0)
 
