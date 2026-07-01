@@ -8,11 +8,16 @@ a clean interface for timeline report generation.
 ISSUE #2 FIX: Consolidation now handles OFFLINE gaps intelligently.
 Previously, every OFFLINE gap would break consolidation. Now, only gaps
 between different tasks break consolidation.
+
+REFACTORING NOTE: TimelineSlotManager now uses Timeline internally for
+storage and querying, while maintaining backward compatibility with
+dict-based slot APIs.
 """
 
 from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime, timedelta
 from aw_core.models import Event
+from tw_report.core.timeline import Timeline, TimelineSlot
 
 
 class TimelineSlotManager:
@@ -39,7 +44,21 @@ class TimelineSlotManager:
         """
         self.category_manager = category_manager
         self.event_filter = event_filter
-        self.slots: List[Dict] = []
+        self.timeline = Timeline()  # Internal storage using Timeline
+        # Legacy slots property for backward compatibility
+        self._legacy_slots: List[Dict] = []
+
+    @property
+    def slots(self) -> List[Dict]:
+        """Get slots as dicts (backward compatibility)."""
+        return self.timeline.get_slots_as_dicts()
+
+    @slots.setter
+    def slots(self, value: List[Dict]) -> None:
+        """Set slots from list of dicts (backward compatibility)."""
+        self.timeline = Timeline()
+        for slot_dict in value:
+            self.timeline.add_from_dict(slot_dict)
 
     def consolidate(self, ignore_offline: bool = False) -> List[Dict]:
         """
@@ -397,7 +416,8 @@ class TimelineSlotManager:
         Args:
             new_slots: List of slots to add
         """
-        self.slots.extend(new_slots)
+        for slot_dict in new_slots:
+            self.timeline.add_from_dict(slot_dict)
 
     def get_slots(self) -> List[Dict]:
         """
@@ -406,4 +426,4 @@ class TimelineSlotManager:
         Returns:
             List of slots
         """
-        return self.slots
+        return self.timeline.get_slots_as_dicts()
