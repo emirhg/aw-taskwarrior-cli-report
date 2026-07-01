@@ -2830,10 +2830,10 @@ def print_timeline_report(
     width = get_terminal_width()
     is_single_day = start_time.date() == end_time.date()
     # Use actual_duration for merged slots, duration for others
-    # Exclude AFK and OFFLINE gap markers from totals (informational only)
-    # Keep offline_task slots (actual work sessions) in totals
+    # Exclude OFFLINE gap markers from totals (informational only)
+    # Keep offline_task slots (actual work sessions) and AFK slots in totals
     all_regular_slots = [
-        s for s in slots if s.get("type") not in ("afk", "offline", "offline_extension")
+        s for s in slots if s.get("type") not in ("offline", "offline_extension")
     ]
     # Project-tracked time (excluding "No project assigned")
     tracked_slots = [s for s in all_regular_slots if s.get("project") != NO_PROJECT]
@@ -3121,7 +3121,14 @@ def print_timeline_report(
             left = f"             {time_padded}  {content}"
             duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration)
             print(format_timeline_line(left, duration_formatted, max_left_width=95))
-            # offline_task slots are NOT added to day_duration or week_duration
+
+            # Accumulate offline_task to day/week totals with full wall-clock span
+            day_duration += wall_clock_duration
+            week_duration += wall_clock_duration
+            day_afk_duration += timedelta(0)  # offline tasks don't have AFK time
+            week_afk_duration += timedelta(0)
+
+            # offline_task slots are handled above, skip the regular group handling below
             continue
 
         # Calculate project group totals
