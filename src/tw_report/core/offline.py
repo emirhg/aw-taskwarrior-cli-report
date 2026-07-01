@@ -141,12 +141,28 @@ class OfflineTaskProcessor:
             for event in sorted_events:
                 event_start = event.timestamp
                 event_end = event.timestamp + event.duration
+                event_start_tz = event_start
+                event_end_tz = event_end
 
                 # Check if any window activity occurs during this event
-                has_window_activity = any(
-                    w.timestamp < event_end and w.timestamp + w.duration > event_start
-                    for w in self.window_events
-                )
+                # Handle timezone-aware/naive datetime comparison by normalizing
+                has_window_activity = False
+                for w in self.window_events:
+                    w_start = w.timestamp
+                    w_end = w.timestamp + w.duration
+
+                    # Normalize timezone info for comparison
+                    if event_start.tzinfo is not None and w_start.tzinfo is None:
+                        w_start = w_start.replace(tzinfo=event_start.tzinfo)
+                        w_end = w_end.replace(tzinfo=event_start.tzinfo)
+                    elif event_start.tzinfo is None and w_start.tzinfo is not None:
+                        event_start_tz = event_start.replace(tzinfo=w_start.tzinfo)
+                        event_end_tz = event_end.replace(tzinfo=w_start.tzinfo)
+
+                    # Check for overlap
+                    if w_start < event_end_tz and w_end > event_start_tz:
+                        has_window_activity = True
+                        break
 
                 if has_window_activity:
                     online_sum += event.duration
