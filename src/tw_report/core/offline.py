@@ -520,29 +520,28 @@ class OfflineTaskProcessor:
         return online_time
 
     def get_synthetic_slot(
-        self, project: str, task: str, task_events_for_key: List[Event]
+        self, key: Tuple[str, str], task_events_for_key: List[Event]
     ) -> Dict:
         """
         Build a synthetic slot for an OFFLINE task.
 
         Args:
-            project: Project name
-            task: Task name
+            key: (project, task) or (project, task, group_idx) tuple uniquely identifying the task
             task_events_for_key: List of task events for this (project, task)
 
         Returns:
-            Synthetic slot dictionary
+            Synthetic slot dictionary with all required fields for TimelineSlot validation
         """
         if not task_events_for_key:
             return {}
 
+        project, task = key[0], key[1]
         start_times = [e.timestamp for e in task_events_for_key]
         end_times = [e.timestamp + e.duration for e in task_events_for_key]
         slot_start = min(start_times)
         slot_end = max(end_times)
-        slot_duration = self.offline_durations.get(
-            (project, task), timedelta(0)
-        )
+        slot_duration = self.offline_durations.get(key, timedelta(0))
+        online_time = self.offline_event_durations.get(key, timedelta(0))
 
         # Get tags from any event in this group
         raw_tags = task_events_for_key[0].data.get("tags", [])
@@ -557,6 +556,8 @@ class OfflineTaskProcessor:
             "start": slot_start.astimezone(),
             "end": slot_end.astimezone(),
             "duration": slot_duration,
+            "actual_duration": online_time,
+            "event_duration": online_time,
             "productive_duration": timedelta(0),
             "project": project,
             "task": task,

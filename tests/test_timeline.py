@@ -26,12 +26,13 @@ def tz_aware_dt():
 def sample_slot(tz_aware_dt):
     """Create a sample TimelineSlot."""
     return TimelineSlot(
-        type="task",
+        type="regular",
         start=tz_aware_dt(10),
         end=tz_aware_dt(12),
         project="TestProject",
         task="TestTask",
         duration=timedelta(hours=2),
+        actual_duration=timedelta(hours=2),
     )
 
 
@@ -48,26 +49,37 @@ class TestTimelineSlot:
     def test_creation_basic(self, tz_aware_dt):
         """Test basic slot creation."""
         slot = TimelineSlot(
-            type="task",
+            type="regular",
             start=tz_aware_dt(10),
             end=tz_aware_dt(12),
             project="ProjectA",
             task="TaskA",
             duration=timedelta(hours=2),
+            actual_duration=timedelta(hours=2),
         )
-        assert slot.type == "task"
+        assert slot.type == "regular"
         assert slot.project == "ProjectA"
         assert slot.task == "TaskA"
         assert slot.duration == timedelta(hours=2)
+        assert slot.actual_duration == timedelta(hours=2)
 
-    def test_post_init_actual_duration(self, sample_slot):
-        """Test that actual_duration defaults to duration."""
-        assert sample_slot.actual_duration == sample_slot.duration
+    def test_missing_actual_duration_raises(self, tz_aware_dt):
+        """Test that actual_duration must be explicitly provided."""
+        from tw_report.core.timeline import TimelineSlotValidationError
+        with pytest.raises(TimelineSlotValidationError, match="missing required 'actual_duration'"):
+            TimelineSlot(
+                type="regular",
+                start=tz_aware_dt(10),
+                end=tz_aware_dt(12),
+                project="ProjectA",
+                task="TaskA",
+                duration=timedelta(hours=2),
+            )
 
-    def test_post_init_explicit_actual_duration(self, tz_aware_dt):
-        """Test explicit actual_duration overrides default."""
+    def test_actual_duration_explicit(self, tz_aware_dt):
+        """Test explicit actual_duration is accepted."""
         slot = TimelineSlot(
-            type="task",
+            type="regular",
             start=tz_aware_dt(10),
             end=tz_aware_dt(12),
             project="ProjectA",
@@ -147,7 +159,7 @@ class TestTimelineSlot:
     def test_to_dict(self, sample_slot):
         """Test conversion to dict."""
         d = sample_slot.to_dict()
-        assert d["type"] == "task"
+        assert d["type"] == "regular"
         assert d["project"] == "TestProject"
         assert d["task"] == "TestTask"
         assert d["duration"] == timedelta(hours=2)
@@ -162,6 +174,7 @@ class TestTimelineSlot:
             project="P",
             task="T",
             duration=timedelta(hours=4),
+            actual_duration=timedelta(hours=2),
             afk_duration=timedelta(hours=1),
             event_duration=timedelta(hours=2),
             tags=["offline", "important"],
@@ -187,15 +200,28 @@ class TestTimelineSlot:
         assert slot.project == "ProjectA"
         assert slot.actual_duration == timedelta(hours=1, minutes=30)
 
-    def test_from_dict_minimal(self, tz_aware_dt):
-        """Test from_dict with minimal fields."""
+    def test_from_dict_missing_actual_duration_raises(self, tz_aware_dt):
+        """Test from_dict raises when actual_duration is missing."""
+        from tw_report.core.timeline import TimelineSlotValidationError
         d = {
             "start": tz_aware_dt(10),
             "end": tz_aware_dt(12),
             "duration": timedelta(hours=2),
         }
+        with pytest.raises(TimelineSlotValidationError, match="missing required key 'actual_duration'"):
+            TimelineSlot.from_dict(d)
+
+    def test_from_dict_derives_end_when_missing(self, tz_aware_dt):
+        """Test from_dict derives end from start+duration when not provided."""
+        d = {
+            "type": "regular",
+            "start": tz_aware_dt(10),
+            "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=1, minutes=30),
+        }
         slot = TimelineSlot.from_dict(d)
-        assert slot.type == "task"
+        assert slot.end == tz_aware_dt(12)
+        assert slot.type == "regular"
         assert slot.project == ""
         assert slot.task == ""
 
@@ -208,7 +234,9 @@ class TestTimelineSlot:
             project="P",
             task="T",
             duration=timedelta(hours=4),
+            actual_duration=timedelta(hours=3),
             productive_duration=timedelta(hours=3),
+            event_duration=timedelta(hours=3),
             tags=["offline"],
         )
         d = original.to_dict()
@@ -216,7 +244,101 @@ class TestTimelineSlot:
         assert restored.type == original.type
         assert restored.project == original.project
         assert restored.duration == original.duration
+        assert restored.actual_duration == original.actual_duration
+        assert restored.event_duration == original.event_duration
         assert restored.tags == original.tags
+
+    def test_end_duration_mismatch_raises(self, tz_aware_dt):
+        """Test that mismatched end and start+duration raises an error."""
+        from tw_report.core.timeline import TimelineSlotValidationError
+        with pytest.raises(TimelineSlotValidationError, match="inconsistent with"):
+            TimelineSlot(
+                type="regular",
+                start=tz_aware_dt(10),
+                end=tz_aware_dt(15),  # Should be 12:00, not 15:00
+                project="P",
+                task="T",
+                duration=timedelta(hours=2),
+                actual_duration=timedelta(hours=2),
+            )
+
+    def test_end_within_tolerance_accepted(self, tz_aware_dt):
+        """Test that minor end/start+duration differences within tolerance are accepted."""
+        # Create a slot with end 0.5 seconds off from start+duration
+        start = tz_aware_dt(10)
+        slot = TimelineSlot(
+            type="regular",
+            start=start,
+            end=start + timedelta(hours=2, milliseconds=500),  # 0.5s tolerance
+            project="P",
+            task="T",
+            duration=timedelta(hours=2),
+            actual_duration=timedelta(hours=2),
+        )
+        assert slot.end > start + timedelta(hours=2)
+
+    def test_offline_task_missing_event_duration_raises(self, tz_aware_dt):
+        """Test that offline_task slots must have event_duration."""
+        from tw_report.core.timeline import TimelineSlotValidationError
+        with pytest.raises(TimelineSlotValidationError, match="missing required 'event_duration'"):
+            TimelineSlot(
+                type="offline_task",
+                start=tz_aware_dt(10),
+                end=tz_aware_dt(12),
+                project="P",
+                task="T",
+                duration=timedelta(hours=2),
+                actual_duration=timedelta(hours=1),
+                # Missing event_duration
+            )
+
+    def test_offline_task_with_event_duration_ok(self, tz_aware_dt):
+        """Test that offline_task slots with event_duration construct fine."""
+        slot = TimelineSlot(
+            type="offline_task",
+            start=tz_aware_dt(10),
+            end=tz_aware_dt(12),
+            project="P",
+            task="T",
+            duration=timedelta(hours=2),
+            actual_duration=timedelta(hours=1),
+            event_duration=timedelta(hours=1),
+        )
+        assert slot.event_duration == timedelta(hours=1)
+
+    def test_from_dict_missing_type_raises(self, tz_aware_dt):
+        """Test from_dict raises when type is missing."""
+        from tw_report.core.timeline import TimelineSlotValidationError
+        d = {
+            "start": tz_aware_dt(10),
+            "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=2),
+        }
+        with pytest.raises(TimelineSlotValidationError, match="missing required key 'type'"):
+            TimelineSlot.from_dict(d)
+
+    def test_from_dict_missing_duration_raises(self, tz_aware_dt):
+        """Test from_dict raises when duration is missing."""
+        from tw_report.core.timeline import TimelineSlotValidationError
+        d = {
+            "type": "regular",
+            "start": tz_aware_dt(10),
+            "actual_duration": timedelta(hours=2),
+        }
+        with pytest.raises(TimelineSlotValidationError, match="missing required key 'duration'"):
+            TimelineSlot.from_dict(d)
+
+    def test_from_dict_project_task_defaults_empty(self, tz_aware_dt):
+        """Test that project/task remain optional with empty string defaults."""
+        d = {
+            "type": "regular",
+            "start": tz_aware_dt(10),
+            "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=2),
+        }
+        slot = TimelineSlot.from_dict(d)
+        assert slot.project == ""
+        assert slot.task == ""
 
 
 # Timeline Tests

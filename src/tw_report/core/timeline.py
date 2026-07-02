@@ -13,6 +13,11 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Any
 
 
+class TimelineSlotValidationError(ValueError):
+    """Raised when a TimelineSlot is missing required data or has inconsistent fields."""
+    pass
+
+
 @dataclass
 class TimelineSlot:
     """
@@ -22,19 +27,20 @@ class TimelineSlot:
     All fields represent raw, unaggregated tracking data.
 
     Attributes:
-        type: Slot type ('task', 'afk', 'offline_task', 'offline', 'offline_extension')
+        type: Slot type. Valid values: 'regular', 'afk', 'offline', 'offline_extension', 'offline_task'
         start: Slot start time (timezone-aware)
         end: Slot end time (timezone-aware)
         project: Project name
         task: Task name
-        duration: Actual duration of work (not wall-clock)
+        duration: Wall-clock duration of the slot (from start to end)
+        actual_duration: Time spent on actual activity (e.g., duration minus AFK time for regular slots).
+                         Required field — must be explicitly set, never silently defaulted.
         productive_duration: Time spent on productive activities
         categories: List of category/app/title breakdown
         tags: Tags associated with the slot
-        actual_duration: Alternative duration field (for compatibility)
         afk_duration: AFK time within this slot (if applicable)
         offline_extension_duration: OFFLINE gap time within this slot
-        event_duration: Duration of tracked events (for offline tasks)
+        event_duration: Duration of tracked events (for offline tasks, represents online time)
         apps: App/title information (legacy format)
     """
     type: str
@@ -54,8 +60,29 @@ class TimelineSlot:
 
     def __post_init__(self):
         """Validate and normalize slot data."""
+        ctx = f"type={self.type!r} project={self.project!r} task={self.task!r} start={self.start!r}"
+
         if self.actual_duration is None:
-            self.actual_duration = self.duration
+            raise TimelineSlotValidationError(
+                f"TimelineSlot missing required 'actual_duration' ({ctx}). "
+                "actual_duration must be explicitly provided (e.g. equal to duration "
+                "for afk/offline slots, or the computed online/tracked time for "
+                "offline_task slots) — it is never silently inferred."
+            )
+
+        expected_end = self.start + self.duration
+        if abs((self.end - expected_end).total_seconds()) > 1:
+            raise TimelineSlotValidationError(
+                f"TimelineSlot 'end' ({self.end}) is inconsistent with "
+                f"start+duration ({expected_end}) ({ctx}). "
+                f"Difference: {(self.end - expected_end).total_seconds()} seconds."
+            )
+
+        if self.type == "offline_task" and self.event_duration is None:
+            raise TimelineSlotValidationError(
+                f"offline_task slot missing required 'event_duration' ({ctx}). "
+                "event_duration is required to compute the offline/online split display."
+            )
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict format for compatibility with existing code."""
@@ -85,18 +112,49 @@ class TimelineSlot:
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> 'TimelineSlot':
-        """Create TimelineSlot from dict (for compatibility)."""
+        """Create TimelineSlot from dict (for compatibility).
+
+        Required keys:
+            type: slot type ('regular', 'afk', 'offline', 'offline_extension', 'offline_task')
+            start: start time (datetime)
+            duration: wall-clock duration (timedelta)
+            actual_duration: actual activity duration (timedelta) — must be explicit, never inferred
+
+        Derived from required keys if missing:
+            end: computed as start + duration if not provided in dict
+
+        Raises TimelineSlotValidationError if any required key is missing or actual_duration is None.
+        """
+        def _require(key: str):
+            if key not in d or d[key] is None:
+                ctx = f"project={d.get('project')!r} task={d.get('task')!r} start={d.get('start')!r} type={d.get('type')!r}"
+                raise TimelineSlotValidationError(
+                    f"TimelineSlot.from_dict: missing required key {key!r} ({ctx})"
+                )
+            return d[key]
+
+        _require("type")
+        _require("start")
+        _require("duration")
+        _require("actual_duration")
+
+        start = d["start"]
+        duration = d["duration"]
+        end = d.get("end")
+        if end is None:
+            end = start + duration
+
         return cls(
-            type=d.get("type", "task"),
-            start=d["start"],
-            end=d["end"],
+            type=d["type"],
+            start=start,
+            end=end,
             project=d.get("project", ""),
             task=d.get("task", ""),
-            duration=d.get("duration", timedelta(0)),
+            duration=duration,
             productive_duration=d.get("productive_duration", timedelta(0)),
             categories=d.get("categories", []),
             tags=d.get("tags", []),
-            actual_duration=d.get("actual_duration"),
+            actual_duration=d["actual_duration"],
             afk_duration=d.get("afk_duration"),
             offline_extension_duration=d.get("offline_extension_duration"),
             event_duration=d.get("event_duration"),
@@ -174,9 +232,7 @@ class Timeline:
         Returns:
             List of slots that overlap the range
         """
-        return [s for s in self.slots if s.overlaps(TimelineSlot(
-            type="", start=start, end=end, project="", task="", duration=timedelta(0)
-        ))]
+        return [s for s in self.slots if s.start < end and s.end > start]
 
     def get_slots_by_project(self, project: str) -> List[TimelineSlot]:
         """Get all slots for a specific project."""

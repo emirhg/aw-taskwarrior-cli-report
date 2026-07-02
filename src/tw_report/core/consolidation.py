@@ -105,6 +105,7 @@ class TimelineSlotManager:
                     consolidated.append({
                         **gap,
                         "duration": total_gap_duration,
+                        "end": gap["start"] + total_gap_duration,
                     })
             pending_gaps.clear()
 
@@ -195,6 +196,7 @@ class TimelineSlotManager:
         # Build result
         result = {
             "start": time_window_start,
+            "end": time_window_start + time_window,
             "duration": time_window,
             "actual_duration": actual_duration,
             "productive_duration": productive_duration,
@@ -372,9 +374,11 @@ class TimelineSlotManager:
             # Build merged slot
             merged_slot = {
                 "start": first_start,
+                "end": first_start + time_window_duration,
                 "duration": time_window_duration,
                 "actual_duration": actual_duration,
                 "productive_duration": productive_duration,
+                "type": group[0].get("type", "regular"),
                 "project": project,
                 "task": group[0]["task"],
                 "apps": [],
