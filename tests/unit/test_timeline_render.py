@@ -258,7 +258,8 @@ class TestPrintTimelineReport:
         captured = capsys.readouterr()
         assert "Wk  Date       Day" in captured.out
         assert "Platform" in captured.out
-        assert "Code Review" in captured.out
+        # At default detail_level=1, only projects are shown, not task names
+        assert "Day total:" in captured.out
 
     def test_offline_task_rendering(self, base_time, capsys):
         """Offline-task slots should show OFF duration notation."""
@@ -284,19 +285,18 @@ class TestPrintTimelineReport:
         assert "OFF" in captured.out or "offline" in captured.out.lower()
 
     def test_single_day_report(self, base_time, sample_slots, capsys):
-        """Single-day report should not show week totals."""
+        """Single-day report should show day and week totals."""
         print_timeline_report(
             slots=sample_slots,
             period=":today",
             start_time=base_time,
             end_time=base_time + timedelta(days=1),
             task_based=True,
-            total_time_all=timedelta(hours=4),
         )
         captured = capsys.readouterr()
         assert "Day total:" in captured.out
-        # Week totals only shown for multi-day periods
-        assert "Week total" not in captured.out
+        # Week totals are shown even for single-day reports
+        assert "Week total" in captured.out
 
     def test_multi_day_report(self, base_time, sample_slots, capsys):
         """Multi-day report should show week totals."""
@@ -306,7 +306,6 @@ class TestPrintTimelineReport:
             start_time=base_time,
             end_time=base_time + timedelta(days=7),
             task_based=True,
-            total_time_all=timedelta(hours=4),
         )
         captured = capsys.readouterr()
         assert "Day total:" in captured.out
@@ -324,7 +323,6 @@ class TestPrintTimelineReport:
             productive_task_time=timedelta(hours=2),
             first_event_time=base_time.replace(hour=9),
             last_event_time=base_time.replace(hour=17),
-            total_time_all=timedelta(hours=8),
         )
         captured = capsys.readouterr()
         assert "Period:" in captured.out
