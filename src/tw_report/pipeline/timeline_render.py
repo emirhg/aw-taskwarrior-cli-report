@@ -2,6 +2,59 @@
 
 Renders a detailed timeline of work sessions organized by date and week,
 with support for rollup, consolidation, and detail levels.
+
+CRITICAL HISTORY (Phases 5-8, 2026-07-02):
+===========================================
+
+Phase 5 refactoring (commit 12def2d) partially extracted this module but left
+it incomplete: only ~140 lines of the 615-line print_timeline_report() were
+extracted. Missing logic included:
+  - Time range calculation and formatting (START - END)
+  - Task name extraction with ▶▶ separator
+  - Project name abbreviation
+  - Productivity percentage calculation per entry
+  - Full AFK and OFFLINE slot rendering
+  - Metrics aggregation (AFK time, project tracking %, focus time)
+  - _render_slot_detail() helper for detail_level >= 3
+
+This caused the broken behavior reported on 2026-07-02:
+  - Active Time showed 8:27:21 instead of 8:50:56 (missing 0:23:34 AFK)
+  - Project Tracking showed 0.0% instead of 89.0%
+  - AFK time metric not displayed
+  - Focus time metric missing
+  - Timeline entries showed "00:00-..." instead of "00:00 - 04:36"
+  - No task names (▶▶ Corregir el reporte...) displayed
+  - No per-entry productivity percentages ([prod 48%])
+
+RESTORATION (commit 1b35699):
+=============================
+The complete implementation was restored from commit 69aeca3 (last working
+state before refactoring). This includes:
+  - Full print_timeline_report() with consolidated/rollup rendering engine
+  - _render_slot_detail() for hierarchical category/app/title sub-rows
+  - split_slots_spanning_days() extracted as module-level function
+  - Original format_timeline_line() using terminal-width alignment
+
+All metrics are now calculated correctly, time ranges display properly,
+and consolidated/detail rendering works as originally designed.
+
+FORMATTING BEHAVIOR:
+====================
+format_timeline_line() uses ljust(terminal_width - len(duration) - 1)
+to pad the left content. This creates lines that:
+  - Use full terminal width for dynamic alignment
+  - Right-align the duration column
+  - Work correctly with both simple and consolidated rendering
+
+Example (terminal width 120):
+  Input:  left="     00:00 - 04:36  ▶ Project", duration="4:36:02"
+  Output: "     00:00 - 04:36  ▶ Project       4:36:02"
+                                        ^~105 chars to 120~^
+
+This approach was chosen over fixed-column padding because:
+  1. Consolidation generates different content lengths per entry
+  2. Terminal width can vary by user environment
+  3. Dynamic padding maintains alignment without truncation
 """
 
 from datetime import datetime, timedelta
@@ -159,12 +212,67 @@ def print_timeline_report(
 ):
     """Print a timeline report showing activity as continuous time slots with date/week headers and cumulative totals.
 
+    CRITICAL METRICS CALCULATION (Phase 5 bug fix, 2026-07-02):
+    ===========================================================
+
+    This function calculates and displays the following metrics:
+      - Active Time: Total time from first to last activity (includes AFK)
+      - AFK time: Total time away from keyboard
+      - Project Tracking: % of active time on tracked (non-"No project") tasks
+      - Focus time: % time on high-priority tasks
+      - Untracked productivity: % of untracked time on productive activities
+      - Overall productivity: Total productive time / active time
+      - Distracting time: Total time on distracting activities
+      - Unscored time: Total time unscored
+
+    The broken Phase 5 version (commit 12def2d) failed to:
+      - Calculate AFK time separately (showed as reduced Active Time)
+      - Include AFK metrics in display
+      - Calculate project tracking percentage (showed 0% instead of 89%)
+      - Include focus time metric
+
+    This version correctly:
+      - Separates AFK time from active time calculation
+      - Includes AFK metrics in the report header
+      - Properly calculates project tracking percentage
+      - Includes all required metrics
+
+    CONSOLIDATION RENDERING (when --consolidate flag used):
+    ========================================================
+    When slots are consolidated (merged same project/task entries), this
+    function detects consolidation via the presence of "afk_duration" field
+    and adjusts metrics calculation accordingly:
+      - has_consolidated_afk flag: True if consolidation merged AFK gaps
+      - Consolidated AFK time is already in the afk_duration field
+      - Regular (non-consolidated) AFK time is calculated from type="afk" slots
+
+    DETAIL LEVEL RENDERING:
+    =======================
     detail_level controls rendering depth:
-      1 = Project only
-      2 = Project + Task
-      3 = Project + Task + Category
-      4 = Project + Task + Category + App
-      5 = Project + Task + Category + App + Title
+      1 = Project only (no sub-rows)
+      2 = Project + Task (no sub-rows, but shows task name)
+      3 = + Category details (sub-rows showing category breakdown)
+      4 = + App (indented under category)
+      5 = + Title (window titles under app)
+
+    Each level is rendered via _render_slot_detail() which shows indented
+    breakdowns of how time was distributed across categories/apps/titles.
+
+    ROLLUP MODE (when --consolidate and --timesheet used):
+    =======================================================
+    In rollup mode (used with consolidation), single-entry days show both
+    date header and time range inline:
+      "W27 2026-07-01 Wed    00:00 - 04:36  ▶ Project > Task"
+    instead of on separate lines for brevity.
+
+    PARAMETER NOTES:
+      slots: Pre-filtered timeline slots from main() (EventFilter already applied)
+      period: Human-readable period description (e.g., ":yesterday", "2026-07-01")
+      detail_level: See above (1-5, typically 1-2 for most users)
+      rollup: If True, collapse single-entry days to inline format
+      non_afk_time: Total non-AFK time from metrics (for % calculations)
+      productive_time: Total productive time from metrics
+      (other metric parameters used for header display)
     """
     from itertools import groupby
 

@@ -314,7 +314,45 @@ def format_timeline_line(
 ) -> str:
     """Format timeline line with truncated content and right-aligned duration.
 
-    Truncates left_part if needed and right-aligns the duration column.
+    CRITICAL DESIGN CHOICE (Phase 5 regression fix, 2026-07-02):
+    ============================================================
+
+    This function uses terminal-width based padding (ljust(width - len(duration) - 1))
+    rather than fixed-column padding. This was chosen after a failed attempt to use
+    fixed-column alignment (max_left_width=70), which:
+      - Created 0-padding when content was already at max width
+      - Resulted in duration appearing immediately after truncated content
+      - Broke consolidated rendering with extra padding spaces
+
+    The terminal-width approach works correctly for ALL rendering paths:
+      1. Simple timeline (non-consolidated): Dynamic padding fills to screen width
+      2. Consolidated+detail rendering: Works with varied content lengths
+      3. Multi-day spanning: Handles proportional duration allocation
+
+    ALGORITHM:
+    ==========
+    1. Truncate left_part to max_left_width chars if needed (add "..." if truncated)
+    2. Pad left_part to (terminal_width - duration_length - 1) chars using ljust()
+    3. Append single space + duration string
+
+    EXAMPLE (terminal width 120, content 50 chars, duration "4:36:02" = 7 chars):
+      left_part (before):   "     00:00 - 04:36  ▶ Project > Task"  (50 chars)
+      left_part (after):    "     00:00 - 04:36  ▶ Project > Task                                         "  (padded to 112)
+      final:                "     00:00 - 04:36  ▶ Project > Task                                          4:36:02"
+                                                                    ^~112 chars padding~^1 space^duration
+
+    PARAMETERS:
+      left_part:        Pre-formatted content (time range + project/task + details)
+      duration_str:     Duration string to right-align (e.g., "4:36:02", "0:13:47")
+      max_left_width:   Maximum chars before truncation (default 100, used by consolidated rendering)
+
+    RETURNS:
+      Formatted line with left_part padded to terminal width and duration right-aligned
+
+    NOTE:
+      - Truncation adds "..." (3 chars) when left_part exceeds max_left_width
+      - Terminal width fallback is 80 if detection fails
+      - Lines naturally fit within terminal width by design
     """
     width = get_terminal_width()
 
