@@ -273,6 +273,7 @@ from tw_report.core.consolidation import TimelineSlotManager
 from tw_report.core.offline import OfflineTaskProcessor
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.core.events import get_bucket_id, get_events
+from tw_report.core.period import parse_period
 
 # --- Constants and Configuration ---
 
@@ -340,65 +341,6 @@ def reorder_arguments(argv: List[str]) -> List[str]:
 # --- Time Period Utilities ---
 
 
-def parse_period(period_str: str) -> Tuple[datetime, datetime]:
-    """
-    Convert a human-readable period string into a start and end datetime tuple.
-    """
-    now = datetime.now().astimezone()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-
-    period_str = period_str.lower()
-
-    if period_str == ":today":
-        start = today_start
-        # Query until start of next day to properly capture all events in timezone-aware queries
-        end = today_start + timedelta(days=1) - timedelta(microseconds=1)
-    elif period_str == ":yesterday":
-        yesterday = today_start - timedelta(days=1)
-        start = yesterday
-        # Query until start of next day (which is today_start)
-        end = today_start - timedelta(microseconds=1)
-    elif period_str == ":week":
-        start = today_start - timedelta(days=now.weekday())
-        end = today_end
-    elif period_str == ":lastweek":
-        start_of_last_week = today_start - timedelta(days=now.weekday(), weeks=1)
-        end_of_last_week = start_of_last_week + timedelta(days=6)
-        start = start_of_last_week
-        end = end_of_last_week.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
-    elif period_str == ":month":
-        start = today_start.replace(day=1)
-        end = today_end
-    elif period_str == ":lastmonth":
-        end_of_last_month = today_start.replace(day=1) - timedelta(days=1)
-        start_of_last_month = end_of_last_month.replace(day=1)
-        start = start_of_last_month
-        end = end_of_last_month.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
-    elif period_str == ":all":
-        start = datetime(1970, 1, 1, tzinfo=now.tzinfo)
-        end = now
-    else:
-        parts = period_str.split()
-        try:
-            if len(parts) == 1:
-                day = datetime.fromisoformat(parts[0]).astimezone(now.tzinfo)
-                start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-                end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
-            elif len(parts) == 2:
-                start = datetime.fromisoformat(parts[0]).astimezone(now.tzinfo)
-                end = datetime.fromisoformat(parts[1]).astimezone(now.tzinfo)
-            else:
-                raise ValueError
-        except ValueError:
-            print(f"Error: Invalid period format '{period_str}'", file=sys.stderr)
-            exit(1)
-
-    return start, end
 
 
 # --- Data Loading and Processing ---
