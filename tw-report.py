@@ -286,6 +286,10 @@ from tw_report.core.task_matching import (
     task_has_offline_tag,
     build_offline_category_structure,
 )
+from tw_report.pipeline.processors import (
+    window_event_max_category_score,
+    window_event_productive_duration,
+)
 
 # --- Constants and Configuration ---
 
@@ -359,29 +363,6 @@ def reorder_arguments(argv: List[str]) -> List[str]:
 
 
 
-
-def window_event_max_category_score(
-    event: Event, cat_score_map: Dict[str, float]
-) -> float:
-    """Highest category productivity score assigned to this window event (matches report header logic)."""
-    category_list = event.data.get("$category", ["Uncategorized"])
-    max_score = None
-    for category in category_list:
-        score = get_category_score(category, cat_score_map)
-        if max_score is None:
-            max_score = score
-        else:
-            max_score = max(max_score, score)
-    return float(max_score) if max_score is not None else 0.0
-
-
-def window_event_productive_duration(
-    event: Event, cat_score_map: Dict[str, float]
-) -> timedelta:
-    """Portion of the event counted as productive (positive category score)."""
-    if window_event_max_category_score(event, cat_score_map) > 0:
-        return event.duration
-    return timedelta(0)
 
 
 def format_duration_tracked_prod(
