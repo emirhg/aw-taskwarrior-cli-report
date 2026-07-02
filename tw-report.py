@@ -272,6 +272,7 @@ from tw_report.core.filtering import EventFilter
 from tw_report.core.consolidation import TimelineSlotManager
 from tw_report.core.offline import OfflineTaskProcessor
 from tw_report.core.timeline import Timeline, TimelineSlot
+from tw_report.core.events import get_bucket_id, get_events
 
 # --- Constants and Configuration ---
 
@@ -647,26 +648,6 @@ def format_offline_task_duration(wall_clock_duration: timedelta, event_duration:
     else:
         label = "[prod   0%]"
     return f"({offline_str} OFF)  {online_str}  {label:>11}"
-
-
-def get_bucket_id(bucket_name: str) -> str:
-    """Construct the full bucket ID from its name and the machine's hostname."""
-    hostname = platform.node()
-    return f"aw-watcher-{bucket_name}_{hostname}"
-
-
-def get_events(
-    client: ActivityWatchClient, bucket_id: str, start: datetime, end: datetime
-) -> List[Event]:
-    """Fetch events from a specific bucket within a time range."""
-    try:
-        return client.get_events(bucket_id, start=start, end=end, limit=-1)
-    except Exception as e:
-        print(
-            f"Warning: Could not get events for bucket '{bucket_id}': {e}",
-            file=sys.stderr,
-        )
-        return []
 
 
 # --- Filtering Utilities ---
