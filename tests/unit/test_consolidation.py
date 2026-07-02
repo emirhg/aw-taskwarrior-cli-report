@@ -32,6 +32,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": dt.replace(hour=10),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Climb",
                 "task": "Task1",
                 "categories": [],
@@ -40,6 +41,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": dt.replace(hour=12),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Climb",
                 "task": "Task1",
                 "categories": [],
@@ -65,6 +67,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": dt.replace(hour=10),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Climb",
                 "task": "Task1",
                 "categories": [],
@@ -73,6 +76,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": dt.replace(hour=12),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Climb",
                 "task": "Task2",
                 "categories": [],
@@ -97,6 +101,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": dt.replace(hour=10),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Climb",
                 "task": "Task1",
                 "categories": [],
@@ -105,6 +110,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": dt.replace(hour=12),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Mercado",
                 "task": "Task1",
                 "categories": [],
@@ -129,6 +135,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": datetime(2026, 6, 27, 10, tzinfo=tz),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Climb",
                 "task": "Task1",
                 "categories": [],
@@ -137,6 +144,7 @@ class TestBasicConsolidation:
                 "type": "regular",
                 "start": datetime(2026, 6, 28, 10, tzinfo=tz),
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
                 "project": "Climb",
                 "task": "Task1",
                 "categories": [],
@@ -292,3 +300,4 @@ After Phase 3 refactoring:
 All tests marked with @pytest.mark.xfail(reason="Issue #2...")
 should convert to PASSED.
 """
+

@@ -48,6 +48,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
                 "project": "ProjectA",
                 "task": "TaskA",
                 "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
             },
             {
                 "type": "task",
@@ -56,6 +57,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
                 "project": "ProjectB",
                 "task": "TaskB",
                 "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
             },
         ]
         manager.add_slots(slots)
@@ -70,6 +72,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
             "project": "P",
             "task": "T",
             "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=2),
         }]
         manager.add_slots(slots)
         result = manager.get_slots()
@@ -86,6 +89,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
             "project": "P",
             "task": "T",
             "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=2),
         }]
         manager.add_slots(slots)
         assert len(manager.slots) == 1
@@ -100,6 +104,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
             "project": "P",
             "task": "T",
             "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=2),
         }]
         manager.slots = original_slots
         assert len(manager.get_slots()) == 1
@@ -180,6 +185,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
                 "project": "ProjectA",
                 "task": "T",
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
             },
             {
                 "type": "task",
@@ -188,6 +194,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
                 "project": "ProjectB",
                 "task": "T",
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
             },
         ]
         manager.add_slots(slots)
@@ -245,6 +252,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
                 "project": "P",
                 "task": "T",
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
             },
             {
                 "type": "task",
@@ -253,6 +261,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
                 "project": "P",
                 "task": "T",
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
             },
             {
                 "type": "task",
@@ -261,6 +270,7 @@ class TestTimelineSlotManagerBackwardCompatibility:
                 "project": "P",
                 "task": "T",
                 "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
             },
         ]
         manager.add_slots(slots)
@@ -299,3 +309,4 @@ class TestTimelineSlotManagerBackwardCompatibility:
         assert retrieved[0]["project"] == "P"
         assert retrieved[0]["duration"] == timedelta(hours=2)
         assert retrieved[0].get("afk_duration") == timedelta(minutes=30)
+

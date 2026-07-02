@@ -15,7 +15,7 @@ from sentinel_warrior.data import (
     compile_category_rules, generate_timeline_data, consolidate_timeline_slots,
     categorize_event, get_category_score, find_active_task, get_task_info,
     build_canonical_events, build_context, merge_overlapping_afk_periods,
-    generate_gap_entries, attach_offline_extensions
+    generate_gap_entries
 )
 from aw_client import ActivityWatchClient
 
@@ -145,28 +145,9 @@ def test_events_preservation(date_str: str):
     print(f"   Titles WITH events: {titles_with_events_2}")
     print(f"   Titles WITHOUT events: {titles_without_events_2}")
 
-    # STAGE 3: After attach_offline_extensions
-    print("\n3. After attach_offline_extensions():")
-    slots_3 = attach_offline_extensions(slots_2)
-
-    titles_with_events_3 = 0
-    titles_without_events_3 = 0
-    for slot in slots_3:
-        if 'categories' in slot:
-            for cat in slot['categories']:
-                for app in cat.get('apps', []):
-                    for title in app.get('titles', []):
-                        if 'events' in title and title['events']:
-                            titles_with_events_3 += 1
-                        else:
-                            titles_without_events_3 += 1
-
-    print(f"   Titles WITH events: {titles_with_events_3}")
-    print(f"   Titles WITHOUT events: {titles_without_events_3}")
-
-    # STAGE 4: After consolidate_timeline_slots
+    # STAGE 3: After consolidate_timeline_slots
     print("\n4. After consolidate_timeline_slots():")
-    slots_4 = consolidate_timeline_slots(slots_3, ignore_offline=False)
+    slots_4 = consolidate_timeline_slots(slots_2, ignore_offline=False)
 
     titles_with_events_4 = 0
     titles_without_events_4 = 0

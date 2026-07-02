@@ -80,9 +80,9 @@ class TestExcludeNonProjectFilter:
         # FIXED: Should now be filtered out
         assert f.should_include_entry(entry, "afk") is False
 
-def test_exclude_non_project_filters_offline_task_slots(
-        self, filter_exclude_non_project, issue_1_offline_task_data
-    ):
+    def test_exclude_non_project_filters_offline_task_slots(
+            self, filter_exclude_non_project, issue_1_offline_task_data
+        ):
         """
         --exclude-non-project should remove synthetic OFFLINE task slots without project.
 
