@@ -259,6 +259,7 @@ except ImportError:
     print("Please install them with: pip install aw-client", file=sys.stderr)
     exit(1)
 
+from tw_report.cli.args import parse_args, parse_positional_args
 from tw_report.pipeline.processors import (
     aggregate_hierarchy,
     build_canonical_events,
