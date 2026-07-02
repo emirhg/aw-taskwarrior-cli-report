@@ -4,12 +4,16 @@ Test data consistency through the entire pipeline.
 
 Verifies that start/end/duration remain consistent (within 5s tolerance)
 and that no unexpected modifications occur outside of gap-filling.
+
+REQUIRES: Running ActivityWatch server on localhost:5600
 """
 
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Tuple
+
+import pytest
 
 # Add parent directory to path
 repo_root = Path(__file__).parent
@@ -50,6 +54,7 @@ def check_consistency(name: str, start, end, duration) -> Tuple[bool, str]:
     return True, f"{name}: OK (diff={diff:.1f}s)"
 
 
+@pytest.mark.live_server
 def test_raw_events(date_str: str):
     """Test raw ActivityWatch events before any processing."""
     print("\n" + "="*80)
@@ -87,6 +92,7 @@ def test_raw_events(date_str: str):
     return window_events
 
 
+@pytest.mark.live_server
 def test_after_gap_filling(window_events):
     """Test events after fill_short_event_gaps."""
     print("\n" + "="*80)
@@ -135,6 +141,7 @@ def test_after_gap_filling(window_events):
         print(f"✅ Events consistent after gap-filling (checked first 100)")
 
 
+@pytest.mark.live_server
 def test_generate_timeline(date_str: str):
     """Test timeline data generation."""
     print("\n" + "="*80)

@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 """
 Test where the events list is being lost in the pipeline.
+
+REQUIRES: Running ActivityWatch server on localhost:5600
 """
 
 import sys
 import os
 from pathlib import Path
+
+import pytest
 
 repo_root = Path(__file__).parent
 sys.path.insert(0, str(repo_root))
@@ -20,6 +24,7 @@ from sentinel_warrior.data import (
 from aw_client import ActivityWatchClient
 
 
+@pytest.mark.live_server
 def test_events_preservation(date_str: str):
     """Trace events list through each pipeline stage."""
     print("\n" + "="*80)

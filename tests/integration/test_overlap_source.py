@@ -1,11 +1,15 @@
 #!/usr/bin/env python
 """
 Identify exactly where overlapping titles are being created in the pipeline.
+
+REQUIRES: Running ActivityWatch server on localhost:5600
 """
 
 import sys
 import os
 from pathlib import Path
+
+import pytest
 
 repo_root = Path(__file__).parent
 sys.path.insert(0, str(repo_root))
@@ -46,6 +50,7 @@ def check_overlaps_in_list(titles_list, stage_name):
     return overlaps
 
 
+@pytest.mark.live_server
 def test_where_overlaps_come_from():
     """Trace overlaps from raw events through the pipeline."""
 
