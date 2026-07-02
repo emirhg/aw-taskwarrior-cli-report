@@ -680,11 +680,14 @@ def print_timeline_report(
                 gaps_str = ""
                 base_duration = duration_formatted
 
+            # Add asterisk prefix to offline task name for easy spotting
+            offline_task_name = f"*{task_name}"
+
             time_range = f"{start_str} - {end_str}"
             print(format_timeline_columns(
                 time_range=time_range,
                 project=abbrev_project,
-                task=task_name,
+                task=offline_task_name,
                 gaps=gaps_str,
                 duration=base_duration,
             ))
@@ -747,10 +750,12 @@ def print_timeline_report(
                     group_total_duration, group_productive_duration, group_afk_duration
                 )
                 time_range = f"{start_str}-{end_str}"
+                # Add space before task name to preserve alignment with offline tasks (which use *)
+                formatted_task = f" {task_name}" if task_name != NO_TASK else task_name
                 print(format_timeline_columns(
                     time_range=time_range,
                     project=abbrev_project,
-                    task=task_name,
+                    task=formatted_task,
                     gaps=gaps_str,
                     duration=base_duration,
                 ))
@@ -805,10 +810,12 @@ def print_timeline_report(
                     )
 
                 time_range = f"{start_str} - {end_str}"
+                # Add space before task name to preserve alignment with offline tasks (which use *)
+                formatted_task = f" {task_name}" if task_name != NO_TASK else task_name
                 print(format_timeline_columns(
                     time_range=time_range,
                     project=abbrev_project,
-                    task=task_name,
+                    task=formatted_task,
                     gaps=gaps_str,
                     duration=base_duration,
                 ))
@@ -835,10 +842,12 @@ def print_timeline_report(
                         )
 
                     time_range = f"{s_start} - {s_end}"
+                    # Add space before task name to preserve alignment with offline tasks (which use *)
+                    formatted_task = f" {task_name}" if task_name != NO_TASK else task_name
                     line = format_timeline_columns(
                         time_range=time_range,
                         project=abbrev_project,
-                        task=task_name,
+                        task=formatted_task,
                         gaps=gaps_str,
                         duration=base_duration,
                     )
