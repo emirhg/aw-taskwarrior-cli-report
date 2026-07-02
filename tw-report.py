@@ -286,6 +286,7 @@ from tw_report.core.task_matching import (
     task_has_offline_tag,
     build_offline_category_structure,
 )
+from tw_report.core.filtering import EventFilter, NO_PROJECT, NO_TASK
 from tw_report.pipeline.processors import (
     window_event_max_category_score,
     window_event_productive_duration,
@@ -296,11 +297,6 @@ from tw_report.pipeline.processors import (
 DEFAULT_CATEGORIES_FILE = os.path.expanduser(
     "~/.config/activitywatch/aw-server/settings.json"
 )
-
-# Sentinel values for unassigned events
-NO_PROJECT = "No project assigned"
-NO_TASK = "No task assigned"
-
 
 # --- Argument Parsing ---
 
