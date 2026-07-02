@@ -76,8 +76,31 @@ from tw_report.utils.formatting import (
     abbreviate_project_path,
     get_terminal_width,
     format_timeline_line,
+    format_timeline_columns,
     truncate_title,
+    split_gaps_and_duration,
 )
+
+def _format_project_task_columns(project_name: str, task_name: str) -> str:
+    """Format project and task as aligned columns.
+
+    For "No project assigned" entries, shows only the project (no task decorator).
+    For normal entries, shows both with proper alignment.
+
+    Args:
+        project_name: Full project name (e.g., "Ecosistema > Cultivo > Hikuri" or "No project assigned")
+        task_name: Task name (e.g., "Revisar semillero de Hikuri" or "No task assigned")
+
+    Returns:
+        Formatted string with project and task in aligned columns
+    """
+    if project_name == NO_PROJECT:
+        # Special case: no project - just show project name, skip task decorator
+        return f"▶ {project_name}"
+    else:
+        # Normal case: show both project and task
+        return f"▶ {project_name} ▶▶ {task_name}"
+
 
 def split_slots_spanning_days(slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Split slots that span multiple days into single-day pieces.
@@ -643,10 +666,28 @@ def print_timeline_report(
 
             # Format OFFLINE task entries with same style as regular entries
             abbrev_project = abbreviate_project_path(project_name, task_name)
-            content = f"▶ {abbrev_project} ▶▶ {task_name}"
-            left = f"     {start_str} - {end_str}  {content}"
             duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration)
-            print(format_timeline_line(left, duration_formatted, max_left_width=95))
+
+            # Parse the duration_formatted to extract gaps and duration
+            # Format is like "(HH:MM:SS OFF)  HH:MM:SS  [prod XX%]"
+            # Extract the first part (gaps) and the rest (duration)
+            if duration_formatted.startswith("("):
+                # Has gaps
+                close_paren = duration_formatted.find(")")
+                gaps_str = duration_formatted[:close_paren+1]
+                base_duration = duration_formatted[close_paren+1:].lstrip()
+            else:
+                gaps_str = ""
+                base_duration = duration_formatted
+
+            time_range = f"{start_str} - {end_str}"
+            print(format_timeline_columns(
+                time_range=time_range,
+                project=abbrev_project,
+                task=task_name,
+                gaps=gaps_str,
+                duration=base_duration,
+            ))
 
             # Accumulate offline_task to day/week totals with actual tracked (online) time only
             # (wall_clock_duration includes offline periods when system was powered off)
@@ -701,9 +742,18 @@ def print_timeline_report(
             if slot.get("type") != "afk":
                 task_name = slot["task"]
                 abbrev_project = abbreviate_project_path(project_name, task_name)
-                content = f"▶ {abbrev_project} ▶▶ {task_name}"
-                left = f"{pending_date_prefix}  {start_str}-{end_str}  {content}"
-                print(format_timeline_line(left, duration_str, max_left_width=95))
+                # Separate gaps from duration for column alignment
+                gaps_str, base_duration = split_gaps_and_duration(
+                    group_total_duration, group_productive_duration, group_afk_duration
+                )
+                time_range = f"{start_str}-{end_str}"
+                print(format_timeline_columns(
+                    time_range=time_range,
+                    project=abbrev_project,
+                    task=task_name,
+                    gaps=gaps_str,
+                    duration=base_duration,
+                ))
                 pending_date_prefix = None
                 _render_slot_detail(slot, detail_level, width)
             else:
@@ -739,24 +789,29 @@ def print_timeline_report(
                 slot = group_slots[0]
                 task_name = slot["task"]
                 abbrev_project = abbreviate_project_path(project_name, task_name)
-                content = f"▶ {abbrev_project} ▶▶ {task_name}"
+
+                # Separate gaps from duration for column alignment
                 if slot.get("type") == "afk":
                     slot_dur_str = format_afk_label(
                         slot.get("actual_duration", slot["duration"])
                     )
-                    left = f"    *{start_str} - {end_str}   {content}"
+                    gaps_str = ""
+                    base_duration = slot_dur_str
                 else:
-                    left = f"     {start_str} - {end_str}  {content}"
-                    slot_dur_str = format_duration_with_afk(
+                    gaps_str, base_duration = split_gaps_and_duration(
                         slot.get("actual_duration", slot["duration"]),
                         slot.get("productive_duration", timedelta(0)),
                         slot.get("afk_duration"),
                     )
-                print(
-                    format_timeline_line(
-                        left, duration_str=slot_dur_str, max_left_width=95
-                    )
-                )
+
+                time_range = f"{start_str} - {end_str}"
+                print(format_timeline_columns(
+                    time_range=time_range,
+                    project=abbrev_project,
+                    task=task_name,
+                    gaps=gaps_str,
+                    duration=base_duration,
+                ))
                 _render_slot_detail(slot, detail_level, width)
             else:
                 # Multiple slots for this project today — one row each
@@ -766,24 +821,28 @@ def print_timeline_report(
                     slot_duration = slot.get("actual_duration", slot["duration"])
                     task_name = slot["task"]
                     abbrev_project = abbreviate_project_path(project_name, task_name)
-                    content = f"▶ {abbrev_project} ▶▶ {task_name}"
 
+                    # Separate gaps from duration for column alignment
                     if slot.get("type") == "afk":
                         slot_dur_str = format_afk_label(slot_duration)
-                        left = f"    *{s_start} - {s_end}  {content}"
+                        gaps_str = ""
+                        base_duration = slot_dur_str
                     else:
-                        slot_dur_str = format_duration_with_afk(
+                        gaps_str, base_duration = split_gaps_and_duration(
                             slot_duration,
                             slot.get("productive_duration", timedelta(0)),
                             slot.get("afk_duration"),
                         )
-                        left = f"    {s_start} - {s_end}  {content}"
 
-                    print(
-                        format_timeline_line(
-                            left, duration_str=slot_dur_str, max_left_width=95
-                        )
+                    time_range = f"{s_start} - {s_end}"
+                    line = format_timeline_columns(
+                        time_range=time_range,
+                        project=abbrev_project,
+                        task=task_name,
+                        gaps=gaps_str,
+                        duration=base_duration,
                     )
+                    print(line)
                     _render_slot_detail(slot, detail_level, width)
 
         # Accumulate totals for all slot types
