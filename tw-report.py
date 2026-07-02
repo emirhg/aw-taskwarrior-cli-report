@@ -274,6 +274,12 @@ from tw_report.core.offline import OfflineTaskProcessor
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.core.events import get_bucket_id, get_events
 from tw_report.core.period import parse_period
+from tw_report.core.categories import (
+    load_categories,
+    compile_category_rules,
+    get_category_score,
+    categorize_event,
+)
 
 # --- Constants and Configuration ---
 
@@ -346,115 +352,6 @@ def reorder_arguments(argv: List[str]) -> List[str]:
 # --- Data Loading and Processing ---
 
 
-def load_categories(filepath: str) -> List[Dict]:
-    """Load categorization rules from ActivityWatch settings file."""
-    if not os.path.exists(filepath):
-        print(f"Warning: Categories file not found at '{filepath}'.", file=sys.stderr)
-        return []
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            settings = json.load(f)
-            return settings.get("classes", [])
-    except (json.JSONDecodeError, IOError) as e:
-        print(
-            f"Warning: Could not load or parse categories from '{filepath}': {e}",
-            file=sys.stderr,
-        )
-        return []
-
-
-def compile_category_rules(
-    category_rules: List[Dict],
-) -> Tuple[List[Tuple[List[str], Pattern, float]], Dict[str, float]]:
-    """
-    Take a list of category rule dictionaries and compile the regex strings.
-    Also returns a map of category names to their scores.
-    """
-    compiled_rules = []
-    cat_score_map = {}
-    if not category_rules:
-        return [], {}
-
-    # First pass: collect all explicit category scores (including parent categories with type: "none")
-    explicit_scores = {}  # category path -> score
-    for rule_item in category_rules:
-        cat_list = rule_item.get("name", ["Unknown"])
-        if cat_list:
-            full_path = " > ".join(cat_list)
-            score_val = rule_item.get("data", {}).get("score")
-            # Store all categories (both regex and none types) for inheritance
-            explicit_scores[full_path] = (
-                float(score_val) if score_val is not None else None
-            )
-            # If this is a parent category (type: none) with a score, add it to map
-            rule = rule_item.get("rule", {})
-            if rule.get("type") == "none" and score_val is not None:
-                cat_score_map[full_path] = float(score_val)
-
-    # Second pass: compile rules and build score map with inheritance
-    for rule_item in category_rules:
-        rule = rule_item.get("rule", {})
-        if rule.get("type") == "regex" and rule.get("regex"):
-            try:
-                cat_list = rule_item.get("name", ["Unknown"])
-                score_val = rule_item.get("data", {}).get("score")
-                score = float(score_val) if score_val is not None else 0.0
-                ignore_case = rule.get("ignore_case", True)
-                flags = re.IGNORECASE if ignore_case else 0
-                pattern = re.compile(rule["regex"], flags)
-                compiled_rules.append((cat_list, pattern, score))
-
-                # Store both full path and individual categories in the score map
-                # This enables score inheritance: if a specific category has None score,
-                # we look up its parent categories
-                if cat_list:
-                    # Store full path only if it has a non-None score
-                    full_path = " > ".join(cat_list)
-                    if score_val is not None:
-                        cat_score_map[full_path] = score
-                        # Also store just the most specific category for backward compatibility
-                        cat_score_map[cat_list[-1]] = score
-
-                    # Always store parent paths for inheritance lookup
-                    for i in range(len(cat_list) - 1, 0, -1):
-                        parent_path = " > ".join(cat_list[:i])
-                        # If parent has explicit score, use it; else skip (will default to 0 in lookup)
-                        if (
-                            parent_path in explicit_scores
-                            and explicit_scores[parent_path] is not None
-                        ):
-                            parent_score = explicit_scores[parent_path]
-                            if parent_path not in cat_score_map:
-                                cat_score_map[parent_path] = parent_score
-            except (re.error, ValueError) as e:
-                print(
-                    f"Warning: Could not compile regex for rule {rule_item}: {e}",
-                    file=sys.stderr,
-                )
-    return compiled_rules, cat_score_map
-
-
-def get_category_score(category: str, cat_score_map: Dict[str, float]) -> float:
-    """Get score for a category, with inheritance from parent categories.
-
-    If the category itself has no score, tries progressively shorter paths
-    to find a parent category score. E.g., for "IM > Messaging > Chat",
-    tries: full path, then "IM > Messaging", then "IM", then defaults to 0.
-    """
-    # Try exact match first
-    if category in cat_score_map:
-        return cat_score_map[category]
-
-    # Try parent categories if category contains hierarchy separator
-    if " > " in category:
-        parts = category.split(" > ")
-        # Work backwards from most specific to most general
-        for i in range(len(parts) - 1, 0, -1):
-            parent = " > ".join(parts[:i])
-            if parent in cat_score_map:
-                return cat_score_map[parent]
-
-    return 0.0
 
 
 def window_event_max_category_score(
@@ -815,31 +712,6 @@ def _excluded(name: str, exclusions: Optional[List[str]]) -> bool:
 
 # --- Shared Utility Functions (used by both default and timeline reports) ---
 
-
-def categorize_event(
-    event: Event, categories: List[Tuple[List[str], Pattern, float]]
-) -> None:
-    """Categorize a window event by matching against regex rules.
-
-    Mutates event.data["$category"] in-place with the most specific matching category.
-    Used by both generate_report_data() and main() to avoid duplication of regex logic.
-    """
-    app_name = event.data.get("app", "")
-    title = event.data.get("title", "")
-    match_strings = [
-        app_name + " " + title,
-        app_name,
-        title,
-    ]
-    matched_cats = []
-    for cat_list, pattern, _ in categories:
-        if any(pattern.search(s) for s in match_strings):
-            if cat_list:
-                full_path = " > ".join(cat_list)
-                matched_cats.append((len(cat_list), full_path))
-    if matched_cats:
-        matched_cats.sort(key=lambda x: (-x[0], x[1]))
-        event.data["$category"] = [matched_cats[0][1]]
 
 
 def find_active_task(event: Event, task_events: List[Event]) -> Optional[Event]:
