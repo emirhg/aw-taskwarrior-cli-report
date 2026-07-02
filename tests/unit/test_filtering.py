@@ -80,29 +80,7 @@ class TestExcludeNonProjectFilter:
         # FIXED: Should now be filtered out
         assert f.should_include_entry(entry, "afk") is False
 
-    def test_exclude_non_project_filters_offline_gaps_without_project(
-        self, filter_exclude_non_project
-    ):
-        """
-        --exclude-non-project should remove OFFLINE gaps without project.
-
-        THIS IS PART OF ISSUE #3 FIX:
-        Previously OFFLINE gaps were NOT filtered while AFK gaps were.
-        Now they are filtered consistently.
-        """
-        from tw_report.core.filtering import EventFilter
-
-        f = EventFilter(exclude_non_project=True)
-        entry = {
-            "type": "offline",
-            "project": "No project assigned",
-            "task": "",
-            "duration": 300
-        }
-        # FIXED: Should now be filtered like AFK gaps
-        assert f.should_include_entry(entry, "offline") is False
-
-    def test_exclude_non_project_filters_offline_task_slots(
+def test_exclude_non_project_filters_offline_task_slots(
         self, filter_exclude_non_project, issue_1_offline_task_data
     ):
         """
@@ -205,22 +183,6 @@ class TestConsolidationWithFilters:
         # EXPECTED: Untracked entries removed before consolidation
         assert True  # Placeholder
 
-    def test_consolidate_same_task_across_offline_gaps(
-        self, issue_2_consolidation_data
-    ):
-        """
-        ISSUE #2: Consolidation should merge same task across OFFLINE gaps.
-
-        CURRENT: Shows multiple slots with separate OFF entries (BUG)
-        EXPECTED: Shows single consolidated slot
-        """
-        # Setup: Single task with multiple OFFLINE gaps inside
-        # CURRENT: Multiple slots created (one per gap breakpoint)
-        # EXPECTED (after fix): Single slot with accumulated OFF duration
-        pytest.xfail("Issue #2 to be fixed")
-        assert True  # Placeholder
-
-
 class TestIssue1OfflineTaskDuration:
     """Tests specifically for Issue #1: OFFLINE task shows 0:00:00 duration."""
 
@@ -254,45 +216,6 @@ class TestIssue1OfflineTaskDuration:
 
         CURRENT: Synthetic slots created without consulting filter
         EXPECTED: Filter applied to synthetic slots before returning
-        """
-        assert True  # Placeholder
-
-
-class TestIssue2ConsolidationGaps:
-    """Tests specifically for Issue #2: Multiple OFF entries instead of consolidated."""
-
-    @pytest.mark.xfail(reason="Issue #2: Multiple OFF entries not consolidated")
-    def test_multiple_offline_gaps_in_single_task_become_single_entry(
-        self, issue_2_consolidation_data
-    ):
-        """
-        Issue #2: Multiple OFFLINE gaps within same task should be merged.
-
-        Scenario:
-        - Task: Ecosistema > Recámara > Lavar cortinas
-        - Duration: 12:09-20:37 (8h 27m)
-        - Contains: 5 OFFLINE gaps within the task period
-
-        CURRENT: Shows task with 5 separate OFF entries below it (BUG)
-        EXPECTED: Shows single consolidated entry with accumulated gap duration
-
-        Root cause: consolidate_timeline_slots() treats every OFFLINE gap as
-        consolidation boundary, breaking up the same task.
-        """
-        assert True  # Placeholder
-
-    @pytest.mark.xfail(reason="Issue #2: Consolidation breaks at gaps")
-    def test_consolidation_does_not_break_at_offline_gap(self):
-        """
-        Issue #2: OFFLINE gaps should NOT break consolidation for same task.
-
-        Logic:
-        - Task A (active)
-        - OFFLINE gap (no data)
-        - Task A (resumes)
-
-        CURRENT: Creates 2 separate slots (one before gap, one after)
-        EXPECTED: Single consolidated slot spanning gap
         """
         assert True  # Placeholder
 

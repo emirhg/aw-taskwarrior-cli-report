@@ -170,49 +170,6 @@ class TestTimelineSlotManagerBackwardCompatibility:
         # Should keep as 2 slots
         assert len(consolidated) == 2
 
-    def test_consolidate_with_offline_gaps(self, manager, tz_aware_dt):
-        """Test consolidate() handles offline gaps correctly (same task resumes)."""
-        slots = [
-            {
-                "type": "task",
-                "start": tz_aware_dt(10),
-                "end": tz_aware_dt(11),
-                "project": "P",
-                "task": "T",
-                "duration": timedelta(hours=1),
-                "actual_duration": timedelta(hours=1),
-                "productive_duration": timedelta(hours=1),
-                "categories": [],
-            },
-            {
-                "type": "offline",
-                "start": tz_aware_dt(11),
-                "end": tz_aware_dt(12),
-                "project": "",
-                "task": "",
-                "duration": timedelta(hours=1),
-                "categories": [],
-            },
-            {
-                "type": "task",
-                "start": tz_aware_dt(12),
-                "end": tz_aware_dt(13),
-                "project": "P",
-                "task": "T",
-                "duration": timedelta(hours=1),
-                "actual_duration": timedelta(hours=1),
-                "productive_duration": timedelta(hours=1),
-                "categories": [],
-            },
-        ]
-        manager.add_slots(slots)
-        consolidated = manager.consolidate()
-        # When same task resumes after offline gap, gap is not emitted
-        # and everything is merged together
-        assert len(consolidated) == 1
-        assert consolidated[0]["project"] == "P"
-        assert consolidated[0]["task"] == "T"
-
     def test_apply_filters(self, manager, tz_aware_dt):
         """Test apply_filters() modifies slots in place."""
         slots = [

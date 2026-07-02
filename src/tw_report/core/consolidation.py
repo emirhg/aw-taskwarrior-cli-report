@@ -60,21 +60,13 @@ class TimelineSlotManager:
         for slot_dict in value:
             self.timeline.add_from_dict(slot_dict)
 
-    def consolidate(self, ignore_offline: bool = False) -> List[Dict]:
+    def consolidate(self) -> List[Dict]:
         """
         Consolidate timeline slots by merging same (date, project, task).
 
-        This is the core fix for Issue #2. Instead of treating every OFFLINE
-        gap as a consolidation boundary, we only break consolidation when:
-        1. The date changes
-        2. The project changes
-        3. The task changes
-        4. A different task (not the same one) appears after the gap
-
-        Args:
-            ignore_offline: If True, OFFLINE gaps are ignored and consolidation
-                          spans across them. If False (default), gaps are passed
-                          through as separate entries.
+        Merges consecutive slots with the same (date, project, task) into a single
+        consolidated slot spanning from the earliest start to latest end, with durations
+        and productive values accumulated.
 
         Returns:
             List of consolidated slots
@@ -84,37 +76,8 @@ class TimelineSlotManager:
 
         consolidated = []
         current_group: List[Dict] = []
-        pending_gaps: List[Dict] = []  # Buffer for consecutive gaps
-
-        def flush_group_with_gaps() -> None:
-            """Flush current group and add accumulated gaps if needed."""
-            if current_group:
-                merged = self._merge_slot_group(current_group)
-                consolidated.append(merged)
-                current_group.clear()
-
-            # Add accumulated gaps (deduplicated)
-            if pending_gaps and not ignore_offline:
-                # Only add one combined gap entry instead of multiple
-                if pending_gaps:
-                    # Merge all gaps into a single entry
-                    gap = pending_gaps[0]
-                    total_gap_duration = sum(
-                        (g["duration"] for g in pending_gaps), timedelta(0)
-                    )
-                    consolidated.append({
-                        **gap,
-                        "duration": total_gap_duration,
-                        "end": gap["start"] + total_gap_duration,
-                    })
-            pending_gaps.clear()
 
         for slot in self.slots:
-            # Handle OFFLINE gaps - don't treat as hard boundary anymore
-            if slot.get("type") == "offline":
-                pending_gaps.append(slot)
-                continue
-
             # Regular slot - check if it continues the current group
             if not current_group:
                 current_group.append(slot)
@@ -128,17 +91,21 @@ class TimelineSlotManager:
             )
 
             if same_project_task_date:
-                # Same task continues - gaps are absorbed into the group
+                # Same task continues - add to group
                 current_group.append(slot)
-                pending_gaps.clear()  # Don't emit gaps for same task
             else:
-                # Different task - flush current group with gaps
-                flush_group_with_gaps()
+                # Different task - flush current group and start new one
+                if current_group:
+                    merged = self._merge_slot_group(current_group)
+                    consolidated.append(merged)
+                    current_group.clear()
                 current_group.append(slot)
-                pending_gaps.clear()
 
         # Final flush
-        flush_group_with_gaps()
+        if current_group:
+            merged = self._merge_slot_group(current_group)
+            consolidated.append(merged)
+
         return consolidated
 
     def _merge_slot_group(self, group: List[Dict]) -> Dict:
@@ -176,17 +143,9 @@ class TimelineSlotManager:
             timedelta(0),
         )
 
-        # Track AFK and OFFLINE durations
+        # Track AFK duration
         afk_duration = sum(
             (s.get("duration", timedelta(0)) for s in group if s.get("type") == "afk"),
-            timedelta(0),
-        )
-        offline_extension_duration = sum(
-            (
-                s.get("duration", timedelta(0))
-                for s in group
-                if s.get("type") == "offline_extension"
-            ),
             timedelta(0),
         )
 
@@ -224,9 +183,6 @@ class TimelineSlotManager:
 
         if afk_duration.total_seconds() > 0:
             result["afk_duration"] = afk_duration
-
-        if offline_extension_duration.total_seconds() > 0:
-            result["offline_extension_duration"] = offline_extension_duration
 
         return result
 

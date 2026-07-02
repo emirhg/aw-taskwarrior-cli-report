@@ -263,41 +263,6 @@ def issue_1_no_project_entry():
 
 
 # ============================================================================
-# ISSUE #2: MULTIPLE OFF ENTRIES
-# ============================================================================
-
-@pytest.fixture
-def issue_2_consolidation_data(sample_date):
-    """
-    Fixture: Issue #2 - Multiple OFF entries instead of consolidated
-
-    Scenario: Single task (Ecosistema.Recámara.Lavar cortinas) 12:09-20:37
-    Contains 5 OFFLINE gaps within it
-
-    CURRENT: Shows task with 5 separate OFF entries (BUG)
-    EXPECTED: Shows single consolidated slot with accumulated OFFLINE duration
-    """
-    return {
-        "task": {
-            "type": "regular",
-            "start": sample_date.replace(hour=12, minute=9),
-            "end": sample_date.replace(hour=20, minute=37),
-            "duration": timedelta(hours=8, minutes=27, seconds=30),
-            "project": "Ecosistema",
-            "task": "Lavar cortinas",
-        },
-        "offline_gaps": [
-            timedelta(minutes=5, seconds=11),
-            timedelta(minutes=4, seconds=10),
-            timedelta(minutes=5, seconds=38),
-            timedelta(minutes=7, seconds=42),
-            timedelta(minutes=4, seconds=52),
-        ],
-        "issue": "Consolidation breaks at every OFFLINE gap instead of merging same task"
-    }
-
-
-# ============================================================================
 # ISSUE #3: INCOMPLETE --exclude-non-project FILTER
 # ============================================================================
 
@@ -321,12 +286,6 @@ def issue_3_filter_data():
             "project": "NO_PROJECT",
             "task": "NO_TASK",
             "should_filter": True,
-        },
-        "offline_no_project": {
-            "type": "offline",
-            "project": "NO_PROJECT",
-            "task": "",  # Empty, not explicitly NO_TASK
-            "should_filter": True,  # BUG: Currently NOT filtered
         },
         "offline_task_no_project": {
             "type": "offline_task",

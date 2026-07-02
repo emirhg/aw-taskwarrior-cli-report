@@ -450,12 +450,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--exclude-offline",
         action="store_true",
-        help="Exclude offline gaps and AFK periods from the timesheet report (default: shown).",
-    )
-    parser.add_argument(
-        "--ignore-offline",
-        action="store_true",
-        help="With --timesheet --consolidate: merge slots across OFFLINE gaps (default: OFFLINE breaks consolidation).",
+        help="Exclude OFFLINE-tagged TaskWarrior task durations from the report (default: shown).",
     )
     parser.add_argument(
         "--sort-by-duration",
@@ -2501,7 +2496,7 @@ def generate_gap_entries(
     offline_threshold_s: float = 120.0,
     window_events: Optional[List[Event]] = None,
 ) -> List[Dict]:
-    """Generate AFK slots and OFFLINE gap markers from AFK bucket events.
+    """Generate AFK slots from AFK bucket events.
 
     AFK events with status="afk" (user away) are shown as slots, with project/task info
     from overlapping TW tasks (or NO_PROJECT/NO_TASK if no task active).
@@ -2509,16 +2504,14 @@ def generate_gap_entries(
     Categories from overlapping window events are extracted and attached to AFK slots
     to show what apps/windows were active during AFK periods.
 
-    OFFLINE markers appear for gaps in AFK bucket coverage > threshold (computer off, AW not running).
-
     Args:
         afk_events: all AFK bucket events (both status="afk" and status="not-afk")
         task_events: TaskWarrior events for resolving active tasks during AFK periods
-        offline_threshold_s: gap duration threshold for OFFLINE marker display
+        offline_threshold_s: (deprecated, no longer used)
         window_events: optional window events to extract categories from for AFK periods
 
     Returns:
-        list of slot dicts with type="afk" or type="offline"
+        list of slot dicts with type="afk"
     """
     from aw_transform import filter_keyvals
 
@@ -2721,62 +2714,7 @@ def generate_gap_entries(
 
         result.append(slot)
 
-    # Generate OFFLINE markers for gaps in AFK bucket coverage
-    all_sorted = sorted(afk_events, key=lambda e: e.timestamp)
-    for i in range(len(all_sorted) - 1):
-        curr_end = all_sorted[i].timestamp + all_sorted[i].duration
-        next_start = all_sorted[i + 1].timestamp
-
-        if next_start > curr_end:
-            gap_duration = next_start - curr_end
-            if gap_duration.total_seconds() > offline_threshold_s:
-                # HARDENING: OFFLINE gap slots now require explicit actual_duration.
-                # For OFFLINE gaps, actual_duration == duration (system was powered off, no activity tracked).
-                # This ensures all slots pass TimelineSlot validation.
-                offline_entry = {
-                    "type": "offline",
-                    "start": curr_end.astimezone(),
-                    "end": next_start.astimezone(),
-                    "duration": gap_duration,
-                    "actual_duration": gap_duration,  # Required: gap is always actual duration
-                    "project": NO_PROJECT,
-                    "task": NO_TASK,
-                }
-                result.append(offline_entry)
-
     return result
-
-
-def attach_offline_extensions(slots: List[Dict]) -> List[Dict]:
-    """Convert OFFLINE gaps that follow OFFLINE-tagged task slots into offline_extension slots.
-
-    For each regular slot with "offline" tag and an adjacent OFFLINE gap (within 60s),
-    transforms the gap into an offline_extension slot that carries the task's project/task info.
-    This makes the full task duration (on + offline) visible and attributed to the task.
-    """
-    TOLERANCE = timedelta(seconds=60)
-    for i, slot in enumerate(slots):
-        if slot.get("type") != "regular":
-            continue
-        # Check if task has "offline" tag (case-insensitive)
-        tags = [t.lower() for t in slot.get("tags", [])]
-        if "offline" not in tags:
-            continue
-        # Find OFFLINE gap that starts right after this slot
-        for j, gap in enumerate(slots):
-            if gap.get("type") != "offline":
-                continue
-            delta_seconds = (gap["start"] - slot["end"]).total_seconds()
-            if abs(delta_seconds) <= TOLERANCE.total_seconds():
-                # Transform gap into offline_extension carrying task's project/task
-                slots[j] = {
-                    **gap,
-                    "type": "offline_extension",
-                    "project": slot["project"],
-                    "task": slot["task"],
-                }
-                break
-    return slots
 
 
 def _render_slot_detail(slot: Dict, detail_level: int, width: int) -> None:
@@ -2858,7 +2796,7 @@ def print_timeline_report(
     # Exclude OFFLINE gap markers from totals (informational only)
     # Keep offline_task slots (actual work sessions) and AFK slots in totals
     all_regular_slots = [
-        s for s in slots if s.get("type") not in ("offline", "offline_extension")
+        s for s in slots if s.get("type") != "offline"
     ]
     # Project-tracked time (excluding "No project assigned")
     tracked_slots = [s for s in all_regular_slots if s.get("project") != NO_PROJECT]
@@ -3026,7 +2964,7 @@ def print_timeline_report(
 
     # Recalculate total_time_all after filtering to match the displayed slots
     all_regular_slots_filtered = [
-        s for s in slots if s.get("type") not in ("offline", "offline_extension")
+        s for s in slots if s.get("type") != "offline"
     ]
     total_time_all = sum(
         (slot.get("actual_duration", slot["duration"]) for slot in all_regular_slots_filtered),
@@ -3051,7 +2989,7 @@ def print_timeline_report(
     day_afk_duration = timedelta(0)
 
     # Build list of (project, date, slots) for consecutive same-project same-date runs
-    # OFFLINE slots are singleton groups (project="__offline__") to break up regular grouping
+    # offline_task slots are singletons to break up regular grouping
     slot_groups = []
     current_project_group = None
     current_project_group_project = None
@@ -3059,10 +2997,10 @@ def print_timeline_report(
 
     for slot in slots:
         slot_date_val = slot_date(slot)
-        slot_project = slot.get("project") or "__offline__"
+        slot_project = slot.get("project")
 
-        # OFFLINE and offline_task slots always break grouping (they're singletons)
-        if slot_project == "__offline__" or slot.get("type") == "offline_task":
+        # offline_task slots always break grouping (they're singletons)
+        if slot.get("type") == "offline_task":
             # Finalize current group if any
             if current_project_group is not None:
                 slot_groups.append(
@@ -3073,11 +3011,8 @@ def print_timeline_report(
                     )
                 )
                 current_project_group = None
-            # Add as singleton group (use marker for true OFFLINE gaps, full project for offline_task)
-            group_marker = (
-                "__offline__" if slot_project == "__offline__" else slot_project
-            )
-            slot_groups.append((group_marker, slot_date_val, [slot]))
+            # Add as singleton group
+            slot_groups.append((slot_project, slot_date_val, [slot]))
             current_project_group_project = None
             current_project_group_date = None
             continue
@@ -3130,15 +3065,13 @@ def print_timeline_report(
         )
         slot_week = group_slots[0]["start"].strftime("%G-W%V")
 
-        # Check if this is an OFFLINE group (singleton, informational only)
-        is_offline_group = group_project == "__offline__"
+        # Check if this is an offline_task group (singleton)
         is_offline_task_group = group_slots[0].get("type") == "offline_task"
 
-        # Rollup: collapse to inline when exactly one slot entry for this day (exclude OFFLINE and offline_task)
+        # Rollup: collapse to inline when exactly one slot entry for this day (exclude offline_task)
         group_is_rollup = (
             rollup
             and date_total_entries.get(group_date, 0) == 1
-            and not is_offline_group
             and not is_offline_task_group
         )
 
@@ -3204,20 +3137,6 @@ def print_timeline_report(
         if pending_date_prefix is not None and not group_is_rollup:
             print(pending_date_prefix)
             pending_date_prefix = None
-
-        # Handle OFFLINE groups specially (informational only, not included in totals)
-        if is_offline_group:
-            offline_slot = group_slots[0]
-            offline_dur = format_duration(offline_slot["duration"])
-            indent = " " * 22  # Position to align with where descriptions start
-            offline_label = "OFF"
-            remaining_width = (
-                width - len(indent) - len(offline_label) - len(offline_dur) - 25
-            )
-            filler = " " * max(remaining_width, 0)
-            print(indent + filler + "(" + offline_dur + " " + offline_label + ")")
-            # OFFLINE slots are NOT added to day_duration or week_duration
-            continue
 
         # Handle offline_task slots (synthetic OFFLINE-tagged tasks formatted as gap entries)
         if group_slots[0].get("type") == "offline_task":
@@ -3338,27 +3257,13 @@ def print_timeline_report(
                         slot.get("actual_duration", slot["duration"])
                     )
                     left = f"      *{start_str}-{end_str}   {content}"
-                elif slot.get("type") == "offline_extension":
-                    slot_dur_str = format_offline_label(
-                        slot.get("actual_duration", slot["duration"])
-                    )
-                    left = f"      *{start_str}-{end_str}   {content}"
                 else:
                     left = f"       {start_str}-{end_str}  {content}"
-                    # Use format_duration_with_gaps if offline extensions present
-                    if slot.get("offline_extension_duration"):
-                        slot_dur_str = format_duration_with_gaps(
-                            slot.get("actual_duration", slot["duration"]),
-                            slot.get("productive_duration", timedelta(0)),
-                            slot.get("afk_duration"),
-                            slot.get("offline_extension_duration"),
-                        )
-                    else:
-                        slot_dur_str = format_duration_with_afk(
-                            slot.get("actual_duration", slot["duration"]),
-                            slot.get("productive_duration", timedelta(0)),
-                            slot.get("afk_duration"),
-                        )
+                    slot_dur_str = format_duration_with_afk(
+                        slot.get("actual_duration", slot["duration"]),
+                        slot.get("productive_duration", timedelta(0)),
+                        slot.get("afk_duration"),
+                    )
                 print(
                     format_timeline_line(
                         left, duration_str=slot_dur_str, max_left_width=95
@@ -3378,24 +3283,12 @@ def print_timeline_report(
                     if slot.get("type") == "afk":
                         slot_dur_str = format_afk_label(slot_duration)
                         left = f"      *{s_start}-{s_end}  {content}"
-                    elif slot.get("type") == "offline_extension":
-                        slot_dur_str = format_offline_label(slot_duration)
-                        left = f"      *{s_start}-{s_end}  {content}"
                     else:
-                        # Use format_duration_with_gaps if offline extensions present
-                        if slot.get("offline_extension_duration"):
-                            slot_dur_str = format_duration_with_gaps(
-                                slot_duration,
-                                slot.get("productive_duration", timedelta(0)),
-                                slot.get("afk_duration"),
-                                slot.get("offline_extension_duration"),
-                            )
-                        else:
-                            slot_dur_str = format_duration_with_afk(
-                                slot_duration,
-                                slot.get("productive_duration", timedelta(0)),
-                                slot.get("afk_duration"),
-                            )
+                        slot_dur_str = format_duration_with_afk(
+                            slot_duration,
+                            slot.get("productive_duration", timedelta(0)),
+                            slot.get("afk_duration"),
+                        )
                         left = f"       {s_start}-{s_end}  {content}"
 
                     print(
@@ -3905,10 +3798,6 @@ def main():
             if event_filter.should_include_entry(g, entry_type=g.get("type", "gap"))
         ]
 
-        # FIX: --exclude-offline should only remove machine-off gaps, not AFK slots
-        if args.exclude_offline:
-            gap_entries = [g for g in gap_entries if g.get("type") != "offline"]
-
         # FIX: --exclude-afk removes AFK period slots from the timeline
         if args.exclude_afk:
             gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
@@ -3919,19 +3808,12 @@ def main():
         # Convert timeline to dicts for downstream processing
         slots = timeline.get_slots_as_dicts()
 
-        # Only attach OFFLINE extensions when offline markers are present
-        if not args.exclude_offline:
-            # Attach OFFLINE gaps to OFFLINE-tagged tasks as extensions
-            slots = attach_offline_extensions(slots)
-
         # Optionally consolidate sessions: merge consecutive sessions of the same task
         # unless interrupted by another task
         if args.consolidate:
             slot_manager = TimelineSlotManager(None, event_filter)
             slot_manager.add_slots(slots)
-            slots = slot_manager.consolidate(
-                ignore_offline=getattr(args, "ignore_offline", False)
-            )
+            slots = slot_manager.consolidate()
 
         TimelineReport(print_timeline_report).present(
             slots=slots,
