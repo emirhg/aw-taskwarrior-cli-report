@@ -2542,6 +2542,7 @@ def generate_gap_entries(
             "start": afk_event.timestamp.astimezone(),
             "end": (afk_event.timestamp + afk_event.duration).astimezone(),
             "duration": afk_event.duration,
+            "actual_duration": afk_event.duration,
             "project": project,
             "task": task_name,
         }
@@ -2730,6 +2731,7 @@ def generate_gap_entries(
                     "start": curr_end.astimezone(),
                     "end": next_start.astimezone(),
                     "duration": gap_duration,
+                    "actual_duration": gap_duration,
                     "project": NO_PROJECT,
                     "task": NO_TASK,
                 }
