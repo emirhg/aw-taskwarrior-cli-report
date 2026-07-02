@@ -2753,7 +2753,7 @@ def print_timeline_report(
             # Format OFFLINE task entries with same style as regular entries
             abbrev_project = abbreviate_project_path(project_name, task_name)
             content = f"▶ {abbrev_project} ▶▶ {task_name}"
-            left = f"       {start_str} - {end_str}  {content}"
+            left = f"    {start_str} - {end_str}  {content}"
             duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration)
             print(format_timeline_line(left, duration_formatted, max_left_width=95))
 
@@ -2828,7 +2828,7 @@ def print_timeline_report(
                 task_name = slot["task"]
                 abbrev_project = abbreviate_project_path(project_name, task_name)
                 content = f"▶ {abbrev_project} ▶▶ {task_name}"
-                left = f"      *{s_start} - {s_end}   {content}"
+                left = f"   *{s_start} - {s_end}   {content}"
                 print(
                     format_timeline_line(
                         left, duration_str=slot_dur_str, max_left_width=95
@@ -2853,9 +2853,9 @@ def print_timeline_report(
                     slot_dur_str = format_afk_label(
                         slot.get("actual_duration", slot["duration"])
                     )
-                    left = f"      *{start_str}-{end_str}   {content}"
+                    left = f"   *{start_str} - {end_str}   {content}"
                 else:
-                    left = f"       {start_str} - {end_str}  {content}"
+                    left = f"    {start_str} - {end_str}  {content}"
                     slot_dur_str = format_duration_with_afk(
                         slot.get("actual_duration", slot["duration"]),
                         slot.get("productive_duration", timedelta(0)),
@@ -2879,14 +2879,14 @@ def print_timeline_report(
 
                     if slot.get("type") == "afk":
                         slot_dur_str = format_afk_label(slot_duration)
-                        left = f"      *{s_start} - {s_end}  {content}"
+                        left = f"   *{s_start} - {s_end}  {content}"
                     else:
                         slot_dur_str = format_duration_with_afk(
                             slot_duration,
                             slot.get("productive_duration", timedelta(0)),
                             slot.get("afk_duration"),
                         )
-                        left = f"       {s_start}-{s_end}  {content}"
+                        left = f"    {s_start} - {s_end}  {content}"
 
                     print(
                         format_timeline_line(
