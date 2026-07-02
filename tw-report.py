@@ -3232,9 +3232,10 @@ def print_timeline_report(
             duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration)
             print(format_timeline_line(left, duration_formatted, max_left_width=95))
 
-            # Accumulate offline_task to day/week totals with full wall-clock span
-            day_duration += wall_clock_duration
-            week_duration += wall_clock_duration
+            # Accumulate offline_task to day/week totals with actual tracked (online) time only
+            # (wall_clock_duration includes offline periods when system was powered off)
+            day_duration += event_duration
+            week_duration += event_duration
             day_afk_duration += timedelta(0)  # offline tasks don't have AFK time
             week_afk_duration += timedelta(0)
 
@@ -3823,8 +3824,10 @@ def main():
                                 else:
                                     slot_start = min(start_times) if start_times else datetime.now()
                                     slot_end = max(end_times) if end_times else slot_start
-                                # Use the real task duration from TaskWarrior, not the span of AW events
-                                slot_duration = offline_task_real_durations.get(key, offline_duration)
+                                # Use the wall-clock duration for OFFLINE tasks (period from earliest start to latest end)
+                                # This is required for the offline/online split calculation:
+                                # offline_time = wall_clock_duration - online_time_from_AFK
+                                slot_duration = offline_duration
 
                                 # Get tags from any event in this group
                                 raw_tags = task_events_for_key[0].data.get("tags", [])
@@ -3837,12 +3840,14 @@ def main():
                                 # Add the slot (allow multiple entries for same task if split by interruptions)
                                 slot_start_tz = slot_start.astimezone()
                                 slot_end_tz = slot_end.astimezone()
+                                online_time = offline_event_durations.get(key, timedelta(0))
                                 offline_slot_dict = {
                                     "type": "offline_task",
                                     "start": slot_start_tz,
                                     "end": slot_end_tz,
                                     "duration": slot_duration,
-                                    "event_duration": offline_event_durations.get(key, timedelta(0)),
+                                    "actual_duration": online_time,  # For totals, use only the tracked (online) time
+                                    "event_duration": online_time,  # For display formatting
                                     "productive_duration": timedelta(0),
                                     "project": project,
                                     "task": task_name,

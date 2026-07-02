@@ -190,14 +190,22 @@ class OfflineTaskProcessor:
         for key, events in offline_events_by_key.items():
             sorted_events = sorted(events, key=lambda e: e.timestamp)
 
-            # Deduplicate events by (timestamp, duration) to avoid counting identical entries twice
-            seen = set()
-            unique_events = []
+            # Deduplicate events: for same timestamp, keep the longest duration
+            # (likely most complete/accurate view of the work session)
+            by_timestamp: Dict[datetime, Event] = {}
             for event in sorted_events:
-                event_key = (event.timestamp, event.duration)
-                if event_key not in seen:
-                    seen.add(event_key)
-                    unique_events.append(event)
+                ts = event.timestamp
+                if ts not in by_timestamp:
+                    by_timestamp[ts] = event
+                else:
+                    # Keep the one with longer duration (more complete record)
+                    existing = by_timestamp[ts]
+                    existing_dur = existing.duration.total_seconds() if existing.duration else 0
+                    event_dur = event.duration.total_seconds() if event.duration else 0
+                    if event_dur > existing_dur:
+                        by_timestamp[ts] = event
+
+            unique_events = [by_timestamp[ts] for ts in sorted(by_timestamp.keys())]
 
             # Filter out spurious events BEFORE splitting
             # 1. Zero-duration events (but keep events without duration - they're running/incomplete)
