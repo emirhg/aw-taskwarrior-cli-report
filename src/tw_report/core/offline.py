@@ -46,8 +46,9 @@ ISSUE #1 FIX: OFFLINE task results are now filtered consistently using
 EventFilter, preventing 0:00:00 duration display in consolidated reports.
 """
 
-from typing import List, Dict, Optional, Tuple, TYPE_CHECKING
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+
 from aw_core.models import Event
 
 if TYPE_CHECKING:
@@ -98,12 +99,14 @@ class OfflineTaskProcessor:
       actually had the system running
     """
 
-    def __init__(self,
-                 task_events: Optional[List[Event]],
-                 window_events: List[Event],
-                 afk_events: Optional[List[Event]],
-                 event_filter: 'EventFilter',
-                 end_time: Optional[datetime] = None):
+    def __init__(
+        self,
+        task_events: Optional[List[Event]],
+        window_events: List[Event],
+        afk_events: Optional[List[Event]],
+        event_filter: "EventFilter",
+        end_time: Optional[datetime] = None,
+    ):
         """
         Initialize processor.
 
@@ -174,9 +177,12 @@ class OfflineTaskProcessor:
         for event in self.task_events:
             if self._task_has_offline_tag(event):
                 project = event.data.get("project", "No project assigned")
-                task = event.data.get(
-                    "title"
-                ) or event.data.get("label") or event.data.get("task") or "No task assigned"
+                task = (
+                    event.data.get("title")
+                    or event.data.get("label")
+                    or event.data.get("task")
+                    or "No task assigned"
+                )
                 key = (project, task)
 
                 if key not in offline_events_by_key:
@@ -211,8 +217,7 @@ class OfflineTaskProcessor:
             # 1. Zero-duration events (but keep events without duration - they're running/incomplete)
             # 2. Events significantly shorter than median (likely artifacts)
             significant_events = [
-                e for e in unique_events
-                if e.duration is None or e.duration.total_seconds() > 60
+                e for e in unique_events if e.duration is None or e.duration.total_seconds() > 60
             ]
 
             if not significant_events:
@@ -220,15 +225,15 @@ class OfflineTaskProcessor:
 
             # Calculate median duration (excluding events without duration) for filtering
             durations_with_values = [
-                e.duration.total_seconds() for e in significant_events
-                if e.duration is not None
+                e.duration.total_seconds() for e in significant_events if e.duration is not None
             ]
             if durations_with_values:
                 durations = sorted(durations_with_values)
                 median_duration = durations[len(durations) // 2]
                 # Keep events that are at least 25% of median duration, PLUS any events without duration
                 filtered_for_split = [
-                    e for e in significant_events
+                    e
+                    for e in significant_events
                     if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
                 ]
             else:
@@ -287,17 +292,12 @@ class OfflineTaskProcessor:
 
             # Check if other task overlaps with session
             other_end = other_event.timestamp + other_event.duration
-            if (
-                other_event.timestamp < session_end
-                and other_end > session_start
-            ):
+            if other_event.timestamp < session_end and other_end > session_start:
                 return True
 
         return False
 
-    def _unassigned_window_in_gap(
-        self, gap_start: datetime, gap_end: datetime
-    ) -> bool:
+    def _unassigned_window_in_gap(self, gap_start: datetime, gap_end: datetime) -> bool:
         """
         Check if any unassigned window activity occurs during the gap.
 
@@ -356,7 +356,11 @@ class OfflineTaskProcessor:
             prev_event = current_group[-1]
 
             # Calculate gap between prev_event end and curr_event start
-            prev_end = prev_event.timestamp + prev_event.duration if prev_event.duration else prev_event.timestamp
+            prev_end = (
+                prev_event.timestamp + prev_event.duration
+                if prev_event.duration
+                else prev_event.timestamp
+            )
             curr_start = curr_event.timestamp
             gap_start = prev_end
             gap_end = curr_start
@@ -379,7 +383,11 @@ class OfflineTaskProcessor:
 
                 # Check if other task overlaps with the gap
                 other_start = other_event.timestamp
-                other_end = other_event.timestamp + other_event.duration if other_event.duration else other_event.timestamp
+                other_end = (
+                    other_event.timestamp + other_event.duration
+                    if other_event.duration
+                    else other_event.timestamp
+                )
 
                 if other_start < gap_end and other_end > gap_start:
                     interruption_found = True
@@ -414,8 +422,7 @@ class OfflineTaskProcessor:
 
         # Filter out spurious events
         significant_events = [
-            e for e in group_events
-            if e.duration is None or e.duration.total_seconds() > 60
+            e for e in group_events if e.duration is None or e.duration.total_seconds() > 60
         ]
 
         if not significant_events:
@@ -423,8 +430,7 @@ class OfflineTaskProcessor:
 
         # Calculate median duration (excluding events without duration)
         durations_with_values = [
-            e.duration.total_seconds() for e in significant_events
-            if e.duration is not None
+            e.duration.total_seconds() for e in significant_events if e.duration is not None
         ]
 
         # Keep events that are at least 25% of median duration, plus incomplete events
@@ -432,7 +438,8 @@ class OfflineTaskProcessor:
             durations = sorted(durations_with_values)
             median_duration = durations[len(durations) // 2]
             sorted_events = [
-                e for e in significant_events
+                e
+                for e in significant_events
                 if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
             ]
             sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
@@ -463,9 +470,7 @@ class OfflineTaskProcessor:
         # Calculate offline vs online time using AFK bucket
         # online_time = periods where AFK bucket has events (system was on)
         # offline_time = periods where AFK bucket has NO events (system was off)
-        online_time = self._calculate_online_time_from_afk(
-            wall_clock_start, wall_clock_end
-        )
+        online_time = self._calculate_online_time_from_afk(wall_clock_start, wall_clock_end)
 
         # Store results
         self.offline_durations[group_key] = wall_clock_duration
@@ -519,9 +524,7 @@ class OfflineTaskProcessor:
 
         return online_time
 
-    def get_synthetic_slot(
-        self, key: Tuple[str, str], task_events_for_key: List[Event]
-    ) -> Dict:
+    def get_synthetic_slot(self, key: Tuple[str, str], task_events_for_key: List[Event]) -> Dict:
         """
         Build a synthetic slot for an OFFLINE task.
 
@@ -565,11 +568,7 @@ class OfflineTaskProcessor:
 
         # Get tags from any event in this group
         raw_tags = task_events_for_key[0].data.get("tags", [])
-        task_tags = (
-            [raw_tags]
-            if isinstance(raw_tags, str)
-            else list(raw_tags)
-        )
+        task_tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
 
         return {
             "type": "offline_task",

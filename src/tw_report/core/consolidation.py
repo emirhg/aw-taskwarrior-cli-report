@@ -14,10 +14,10 @@ storage and querying, while maintaining backward compatibility with
 dict-based slot APIs.
 """
 
-from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime, timedelta
-from aw_core.models import Event
-from tw_report.core.timeline import Timeline, TimelineSlot
+from datetime import timedelta
+from typing import Any, Dict, List
+
+from tw_report.core.timeline import Timeline
 
 
 class TimelineSlotManager:
@@ -129,9 +129,7 @@ class TimelineSlotManager:
 
         # Calculate time window using wall-clock duration (not actual_duration which excludes gaps)
         time_window_start = first["start"]
-        time_window_end = max(
-            s["start"] + s["duration"] for s in group
-        )
+        time_window_end = max(s["start"] + s["duration"] for s in group)
         time_window = time_window_end - time_window_start
 
         # Calculate actual durations
@@ -216,13 +214,11 @@ class TimelineSlotManager:
                     cat_start = cat_info.get("start")
                     cat_end = cat_info.get("end")
                     if cat_start and (
-                        not merged_cats[cat]["start"]
-                        or cat_start < merged_cats[cat]["start"]
+                        not merged_cats[cat]["start"] or cat_start < merged_cats[cat]["start"]
                     ):
                         merged_cats[cat]["start"] = cat_start
                     if cat_end and (
-                        not merged_cats[cat]["end"]
-                        or cat_end > merged_cats[cat]["end"]
+                        not merged_cats[cat]["end"] or cat_end > merged_cats[cat]["end"]
                     ):
                         merged_cats[cat]["end"] = cat_end
 
@@ -256,9 +252,7 @@ class TimelineSlotManager:
 
         # Convert to list format
         merged_categories = []
-        for cat, cat_data in sorted(
-            merged_cats.items(), key=lambda x: x[1].get("start", "")
-        ):
+        for cat, cat_data in sorted(merged_cats.items(), key=lambda x: x[1].get("start", "")):
             cat_info = {
                 "category": cat,
                 "duration": cat_data["duration"],
@@ -300,9 +294,7 @@ class TimelineSlotManager:
         from itertools import groupby
 
         # Sort by (date, project)
-        slots_sorted = sorted(
-            self.slots, key=lambda s: (s["start"].date(), s["project"])
-        )
+        slots_sorted = sorted(self.slots, key=lambda s: (s["start"].date(), s["project"]))
         merged_slots = []
 
         for (slot_date, project), group_iter in groupby(
@@ -317,9 +309,7 @@ class TimelineSlotManager:
             last_end = group[-1]["start"] + group[-1]["duration"]
             time_window_duration = last_end - first_start
 
-            actual_duration = sum(
-                (slot["duration"] for slot in group), timedelta(0)
-            )
+            actual_duration = sum((slot["duration"] for slot in group), timedelta(0))
             productive_duration = sum(
                 (slot.get("productive_duration", timedelta(0)) for slot in group),
                 timedelta(0),
@@ -368,8 +358,7 @@ class TimelineSlotManager:
             entry_type: Type of entries being filtered
         """
         self.slots = [
-            s for s in self.slots
-            if self.event_filter.should_include_entry(s, entry_type)
+            s for s in self.slots if self.event_filter.should_include_entry(s, entry_type)
         ]
 
     def add_slots(self, new_slots: List[Dict]) -> None:

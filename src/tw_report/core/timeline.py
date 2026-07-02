@@ -10,7 +10,7 @@ Timeline: Manages a sorted collection of TimelineSlots
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Any
+from typing import Any, Dict, List, Optional
 
 
 class TimelineSlotValidationError(ValueError):
@@ -25,6 +25,7 @@ class TimelineSlotValidationError(ValueError):
     By raising an error when required data is missing, we ensure bugs surface
     immediately at construction time, not hours later during analysis.
     """
+
     pass
 
 
@@ -53,6 +54,7 @@ class TimelineSlot:
         event_duration: Duration of tracked events (for offline tasks, represents online time)
         apps: App/title information (legacy format)
     """
+
     type: str
     start: datetime
     end: datetime
@@ -141,7 +143,7 @@ class TimelineSlot:
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> 'TimelineSlot':
+    def from_dict(cls, d: Dict[str, Any]) -> "TimelineSlot":
         """Create TimelineSlot from dict (for compatibility).
 
         HARDENING: This method enforces all required fields to prevent silent data loss.
@@ -161,6 +163,7 @@ class TimelineSlot:
 
         Raises TimelineSlotValidationError if any required key is missing.
         """
+
         def _require(key: str):
             if key not in d or d[key] is None:
                 ctx = f"project={d.get('project')!r} task={d.get('task')!r} start={d.get('start')!r} type={d.get('type')!r}"
@@ -197,7 +200,7 @@ class TimelineSlot:
             apps=d.get("apps"),
         )
 
-    def overlaps(self, other: 'TimelineSlot') -> bool:
+    def overlaps(self, other: "TimelineSlot") -> bool:
         """Check if this slot overlaps with another slot."""
         return self.start < other.end and self.end > other.start
 

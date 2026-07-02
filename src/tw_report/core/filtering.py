@@ -10,8 +10,7 @@ ISSUES FIXED:
 - Issue #3: All entry types now filtered consistently (not just AFK slots)
 """
 
-from typing import List, Optional, Dict, Any
-
+from typing import Any, Dict, List, Optional
 
 # Sentinel values (imported from tw-report.py)
 NO_PROJECT = "No project assigned"
@@ -31,16 +30,18 @@ class EventFilter:
     KEY FEATURE: Consistent behavior across entry types.
     """
 
-    def __init__(self,
-                 project_patterns: Optional[List[str]] = None,
-                 task_patterns: Optional[List[str]] = None,
-                 app_patterns: Optional[List[str]] = None,
-                 exclude_projects: Optional[List[str]] = None,
-                 exclude_tasks: Optional[List[str]] = None,
-                 exclude_apps: Optional[List[str]] = None,
-                 exclude_non_project: bool = False,
-                 exact_match: bool = False,
-                 search_term: Optional[str] = None):
+    def __init__(
+        self,
+        project_patterns: Optional[List[str]] = None,
+        task_patterns: Optional[List[str]] = None,
+        app_patterns: Optional[List[str]] = None,
+        exclude_projects: Optional[List[str]] = None,
+        exclude_tasks: Optional[List[str]] = None,
+        exclude_apps: Optional[List[str]] = None,
+        exclude_non_project: bool = False,
+        exact_match: bool = False,
+        search_term: Optional[str] = None,
+    ):
         """
         Initialize filter with configuration.
 

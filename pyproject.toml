@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tw-report"
+version = "0.1.0"
+description = "Timesheet report generator correlating ActivityWatch and Taskwarrior data"
+authors = [{name = "Emir Herrera González", email = "emir.herrera@gmail.com"}]
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "Proprietary"}
+dependencies = [
+    "aw-client>=0.5.15",
+    "aw-core>=0.5.17",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "mypy>=1.8",
+]
+
+[project.scripts]
+tw-report = "tw_report.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.9"
+packages = ["tw_report"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+    "live_server: requires a running ActivityWatch server on localhost",
+]

@@ -1,0 +1,2 @@
+[console_scripts]
+tw-report = tw_report.cli.main:main

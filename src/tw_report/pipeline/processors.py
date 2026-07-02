@@ -59,8 +59,7 @@ def apply_score_filters(
             scores = [get_category_score(cat, cat_score_map) for cat in event_categories]
 
         should_keep = any(
-            (min_score is None or score >= min_score)
-            and (max_score is None or score <= max_score)
+            (min_score is None or score >= min_score) and (max_score is None or score <= max_score)
             for score in scores
         )
         if should_keep:
@@ -86,7 +85,7 @@ def matches_user_filters(
         return False
 
     # Check if args.search exists (it's manually set in main(), but be defensive)
-    search_value = getattr(args, 'search', None)
+    search_value = getattr(args, "search", None)
 
     has_filters = bool(search_value or args.project or args.task or args.app)
     if not has_filters:
@@ -162,9 +161,7 @@ def build_canonical_events(
     excluded: Callable[[str, Optional[List[str]]], bool],
 ) -> List[ReportEvent]:
     active_events = (
-        window_events
-        if include_afk
-        else filter_period_intersect(window_events, not_afk_events)
+        window_events if include_afk else filter_period_intersect(window_events, not_afk_events)
     )
 
     for event in active_events:
@@ -190,11 +187,7 @@ def build_canonical_events(
         resolved, args.min_score, args.max_score, cat_score_map, get_category_score
     )
 
-    return [
-        rep
-        for rep in resolved
-        if matches_user_filters(rep, args, matches_any, excluded)
-    ]
+    return [rep for rep in resolved if matches_user_filters(rep, args, matches_any, excluded)]
 
 
 def aggregate_hierarchy(
@@ -413,5 +406,3 @@ def merge_overlapping_afk_periods(afk_events: List[Event]) -> List[Event]:
     afk_only = filter_keyvals(afk_events, "status", ["afk"])
     result = list(afk_only) + merged
     return sorted(result, key=lambda e: e.timestamp)
-
-

@@ -1,0 +1,8 @@
+aw-client>=0.5.15
+aw-core>=0.5.17
+
+[dev]
+pytest>=7.0
+pytest-cov>=4.0
+ruff>=0.4
+mypy>=1.8
