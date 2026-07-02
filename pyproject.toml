@@ -13,6 +13,7 @@ license = {text = "Proprietary"}
 dependencies = [
     "aw-client>=0.5.15",
     "aw-core>=0.5.17",
+    "tomli>=1.1.0;python_version<'3.11'",
 ]
 
 [project.optional-dependencies]
