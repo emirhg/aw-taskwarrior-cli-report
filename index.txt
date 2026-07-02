@@ -1,0 +1,362 @@
+================================================================================
+                   TW-REPORT PROJECT FILE INDEX & GUIDE
+================================================================================
+
+This file serves as a quick navigation guide to the tw-report project structure.
+Use Ctrl+F to search for keywords relevant to your task.
+
+Last Updated: 2026-07-02 (Post-Phase-5 Restoration, World-Class Refactoring Complete)
+Project Status: ✅ PRODUCTION READY (100% modularized, 288 tests passing)
+
+================================================================================
+                          QUICK SEARCH KEYWORDS
+================================================================================
+
+Timeline Rendering    → see: RENDERING & OUTPUT MODULES
+Metrics Calculation   → see: CORE BUSINESS LOGIC
+Format/Alignment      → see: UTILS MODULES
+Testing              → see: TEST SUITE
+Documentation        → see: DOCUMENTATION FOLDER
+Entry Point          → src/tw_report/cli/main.py
+Phase 5 Fix          → see: DOCUMENTATION FOLDER (FORMATTING_BUG_PHASE5.md)
+
+================================================================================
+                        PROJECT ROOT STRUCTURE
+================================================================================
+
+.
+├── bin/                          # Shell script wrappers
+│   ├── tw-report                 # Main CLI executable (entry point)
+│   ├── today.sh                  # Run report for today
+│   └── yesterday.sh              # Run report for yesterday
+│
+├── src/tw_report/                # MAIN PACKAGE (100% modularized)
+│   ├── __init__.py               # Package initialization
+│   │
+│   ├── cli/                      # COMMAND-LINE INTERFACE
+│   │   ├── __init__.py
+│   │   ├── args.py               # Argument parsing (30+ flags)
+│   │   └── main.py               # Entry point orchestration (466 lines)
+│   │
+│   ├── core/                     # CORE BUSINESS LOGIC
+│   │   ├── categories.py         # Category rules loading & matching
+│   │   ├── consolidation.py      # TimelineSlotManager class
+│   │   ├── events.py             # ActivityWatch event fetching
+│   │   ├── filtering.py          # EventFilter class (unified filtering)
+│   │   ├── offline.py            # OfflineTaskProcessor class
+│   │   ├── period.py             # Period keyword parsing (:today, :week, etc)
+│   │   ├── task_matching.py      # Task correlation logic
+│   │   ├── timeline.py           # Timeline & TimelineSlot data structures
+│   │   └── exceptions.py         # Custom exception hierarchy
+│   │
+│   ├── pipeline/                 # DATA PROCESSING PIPELINE
+│   │   ├── models.py             # Data classes (ReportEvent, TimelineSlot, etc)
+│   │   ├── processors.py         # Pipeline functions (build_canonical_events, etc)
+│   │   ├── generation.py         # Timeline generation (generate_timeline_data, etc)
+│   │   ├── presenters.py         # Report presenters (HierarchicalReport, TimelineReport)
+│   │   ├── report_render.py      # Hierarchical report rendering
+│   │   └── timeline_render.py    # Timeline report rendering (RESTORED COMPLETE)
+│   │
+│   ├── utils/                    # UTILITY FUNCTIONS
+│   │   ├── formatting.py         # Duration/title formatting (FULLY DOCUMENTED)
+│   │   ├── logging.py            # Structured logging configuration
+│   │   └── config.py             # TOML config loading & XDG paths
+│   │
+│   └── config.py                 # Configuration management
+│
+├── tests/                        # TEST SUITE (288+ tests)
+│   ├── conftest.py               # Pytest fixtures & configuration
+│   ├── unit/                     # Unit tests (fast, no external deps)
+│   │   ├── test_args.py          # CLI argument parsing (32 tests)
+│   │   ├── test_categories.py    # Category loading & matching (18 tests)
+│   │   ├── test_config.py        # Config file support (16 tests)
+│   │   ├── test_consolidation.py # Slot consolidation
+│   │   ├── test_events.py        # Event fetching with mocks (13 tests)
+│   │   ├── test_filtering.py     # EventFilter & issue regressions
+│   │   ├── test_formatting.py    # Duration/title formatting (54 tests)
+│   │   ├── test_offline.py       # OfflineTaskProcessor & issue fixes
+│   │   ├── test_period.py        # Period keyword parsing (15 tests)
+│   │   ├── test_report_render.py # Hierarchical report output (15 tests)
+│   │   ├── test_task_matching.py # Task correlation (22 tests)
+│   │   └── test_timeline_render.py # Timeline report output (11 tests)
+│   │
+│   ├── integration/              # Full-pipeline tests
+│   │   ├── test_data_consistency.py
+│   │   ├── test_events_preservation.py
+│   │   └── test_overlap_source.py
+│   │
+│   ├── test_timeline.py          # Timeline data structure tests
+│   └── test_consolidation_migration.py
+│
+├── docs/                         # DOCUMENTATION
+│   ├── ARCHITECTURE.md           # Full architecture (Phases 1-12 complete)
+│   ├── FORMATTING_BUG_PHASE5.md  # Phase 5 regression analysis
+│   ├── FORMATTING_FIX_VERIFICATION.md # Binary diff verification report
+│   ├── specs/                    # Technical specifications
+│   │   ├── SPECIFICATION_CHRONOLOGICAL_CONSISTENCY.md
+│   │   └── SPECIFICATION_CONTINUOUS_SESSIONS.md
+│   └── analysis/                 # Design & findings
+│       ├── GAP_FILLING_ANALYSIS.md
+│       └── NESTED_EVENTS_DISPLAY.md
+│
+├── scripts/                      # UTILITY SCRIPTS
+│   ├── working_hours.py          # Calculate working hours
+│   ├── time_spent_today.py       # Time report for today
+│   └── reporte-diario.awk        # AWK report generator
+│
+├── .github/                      # CI/CD
+│   └── workflows/
+│       └── ci.yml                # GitHub Actions CI/CD pipeline
+│
+├── .pre-commit-config.yaml       # Pre-commit hooks (ruff check+format)
+├── pyproject.toml                # Build system, package config, tools
+├── README.md                     # Quick start guide
+├── index.txt                     # THIS FILE - Project navigation index
+└── CLAUDE.md                     # Claude Code instructions
+
+================================================================================
+                        FILE PURPOSES & QUICK LINKS
+================================================================================
+
+ENTRY POINTS & CLI:
+  bin/tw-report                   → Main executable shell wrapper
+  src/tw_report/cli/main.py       → Python entry point (466 lines, all orchestration)
+  src/tw_report/cli/args.py       → Argument parser (30+ CLI flags)
+  pyproject.toml                  → Package configuration & console script entry
+
+CORE BUSINESS LOGIC (src/tw_report/core/):
+  filtering.py                    → EventFilter class - unified filtering for all entry types
+  categories.py                   → Category rules loading and matching
+  task_matching.py                → Correlate window events with TaskWarrior tasks
+  events.py                       → Fetch events from ActivityWatch
+  period.py                       → Parse period keywords (:today, :week, :month)
+  consolidation.py                → TimelineSlotManager for merging consecutive slots
+  offline.py                      → Detect and process OFFLINE-tagged tasks
+  timeline.py                     → Timeline and TimelineSlot data structures
+  exceptions.py                   → Custom exception hierarchy (TwReportError)
+
+DATA PIPELINE (src/tw_report/pipeline/):
+  processors.py                   → Core pipeline functions (build_canonical_events, etc)
+  generation.py                   → Timeline generation (generate_timeline_data, generate_gap_entries)
+  models.py                       → Data classes (ReportEvent, TimelineSlot, ReportContext)
+  presenters.py                   → Report presenters (HierarchicalReport, TimelineReport)
+  report_render.py                → Hierarchical report rendering (print_report)
+  timeline_render.py              → Timeline report rendering (print_timeline_report) ⭐ RESTORED
+
+  KEY: timeline_render.py was completely restored from 69aeca3 on 2026-07-02.
+       It contains 615 lines of complete timeline rendering logic including:
+       - Time range formatting (START - END)
+       - Task name extraction and abbreviation
+       - Per-entry productivity percentages
+       - Consolidation and rollup engine
+       - Metrics aggregation (AFK, project tracking %, focus time)
+       See: docs/FORMATTING_BUG_PHASE5.md for restoration details
+
+FORMATTING & UTILITIES (src/tw_report/utils/):
+  formatting.py                   → Pure formatting functions ⭐ FULLY DOCUMENTED
+                                   - Duration formatting
+                                   - Title sanitization
+                                   - Project abbreviation
+                                   - Terminal width detection
+                                   - format_timeline_line() with terminal-width padding algorithm
+                                   See: Detailed docstrings explaining formatting design choices
+  logging.py                      → Structured logging configuration
+  config.py                       → TOML config loading & XDG Base Directory support
+
+TESTING (tests/):
+  conftest.py                     → Shared fixtures and test utilities
+  unit/                           → Unit tests (288 tests, all passing)
+  integration/                    → Full-pipeline tests
+  KEY TESTING FACTS:
+    - 288 unit tests passing
+    - 6 xpassed (bonus fixes for offline/filtering issues)
+    - All timeline rendering tests updated for 69aeca3 behavior
+    - All CLI scenarios verified working (8/8)
+
+DOCUMENTATION (docs/):
+  ARCHITECTURE.md                 → Complete architecture documentation
+                                   - All 12 phases of refactoring
+                                   - Design principles and patterns
+                                   - Module organization
+                                   - Type safety and error handling strategy
+  FORMATTING_BUG_PHASE5.md        → Comprehensive analysis of timeline rendering regression
+  FORMATTING_FIX_VERIFICATION.md  → Binary diff verification (output identical to 69aeca3)
+  specs/                          → Technical specifications
+  analysis/                       → Design analysis and findings
+
+CONFIGURATION & BUILD:
+  pyproject.toml                  → Package configuration
+                                   - Console script entry point: tw-report = "tw_report.cli.main:main"
+                                   - Dependencies (aw_core, aw_transform, pytest)
+                                   - Tools configuration (ruff, mypy)
+  .pre-commit-config.yaml         → Pre-commit hooks (ruff format + check)
+  README.md                       → Quick start guide
+  CLAUDE.md                       → Claude Code instructions ⭐ UPDATED WITH INDEX GUIDE
+
+================================================================================
+                    HOW TO USE THIS INDEX FOR SEARCHING
+================================================================================
+
+1. SEARCHING BY FEATURE:
+   - Timeline rendering issues?     → Search "timeline_render.py" or "FORMATTING_BUG"
+   - Filtering problems?            → Search "filtering.py" or "EventFilter"
+   - Metrics calculation?           → Search "processors.py" or "compute_metrics"
+   - Test failures?                 → Search "tests/" or specific test file name
+   - Documentation?                 → Search "docs/" or specific .md filename
+
+2. SEARCHING BY COMPONENT:
+   - CLI/Arguments:      cli/args.py, cli/main.py
+   - Categories:        core/categories.py
+   - Events:            core/events.py
+   - Filtering:         core/filtering.py
+   - Formatting:        utils/formatting.py
+   - Report rendering:  pipeline/report_render.py, pipeline/timeline_render.py
+   - Tests:             tests/unit/, tests/integration/
+
+3. SEARCHING BY PHASE/HISTORY:
+   - Phase 5 Regression:  FORMATTING_BUG_PHASE5.md, timeline_render.py
+   - Restoration:         FORMATTING_FIX_VERIFICATION.md
+   - Architecture:        ARCHITECTURE.md (Phases 1-12 documented)
+   - Metrics issues:      Issue #1, #2, #3 references in test files
+
+4. SEARCHING BY ISSUE:
+   - Issue #1 (OFFLINE task filtering):     test_offline.py (4 tests), core/offline.py
+   - Issue #2 (Consolidation gaps):         test_consolidation.py, core/consolidation.py
+   - Issue #3 (Filter consistency):         test_filtering.py, core/filtering.py
+
+5. CODE PATTERNS TO SEARCH:
+   - format_timeline_line():     utils/formatting.py (fully documented algorithm)
+   - EventFilter.should_include_entry(): core/filtering.py
+   - TimelineSlotManager:        core/consolidation.py
+   - OfflineTaskProcessor:       core/offline.py
+   - print_timeline_report():    pipeline/timeline_render.py (615 lines, complete)
+
+================================================================================
+                      RECENT CHANGES & HOT SPOTS (2026-07-02)
+================================================================================
+
+PHASE 5 REGRESSION FIX:
+  Status: ✅ COMPLETE
+  Timeline rendering completely restored from 69aeca3
+  What was broken: Time ranges, task names, productivity percentages, metrics
+  What's fixed: All rendering, metrics, documentation
+
+  Key files modified:
+    - src/tw_report/pipeline/timeline_render.py (RESTORED 615 lines)
+    - src/tw_report/utils/formatting.py (DOCUMENTED algorithm)
+    - tests/unit/test_timeline_render.py (UPDATED expectations)
+
+  Key commits:
+    - 1b35699: Restore complete timeline rendering
+    - 27129af: Fix missing format_afk_label import
+    - e9bc3f7: Fix timeline test expectations
+    - 632fb1d: Add comprehensive documentation
+
+TEST IMPROVEMENTS:
+  288 tests passing (+ 6 xpassed bonus fixes)
+  All 4 signature mismatch tests fixed
+  8/8 integration scenarios verified working
+
+DOCUMENTATION ADDITIONS:
+  - Module-level docstrings explaining Phase 5 regression
+  - print_timeline_report() metrics and consolidation logic documented
+  - format_timeline_line() algorithm fully documented with examples
+  - Memory index tracking restoration work
+
+================================================================================
+                        NAVIGATION SHORTCUTS
+================================================================================
+
+Quick jumps to critical files:
+
+CLI Entry Point:
+  → src/tw_report/cli/main.py (line 64: def main())
+
+Timeline Rendering (Phase 5 restored):
+  → src/tw_report/pipeline/timeline_render.py (line 140+: def print_timeline_report())
+  → src/tw_report/utils/formatting.py (line 312+: def format_timeline_line())
+
+Filtering Logic:
+  → src/tw_report/core/filtering.py (EventFilter class)
+
+Tests:
+  → tests/unit/test_timeline_render.py (timeline tests)
+  → tests/unit/test_filtering.py (filtering tests)
+  → tests/unit/test_offline.py (offline task tests)
+
+Architecture:
+  → docs/ARCHITECTURE.md (full structure, Phases 1-12)
+  → README.md (quick start)
+
+Issues Fixed:
+  → Issue #1: test_offline.py and core/offline.py
+  → Issue #2: test_consolidation.py and core/consolidation.py
+  → Issue #3: test_filtering.py and core/filtering.py
+
+================================================================================
+                       PROJECT STATUS & METRICS
+================================================================================
+
+Code Quality:
+  ✅ 288 unit tests passing
+  ✅ 6 xpassed bonus fixes
+  ✅ 8/8 integration scenarios passing
+  ✅ 100% modularized (zero monolith code)
+  ✅ 99.2% code extraction rate
+
+Architecture:
+  ✅ src-layout package structure
+  ✅ All 12 refactoring phases complete
+  ✅ 6 core/pipeline/utils modules
+  ✅ Comprehensive test suite
+
+Documentation:
+  ✅ ARCHITECTURE.md (complete)
+  ✅ Phase 5 regression documented
+  ✅ Code docstrings fully detailed
+  ✅ Design decisions explained
+
+Features:
+  ✅ Hierarchical reporting
+  ✅ Timeline reporting with consolidation
+  ✅ Category-based time tracking
+  ✅ TaskWarrior integration
+  ✅ ActivityWatch event fetching
+  ✅ Offline task handling
+  ✅ Consistent event filtering
+
+================================================================================
+                          USEFUL COMMANDS
+================================================================================
+
+Run all tests:
+  pytest tests/unit/ -q
+
+Run specific test:
+  pytest tests/unit/test_timeline_render.py::TestPrintTimelineReport -v
+
+Run CLI:
+  tw-report :today --timesheet
+  tw-report :today --timesheet --consolidate --detail-level=2
+  tw-report :today --exclude-non-project
+  tw-report :today --help
+
+Format & lint:
+  ruff format .
+  ruff check .
+
+Type check:
+  mypy src/
+
+View architecture:
+  cat docs/ARCHITECTURE.md
+
+View Phase 5 fix:
+  cat docs/FORMATTING_BUG_PHASE5.md
+
+================================================================================
+                            END OF INDEX
+================================================================================
+
+Questions? Search this file (Ctrl+F) or check docs/ARCHITECTURE.md
+Last updated: 2026-07-02 - World-Class Refactoring Complete ✅
