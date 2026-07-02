@@ -291,6 +291,21 @@ from tw_report.pipeline.processors import (
     window_event_max_category_score,
     window_event_productive_duration,
 )
+from tw_report.utils.formatting import (
+    format_duration,
+    format_duration_tracked_prod,
+    format_duration_with_afk,
+    format_duration_with_gaps,
+    format_offline_task_duration,
+    format_afk_label,
+    format_offline_label,
+    get_terminal_width,
+    sanitize_title,
+    normalize_title,
+    truncate_title,
+    abbreviate_project_path,
+    format_timeline_line,
+)
 
 # --- Constants and Configuration ---
 
@@ -361,115 +376,6 @@ def reorder_arguments(argv: List[str]) -> List[str]:
 
 
 
-def format_duration_tracked_prod(
-    tracked_duration: timedelta, productive_within: timedelta
-) -> str:
-    """Format duration plus [prod NN%] for tracked-slot totals (weighted productive share).
-
-    Returns fixed-width format with padding to align all labels consistently.
-    All values right-aligned: [prod 100%], [prod  53%], [prod   3%]
-    """
-    base = format_duration(tracked_duration)
-    if tracked_duration.total_seconds() <= 0:
-        return base
-    pct = productive_within.total_seconds() / tracked_duration.total_seconds() * 100
-    # Right-align percentage in 3-char field: 100, " 53", "  3"
-    label = f"[prod {pct:>3.0f}%]"
-    # Format: duration + 2 spaces + label (right-aligned to 11 chars for consistent spacing)
-    return f"{base}  {label:>11}"
-
-
-def format_afk_label(duration: timedelta) -> str:
-    """Format AFK duration label with fixed-width padding to match productivity labels.
-
-    Returns format: duration + 2 spaces + [   AFK   ] (11 chars to align with [prod XX%])
-    """
-    base = format_duration(duration)
-    label = "[   AFK   ]"
-    return f"{base}  {label:>11}"
-
-
-def format_offline_label(duration: timedelta) -> str:
-    """Format OFFLINE duration label with fixed-width padding to match AFK labels.
-
-    Returns format: duration + 2 spaces + [ OFFLINE ] (11 chars to align with [   AFK   ])
-    """
-    base = format_duration(duration)
-    label = "[ OFFLINE ]"
-    return f"{base}  {label:>11}"
-
-
-def format_duration_with_afk(
-    tracked_duration: timedelta,
-    productive_within: timedelta,
-    afk_duration: Optional[timedelta] = None,
-) -> str:
-    """Format duration with optional AFK notation for consolidated timesheet display.
-
-    When afk_duration is present (consolidation with AFK breaks), includes:
-        (HH:MM:SS AFK)  HH:MM:SS  [prod XX%]
-    Otherwise, standard format:
-        HH:MM:SS  [prod XX%]
-    """
-    base_format = format_duration_tracked_prod(tracked_duration, productive_within)
-
-    if afk_duration and afk_duration.total_seconds() > 0:
-        afk_str = format_duration(afk_duration)
-        # Format: (AFK duration)  tracked duration  [prod XX%]
-        # Insert AFK notation before the tracked duration
-        return f"({afk_str} AFK)  {base_format}"
-
-    return base_format
-
-
-def format_duration_with_gaps(
-    tracked_duration: timedelta,
-    productive_within: timedelta,
-    afk_duration: Optional[timedelta] = None,
-    offline_extension_duration: Optional[timedelta] = None,
-) -> str:
-    """Format duration with optional AFK and OFFLINE extension notation.
-
-    When gaps are present (consolidation with breaks), includes:
-        (HH:MM:SS AFK, HH:MM:SS OFFLINE)  HH:MM:SS  [prod XX%]
-    Otherwise delegates to format_duration_with_afk.
-    """
-    base_format = format_duration_tracked_prod(tracked_duration, productive_within)
-
-    gap_parts = []
-    if afk_duration and afk_duration.total_seconds() > 0:
-        gap_parts.append(f"{format_duration(afk_duration)} AFK")
-    if offline_extension_duration and offline_extension_duration.total_seconds() > 0:
-        gap_parts.append(f"{format_duration(offline_extension_duration)} OFFLINE")
-
-    if gap_parts:
-        gaps_str = ", ".join(gap_parts)
-        return f"({gaps_str})  {base_format}"
-
-    return base_format
-
-
-def format_offline_task_duration(wall_clock_duration: timedelta, event_duration: timedelta) -> str:
-    """Format duration for offline tasks showing offline (OFF) and online time split.
-
-    Offline time = wall_clock_duration - event_duration (system-off time)
-    Online time = event_duration (tracked TaskWarrior time while system was on)
-
-    For offline tasks, ALL offline time is assumed productive (system was off, no distractions).
-    Productivity % = offline_duration / wall_clock_duration × 100
-
-    Returns format: (HH:MM:SS OFF)  HH:MM:SS  [prod XX%]
-    """
-    offline_duration = wall_clock_duration - event_duration
-    offline_str = format_duration(offline_duration)
-    online_str = format_duration(event_duration)
-    if wall_clock_duration.total_seconds() > 0:
-        # For offline tasks, productivity = offline time / total (assume all offline work is productive)
-        pct = offline_duration.total_seconds() / wall_clock_duration.total_seconds() * 100
-        label = f"[prod {pct:>3.0f}%]"
-    else:
-        label = "[prod   0%]"
-    return f"({offline_str} OFF)  {online_str}  {label:>11}"
 
 
 # --- Filtering Utilities ---
@@ -701,13 +607,6 @@ def _excluded(name: str, exclusions: Optional[List[str]]) -> bool:
 # --- Report Formatting and Printing ---
 
 
-def get_terminal_width() -> int:
-    try:
-        return shutil.get_terminal_size().columns
-    except OSError:
-        return 80
-
-
 def print_summary_total(
     total_duration: timedelta,
     productive_duration: Optional[timedelta] = None,
@@ -723,136 +622,6 @@ def print_summary_total(
     # Use the same formatting as timesheet report for consistency
     summary_line = f"Total Time: {format_duration_tracked_prod(total_duration, productive_duration or timedelta(0))}"
     print(summary_line.rjust(width))
-
-
-def format_duration(duration: timedelta) -> str:
-    total_seconds = int(duration.total_seconds())
-    hours, remainder = divmod(total_seconds, 3600)
-    minutes, seconds = divmod(remainder, 60)
-    return f"{hours}:{minutes:02}:{seconds:02}"
-
-
-def sanitize_title(title: str) -> str:
-    """Clean window titles: remove notification counters and emoji.
-
-    Keeps UTF-8 and Latin characters including accents (ñ, á, é, etc.) which are
-    common in Spanish, Portuguese, French, and other European languages.
-    Removes emoji, decorative symbols, and other "weird" Unicode by checking
-    Unicode categories.
-
-    IMPORTANT: This handles the case where window titles contain emoji from
-    Discord channel names, Slack emojis, etc. We want to keep legitimate
-    accented text but filter out visual noise.
-
-    Strategy:
-    - ASCII (< 128): keep printable chars and spaces
-    - Latin-1 Supplement (U+0080-U+00FF): keep all (covers ñ, á, é, etc.)
-    - Other ranges: keep only letters (L*) and numbers (N*), reject all symbols
-    """
-    if not title:
-        return title
-    # First normalize to remove notification counters like "(7)"
-    title = normalize_title(title)
-    # Remove emoji and symbol characters by Unicode category
-    result = []
-    for c in title:
-        code_point = ord(c)
-        # ASCII: keep all printable + whitespace
-        if code_point < 128:
-            if c.isprintable() or c.isspace():
-                result.append(c)
-        # Latin-1 Supplement: safe zone for European accented characters
-        # U+0080 to U+00FF covers: ñ, á, é, í, ó, ú, à, è, ù, ç, etc.
-        elif 0x0080 <= code_point <= 0x00FF:
-            result.append(c)
-        # Everything else: strict filtering to exclude emoji and weird chars
-        else:
-            category = unicodedata.category(c)
-            # Keep only: Letters (L*) and Numbers (N*)
-            # Reject: Symbols (S*), Punctuation (P*), Separators (Z*), etc.
-            if category[0] in ("L", "N"):
-                result.append(c)
-    return "".join(result)
-
-
-def normalize_title(title: str) -> str:
-    """Remove notification counters from window titles to aggregate similar windows.
-
-    Removes patterns like:
-    - (7) at start: "(7) WhatsApp" -> "WhatsApp"
-    - (1) at end: "Work/Job Hunting (1)" -> "Work/Job Hunting"
-    - (2) in middle: "Inbox (2) - Gmail" -> "Inbox - Gmail"
-    """
-    if not title:
-        return title
-    # Remove numbers in parentheses: \s*\(\d+\)\s* matches optional spaces, (digits), optional spaces
-    normalized = re.sub(r"\s*\(\d+\)\s*", " ", title)
-    # Clean up multiple spaces
-    normalized = re.sub(r"\s+", " ", normalized).strip()
-    return normalized
-
-
-def truncate_title(title: str, max_length: int = 60) -> str:
-    """Truncate title to max_length with ellipsis if needed."""
-    if not title:
-        return title
-    if len(title) <= max_length:
-        return title
-    return title[: max_length - 1] + "…"
-
-
-def abbreviate_project_path(
-    project: str, task: str = "", max_content_width: int = 100
-) -> str:
-    """Abbreviate project path while preserving task description.
-
-    When truncating, keep the full task and abbreviate the project by:
-    - Keeping the leaf (rightmost) project level
-    - Abbreviating the root project to first 5 chars + "..."
-    Format: "Root... > Leaf > Leaf2"
-    """
-    if " > " not in project:
-        # Single-level project, no abbreviation needed
-        return project
-
-    parts = project.split(" > ")
-    leaf = parts[-1]  # Keep the last (most specific) project level
-
-    # Build abbreviated version: "Root... > Leaf"
-    if len(parts) > 1:
-        root = parts[0]
-        # Abbreviate root to 5 chars max
-        root_abbrev = root[:5] + "..." if len(root) > 5 else root
-        abbreviated = f"{root_abbrev} > {leaf}"
-    else:
-        abbreviated = leaf
-
-    # If the result with task is still short enough, use it
-    if task:
-        full = f"{abbreviated} ▶▶ {task}"
-        if len(full) <= max_content_width:
-            return abbreviated
-
-    return abbreviated
-
-
-def format_timeline_line(
-    left_part: str, duration_str: str = "", max_left_width: int = 100
-) -> str:
-    """Format timeline line with truncated content and right-aligned duration.
-
-    Truncates left_part if needed and right-aligns the duration column.
-    """
-    width = get_terminal_width()
-
-    # Truncate left part if it exceeds max width
-    if len(left_part) > max_left_width:
-        left_part = left_part[: max_left_width - 3] + "..."
-
-    # Right-align duration
-    if duration_str:
-        return left_part.ljust(width - len(duration_str) - 1) + " " + duration_str
-    return left_part
 
 
 def print_report_header(
