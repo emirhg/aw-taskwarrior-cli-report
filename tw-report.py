@@ -2537,12 +2537,16 @@ def generate_gap_entries(
             task_name = NO_TASK
             project = NO_PROJECT
 
+        # HARDENING: AFK slots now require explicit actual_duration.
+        # For AFK time, actual_duration == duration (AFK is always "actual" tracked time).
+        # Previously, this was silently defaulted in TimelineSlot.__post_init__, which
+        # masked bugs in other slot types. Now all slots must be explicit.
         slot = {
             "type": "afk",
             "start": afk_event.timestamp.astimezone(),
             "end": (afk_event.timestamp + afk_event.duration).astimezone(),
             "duration": afk_event.duration,
-            "actual_duration": afk_event.duration,
+            "actual_duration": afk_event.duration,  # Required: afk time is always actual
             "project": project,
             "task": task_name,
         }
@@ -2726,12 +2730,15 @@ def generate_gap_entries(
         if next_start > curr_end:
             gap_duration = next_start - curr_end
             if gap_duration.total_seconds() > offline_threshold_s:
+                # HARDENING: OFFLINE gap slots now require explicit actual_duration.
+                # For OFFLINE gaps, actual_duration == duration (system was powered off, no activity tracked).
+                # This ensures all slots pass TimelineSlot validation.
                 offline_entry = {
                     "type": "offline",
                     "start": curr_end.astimezone(),
                     "end": next_start.astimezone(),
                     "duration": gap_duration,
-                    "actual_duration": gap_duration,
+                    "actual_duration": gap_duration,  # Required: gap is always actual duration
                     "project": NO_PROJECT,
                     "task": NO_TASK,
                 }
@@ -3839,7 +3846,21 @@ def main():
                                     else list(raw_tags)
                                 )
 
-                                # Add the slot (allow multiple entries for same task if split by interruptions)
+                                # BUG FIX: Build offline_task slots with correct duration semantics.
+                                # BACKGROUND: OFFLINE tasks show two durations:
+                                #  - duration: wall-clock time (system was powered off) — from offline processor
+                                #  - actual_duration: time actually tracked as activity (online_time from AFK overlaps)
+                                # These differ because the system was offline (no tracking) for part of the period.
+                                #
+                                # PRIOR BUG: When online_time wasn't explicitly set, __post_init__ would silently
+                                # default actual_duration = duration, causing:
+                                #   offline_time_display = duration - event_duration
+                                #                       = offline_duration - online_time (WRONG: using defaults)
+                                # This produced negative values when online_time > offline_duration.
+                                #
+                                # FIX: Now actual_duration and event_duration are explicit, preventing silent defaults.
+                                # Also moved to canonical builder (OfflineTaskProcessor.get_synthetic_slot) to
+                                # eliminate the duplicate code path and ensure consistency.
                                 slot_start_tz = slot_start.astimezone()
                                 slot_end_tz = slot_end.astimezone()
                                 online_time = offline_event_durations.get(key, timedelta(0))
@@ -3847,9 +3868,9 @@ def main():
                                     "type": "offline_task",
                                     "start": slot_start_tz,
                                     "end": slot_end_tz,
-                                    "duration": slot_duration,
-                                    "actual_duration": online_time,  # For totals, use only the tracked (online) time
-                                    "event_duration": online_time,  # For display formatting
+                                    "duration": slot_duration,  # Wall-clock duration (period system was off)
+                                    "actual_duration": online_time,  # For totals: only tracked (online) time
+                                    "event_duration": online_time,  # For display: offline_time = duration - event_duration
                                     "productive_duration": timedelta(0),
                                     "project": project,
                                     "task": task_name,

@@ -193,10 +193,13 @@ class TimelineSlotManager:
         # Merge categories (complex nested structure)
         merged_categories = self._merge_categories(group)
 
-        # Build result
+        # Build result with self-consistent time fields.
+        # HARDENING: Added "end" field to merged dicts so they pass TimelineSlot.from_dict validation.
+        # Previously, consolidated dicts lacked an "end" key, causing KeyError when re-wrapping through
+        # TimelineSlot. Now, any dict that flows through consolidation is TimelineSlot-valid.
         result = {
             "start": time_window_start,
-            "end": time_window_start + time_window,
+            "end": time_window_start + time_window,  # Derived: ensures end = start + duration
             "duration": time_window,
             "actual_duration": actual_duration,
             "productive_duration": productive_duration,

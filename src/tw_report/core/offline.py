@@ -525,12 +525,32 @@ class OfflineTaskProcessor:
         """
         Build a synthetic slot for an OFFLINE task.
 
+        CANONICAL BUILDER: This is now the single source of truth for offline_task slots.
+        Previously, offline_task dicts were hand-built in multiple places (tw-report.py
+        and this method), leading to inconsistencies (missing actual_duration/event_duration).
+        Consolidating here ensures all offline_task slots are built consistently and pass
+        TimelineSlot validation.
+
+        SIGNATURE FIX: Changed from (project: str, task: str, ...) to (key: Tuple, ...).
+        The old signature broke for split groups (3-tuple keys like (project, task, group_idx))
+        by looking up only (project, task), silently defaulting to timedelta(0) instead of
+        the correct grouped duration. Now lookup matches the key used everywhere else.
+
         Args:
-            key: (project, task) or (project, task, group_idx) tuple uniquely identifying the task
+            key: (project, task) or (project, task, group_idx) tuple uniquely identifying the task.
+                 Must match the key in self.offline_durations and self.offline_event_durations.
             task_events_for_key: List of task events for this (project, task)
 
         Returns:
-            Synthetic slot dictionary with all required fields for TimelineSlot validation
+            Synthetic slot dictionary with all required TimelineSlot fields:
+            - type, start, end, duration, actual_duration, event_duration, project, task
+            The presence of actual_duration and event_duration is critical: without them,
+            TimelineSlot.__post_init__ validation fails, immediately surfacing data issues.
+
+        HARDENING: Added actual_duration and event_duration fields. These were completely
+        absent from the original implementation, causing silent data loss. Now all
+        offline_task slots pass through TimelineSlot validation, preventing future bugs
+        from being hidden by "friendly" defaults.
         """
         if not task_events_for_key:
             return {}

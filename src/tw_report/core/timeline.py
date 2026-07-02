@@ -14,7 +14,17 @@ from typing import List, Dict, Optional, Any
 
 
 class TimelineSlotValidationError(ValueError):
-    """Raised when a TimelineSlot is missing required data or has inconsistent fields."""
+    """Raised when a TimelineSlot is missing required data or has inconsistent fields.
+
+    CONTEXT: This exception was added to prevent silent data quality issues.
+    Prior to hardening, TimelineSlot.__post_init__ would silently default
+    actual_duration = duration when not explicitly provided. This masked a bug where
+    offline_task slots had their duration incorrectly sourced, resulting in negative
+    offline times being displayed (e.g., -1:46:24 OFF instead of 0:00:05 OFF).
+
+    By raising an error when required data is missing, we ensure bugs surface
+    immediately at construction time, not hours later during analysis.
+    """
     pass
 
 
@@ -59,9 +69,25 @@ class TimelineSlot:
     apps: Optional[List[Dict[str, Any]]] = None
 
     def __post_init__(self):
-        """Validate and normalize slot data."""
+        """Validate and normalize slot data.
+
+        DESIGN: This method enforces invariants that prevent silent data quality issues.
+        Unlike the prior behavior (silently defaulting actual_duration = duration),
+        we now fail fast with detailed context. This catches bugs immediately rather
+        than allowing them to propagate downstream.
+
+        Checks:
+        1. actual_duration is explicit (never inferred) — this is the core fix for
+           the offline-time-negativity bug. Each slot type must explicitly set it
+           (e.g., afk/offline use duration; offline_task uses online time).
+        2. end is consistent with start+duration (within 1s tolerance for float drift).
+           This prevents stale end values from day-splitting or other mutations.
+        3. offline_task slots must have event_duration for the offline/online split display.
+        """
         ctx = f"type={self.type!r} project={self.project!r} task={self.task!r} start={self.start!r}"
 
+        # CRITICAL: actual_duration must be explicit. This was the root cause of
+        # negative offline times: prior silent default masked incorrect duration sources.
         if self.actual_duration is None:
             raise TimelineSlotValidationError(
                 f"TimelineSlot missing required 'actual_duration' ({ctx}). "
@@ -70,6 +96,8 @@ class TimelineSlot:
                 "offline_task slots) — it is never silently inferred."
             )
 
+        # Ensure end matches start+duration. Prevents downstream code from having
+        # to recompute or work around stale end values from split-slot mutations.
         expected_end = self.start + self.duration
         if abs((self.end - expected_end).total_seconds()) > 1:
             raise TimelineSlotValidationError(
@@ -78,6 +106,8 @@ class TimelineSlot:
                 f"Difference: {(self.end - expected_end).total_seconds()} seconds."
             )
 
+        # offline_task slots require event_duration to display the offline/online split.
+        # Without it, the display logic cannot compute offline_time = duration - event_duration.
         if self.type == "offline_task" and self.event_duration is None:
             raise TimelineSlotValidationError(
                 f"offline_task slot missing required 'event_duration' ({ctx}). "
@@ -114,16 +144,22 @@ class TimelineSlot:
     def from_dict(cls, d: Dict[str, Any]) -> 'TimelineSlot':
         """Create TimelineSlot from dict (for compatibility).
 
-        Required keys:
+        HARDENING: This method enforces all required fields to prevent silent data loss.
+        Prior behavior: actual_duration would silently default in __post_init__.
+        New behavior: raises TimelineSlotValidationError if missing.
+
+        Required keys (enforced):
             type: slot type ('regular', 'afk', 'offline', 'offline_extension', 'offline_task')
             start: start time (datetime)
             duration: wall-clock duration (timedelta)
             actual_duration: actual activity duration (timedelta) — must be explicit, never inferred
 
-        Derived from required keys if missing:
-            end: computed as start + duration if not provided in dict
+        Derived (if missing):
+            end: computed as start + duration if not provided in dict. This enables:
+                 - Consolidation code to build dicts without computing end (we derive it)
+                 - Consistency validation in __post_init__ to catch mutations
 
-        Raises TimelineSlotValidationError if any required key is missing or actual_duration is None.
+        Raises TimelineSlotValidationError if any required key is missing.
         """
         def _require(key: str):
             if key not in d or d[key] is None:
