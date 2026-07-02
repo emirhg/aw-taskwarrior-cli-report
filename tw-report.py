@@ -820,10 +820,6 @@ def _matches_any(name: str, patterns: Optional[List[str]], exact: bool) -> bool:
 def _excluded(name: str, exclusions: Optional[List[str]]) -> bool:
     """Check if name is in the exclusion list (exact match, case-insensitive)."""
     return any(name.lower() == e.lower() for e in (exclusions or []))
-
-
-) -> Dict:
-    """Apply project/task/app filters and exclusions to the report data."""
     if not task_based:
         # No-taskwarrior mode: filter categories and apps only
         filtered = {}
@@ -889,7 +885,6 @@ def _excluded(name: str, exclusions: Optional[List[str]]) -> bool:
     return filtered
 
 
-) -> Dict:
     """
     Process window events and structure them into a hierarchical report.
     """
@@ -2056,76 +2051,6 @@ def generate_timeline_data(
     # Sort slots by start time
     slots = sorted(slots, key=lambda s: s["start"])
     return slots
-
-
-) -> List[Dict]:
-    """Consolidate timeline slots by merging all sessions of the same task on same date.
-
-    For consolidated timesheet display, merges slots (regular and AFK) that belong to the
-    same (date, project, task) into a single entry. By default, OFFLINE entries act as
-    group separators (breaking consolidation). AFK slots are absorbed as afk_duration.
-
-    Args:
-        slots: List of slot dicts (may include type="offline" entries)
-        ignore_offline: If True, OFFLINE entries are dropped and consolidation spans gaps.
-                       If False (default), OFFLINE breaks consolidation groups.
-
-    For example (default behavior):
-      Task A (12:26-12:29) + [OFFLINE] + Task A (12:30-13:00)
-    Shows as:
-      Task A (12:26-12:29)    [separate, ends before offline]
-      [OFFLINE]               [gap marker]
-      Task A (12:30-13:00)    [separate, after offline]
-
-    With ignore_offline=True:
-      Task A (12:26-12:29) + [OFFLINE] + Task A (12:30-13:00) + [AFK] + Task A (13:30-15:00)
-    Shows as:
-      Task A (12:26-15:00)    [merged across offline and afk]
-
-    If another task interrupts, sequences remain separate:
-      Task A (12:26-12:29) + Task B (12:30-13:00) + Task A (13:30-15:00)
-    Shows as:
-      Task A (12:26-12:29)    [separate]
-      Task B (12:30-13:00)    [interrupt]
-      Task A (13:30-15:00)    [separate]
-    """
-    if not slots:
-        return slots
-
-    consolidated = []
-    current_group: List[Dict] = []
-
-    def flush() -> None:
-        if current_group:
-            consolidated.append(_merge_slot_group(current_group))
-            current_group.clear()
-
-    for slot in slots:
-        if slot.get("type") == "offline":
-            flush()  # Close any open group
-            if not ignore_offline:
-                consolidated.append(slot)  # Pass OFFLINE through
-            continue
-
-        if not current_group:
-            current_group.append(slot)
-            continue
-
-        # Check if slot belongs to current group
-        same_project_task_date = (
-            slot["project"] == current_group[0]["project"]
-            and slot["task"] == current_group[0]["task"]
-            and slot["start"].date() == current_group[0]["start"].date()
-        )
-
-        if same_project_task_date:
-            current_group.append(slot)
-        else:
-            flush()
-            current_group.append(slot)
-
-    flush()
-    return consolidated
 
 
 def _merge_overlapping_events(events: List[Event]) -> List[Event]:
