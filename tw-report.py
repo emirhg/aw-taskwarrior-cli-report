@@ -2748,11 +2748,12 @@ def print_timeline_report(
             wall_clock_duration = offline_task_slot.get("duration", timedelta(0))
             event_duration = offline_task_slot.get("event_duration", timedelta(0))
             start_str = offline_task_slot["start"].strftime("%H:%M")
+            end_str = (offline_task_slot["start"] + wall_clock_duration).strftime("%H:%M")
 
-            # Format OFFLINE task entries showing offline (system-off) vs online (logged) time
-            content = f"▶ {project_name} > {task_name}"
-            time_padded = start_str
-            left = f"             {time_padded}  {content}"
+            # Format OFFLINE task entries with same style as regular entries
+            abbrev_project = abbreviate_project_path(project_name, task_name)
+            content = f"▶ {abbrev_project} ▶▶ {task_name}"
+            left = f"       {start_str}-{end_str}  {content}"
             duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration)
             print(format_timeline_line(left, duration_formatted, max_left_width=95))
 
