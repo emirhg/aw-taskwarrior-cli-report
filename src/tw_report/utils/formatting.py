@@ -310,26 +310,56 @@ def abbreviate_project_path(
 
 
 def format_timeline_line(
-    left_part: str, duration_str: str = "", max_left_width: int = 100
+    left_part: str, duration_str: str = "", max_left_width: int = 70
 ) -> str:
-    """Format timeline line with truncated content and right-aligned duration.
+    """Format timeline line with fixed column alignment.
 
-    Left-aligns the content, truncates if too long, and right-aligns duration
-    column to improve readability.
+    Timeline lines consist of:
+      [TIME PREFIX (7-9 chars)] [CONTENT (left_part)] [DURATION (right)]
+
+    CRITICAL FIX (Phase 5 regression):
+    Original code used ljust(terminal_width) which created 100+ char lines.
+    This breaks readability and column alignment.
+
+    Solution: Use fixed column width (default 70) for left content:
+      ✓ Lines stay within 80-85 chars (readable)
+      ✓ Duration column aligns vertically
+      ✓ Output displays cleanly without wrapping
+
+    Algorithm:
+      1. Truncate left_part if longer than max_left_width
+      2. Pad left_part to (max_left_width - len(duration_str) - 1) chars
+      3. Add single space + duration string
+
+    This ensures:
+      - Left part never exceeds max_left_width
+      - Minimum 1 space separator before duration
+      - Duration always at predictable column position
+
+    Example:
+      Input:  left="       00:00-...  ▶ Project > Task", duration="4:36:02"
+      Max_left=70, duration_len=7
+      Pad to: 70 - 7 - 1 = 62 chars
+      Output: "       00:00-...  ▶ Project > Task   " + " 4:36:02"
+                                          ^62 chars^1 space^duration
 
     Args:
         left_part: Content (project/task/app) to left-align
         duration_str: Duration string to right-align (optional)
-        max_left_width: Maximum width before truncation (default 100)
+        max_left_width: Maximum width for left part before truncation (default 70)
 
     Returns:
-        Formatted line with left content and right-aligned duration
+        Formatted line: left_part (padded to fixed column) + duration
     """
-    width = get_terminal_width()
-
     if len(left_part) > max_left_width:
         left_part = left_part[: max_left_width - 3] + "..."
 
     if duration_str:
-        return left_part.ljust(width - len(duration_str) - 1) + " " + duration_str
+        # Pad left part to fixed width (max_left_width), then add space + duration
+        # This ensures all lines have duration starting at the same column
+        # Example with max_left_width=70, duration="4:36:02":
+        #   "       00:00-...  ▶ Project > Task        " (padded to 70) + " 4:36:02"
+        #   "       00:00-...  ▶ No project assigned   " (padded to 70) + " 0:00:29"
+        # Result: Both durations start at column 71, column alignment ✓
+        return left_part.ljust(max_left_width) + " " + duration_str
     return left_part

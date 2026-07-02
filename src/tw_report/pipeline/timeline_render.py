@@ -335,7 +335,7 @@ def print_timeline_report(
             duration_formatted = format_offline_task_duration(
                 wall_clock_duration, event_duration
             )
-            print(format_timeline_line(left, duration_formatted, max_left_width=95))
+            print(format_timeline_line(left, duration_formatted, max_left_width=70))
 
             # Render details for offline_task slots if detail_level >= 3
             _render_slot_detail(slot, detail_level, width)
@@ -350,7 +350,7 @@ def print_timeline_report(
 
             content = f"▶ {project} > {task}"
             left = f"       {start_str}-...  {content}"
-            print(format_timeline_line(left, duration_str, max_left_width=95))
+            print(format_timeline_line(left, duration_str, max_left_width=70))
 
             # Render details (categories/apps/titles) for detail_level >= 3
             _render_slot_detail(slot, detail_level, width)
