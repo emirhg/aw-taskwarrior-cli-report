@@ -72,6 +72,7 @@ from tw_report.utils.formatting import (
     format_duration_with_afk,
     format_duration_with_gaps,
     format_offline_task_duration,
+    format_afk_label,
     abbreviate_project_path,
     get_terminal_width,
     format_timeline_line,
