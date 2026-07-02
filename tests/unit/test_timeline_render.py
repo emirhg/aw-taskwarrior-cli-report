@@ -11,7 +11,120 @@ import pytest
 from tw_report.pipeline.timeline_render import (
     print_timeline_report,
     split_slots_spanning_days,
+    _render_slot_detail,
 )
+
+
+class TestRenderSlotDetail:
+    """Test _render_slot_detail function for various detail levels."""
+
+    def test_detail_level_1_no_output(self, capsys):
+        """detail_level=1 should not render any details."""
+        slot = {
+            "categories": [
+                {
+                    "category": "Coding",
+                    "duration": timedelta(hours=1),
+                }
+            ]
+        }
+        _render_slot_detail(slot, detail_level=1, width=80)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_detail_level_2_no_output(self, capsys):
+        """detail_level=2 should not render any details."""
+        slot = {
+            "categories": [
+                {
+                    "category": "Coding",
+                    "duration": timedelta(hours=1),
+                }
+            ]
+        }
+        _render_slot_detail(slot, detail_level=2, width=80)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_detail_level_3_categories_only(self, capsys):
+        """detail_level=3 should render categories only."""
+        slot = {
+            "categories": [
+                {
+                    "category": "Coding",
+                    "duration": timedelta(hours=2),
+                    "apps": [],
+                }
+            ]
+        }
+        _render_slot_detail(slot, detail_level=3, width=80)
+        captured = capsys.readouterr()
+        assert "Coding" in captured.out
+        assert "2:00:00" in captured.out
+
+    def test_detail_level_4_with_apps(self, capsys):
+        """detail_level=4 should render categories and apps."""
+        slot = {
+            "categories": [
+                {
+                    "category": "Coding",
+                    "duration": timedelta(hours=2),
+                    "apps": [
+                        {
+                            "app": "VSCode",
+                            "duration": timedelta(hours=2),
+                            "titles": [],
+                        }
+                    ],
+                }
+            ]
+        }
+        _render_slot_detail(slot, detail_level=4, width=80)
+        captured = capsys.readouterr()
+        assert "Coding" in captured.out
+        assert "VSCode" in captured.out
+
+    def test_detail_level_5_with_titles(self, capsys):
+        """detail_level=5 should render categories, apps, and titles."""
+        slot = {
+            "categories": [
+                {
+                    "category": "Coding",
+                    "duration": timedelta(hours=1),
+                    "apps": [
+                        {
+                            "app": "VSCode",
+                            "duration": timedelta(hours=1),
+                            "titles": [
+                                {
+                                    "title": "tw-report.py",
+                                    "duration": timedelta(hours=1),
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        _render_slot_detail(slot, detail_level=5, width=120)
+        captured = capsys.readouterr()
+        assert "Coding" in captured.out
+        assert "VSCode" in captured.out
+        assert "tw-report" in captured.out
+
+    def test_empty_categories(self, capsys):
+        """Slot with no categories should render nothing."""
+        slot = {"categories": []}
+        _render_slot_detail(slot, detail_level=3, width=80)
+        captured = capsys.readouterr()
+        assert captured.out == ""
+
+    def test_missing_categories_field(self, capsys):
+        """Slot missing categories field should render nothing."""
+        slot = {}
+        _render_slot_detail(slot, detail_level=3, width=80)
+        captured = capsys.readouterr()
+        assert captured.out == ""
 
 
 class TestSplitSlotsSpanningDays:

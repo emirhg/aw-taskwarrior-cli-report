@@ -22,6 +22,7 @@ from tw_report.utils.formatting import (
     format_offline_task_duration,
     format_timeline_line,
     get_terminal_width,
+    truncate_title,
 )
 
 
@@ -94,6 +95,45 @@ def split_slots_spanning_days(slots: List[Dict[str, Any]]) -> List[Dict[str, Any
     return split_slots
 
 
+def _render_slot_detail(slot: Dict[str, Any], detail_level: int, width: int) -> None:
+    """Render category/app/title sub-rows for a slot according to detail_level.
+
+    detail_level controls depth:
+      1 = Project only          (no sub-rows)
+      2 = Project + Task        (no sub-rows)
+      3 = + Category
+      4 = + App (indented under category)
+      5 = + Title (indented under app)
+
+    Note: AFK and OFFLINE slots may have categorized window activity recorded
+    during those periods, so we render their details just like regular slots.
+    """
+    if detail_level >= 3:
+        for cat_info in slot.get("categories", []):
+            cat_dur_str = format_duration(cat_info["duration"])
+            left = " " * 21 + f"- {cat_info['category']}"
+            print(left.ljust(width - len(cat_dur_str) - 1) + " " + cat_dur_str)
+
+            # Apps nested under category (level 4+)
+            if detail_level >= 4:
+                for app_info in cat_info.get("apps", []):
+                    app_dur_str = format_duration(app_info["duration"])
+                    left = " " * 25 + f"• {app_info['app']}"
+                    print(left.ljust(width - len(app_dur_str) - 1) + " " + app_dur_str)
+
+                    # Titles nested under app (level 5+)
+                    if detail_level >= 5:
+                        for title_info in app_info.get("titles", []):
+                            title_dur_str = format_duration(title_info["duration"])
+                            clean = truncate_title(title_info["title"], 75)
+                            left = " " * 29 + clean
+                            print(
+                                left.ljust(width - len(title_dur_str) - 1)
+                                + " "
+                                + title_dur_str
+                            )
+
+
 def print_timeline_report(
     slots: List[Dict[str, Any]],
     period: str,
@@ -117,6 +157,7 @@ def print_timeline_report(
     total_time_all: Optional[timedelta] = None,
     afk_time: Optional[timedelta] = None,
     rollup: bool = False,
+    **kwargs  # Accept additional kwargs (e.g., afk_events) for compatibility
 ) -> None:
     """Print timeline report organized by date and week.
 
@@ -295,6 +336,9 @@ def print_timeline_report(
                 wall_clock_duration, event_duration
             )
             print(format_timeline_line(left, duration_formatted, max_left_width=95))
+
+            # Render details for offline_task slots if detail_level >= 3
+            _render_slot_detail(slot, detail_level, width)
         else:
             # Regular slot
             project = slot.get("project", NO_PROJECT)
@@ -307,6 +351,9 @@ def print_timeline_report(
             content = f"▶ {project} > {task}"
             left = f"       {start_str}-...  {content}"
             print(format_timeline_line(left, duration_str, max_left_width=95))
+
+            # Render details (categories/apps/titles) for detail_level >= 3
+            _render_slot_detail(slot, detail_level, width)
 
             # Update totals
             actual_duration = slot.get("actual_duration", slot["duration"])
