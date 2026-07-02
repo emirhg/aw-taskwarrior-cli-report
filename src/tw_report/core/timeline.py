@@ -136,7 +136,9 @@ class TimelineSlot:
             d["afk_duration"] = self.afk_duration
         if self.offline_extension_duration:
             d["offline_extension_duration"] = self.offline_extension_duration
-        if self.event_duration:
+        # Always include event_duration if it exists (even if 0), since offline_task slots
+        # require it for validation. timedelta(0) is falsy, so check is not None explicitly.
+        if self.event_duration is not None:
             d["event_duration"] = self.event_duration
         if self.apps:
             d["apps"] = self.apps

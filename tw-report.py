@@ -3306,73 +3306,16 @@ def main():
                         ):
                             continue  # Skip excluded task
 
-                    if True:  # Key is already from offline_task_durations
-                            # Get events for this group from the offline processor
-                            task_events_for_key = offline_event_groups.get(key, [])
-                            if task_events_for_key:
-                                # Events are already filtered by the offline processor
-                                start_times = [e.timestamp for e in task_events_for_key]
-                                end_times = [
-                                    e.timestamp + e.duration
-                                    for e in task_events_for_key if e.duration
-                                ]
-                                if start_times and end_times:
-                                    slot_start = min(start_times)
-                                    slot_end = max(end_times)
-                                else:
-                                    slot_start = min(start_times) if start_times else datetime.now()
-                                    slot_end = max(end_times) if end_times else slot_start
-                                # Use the wall-clock duration for OFFLINE tasks (period from earliest start to latest end)
-                                # This is required for the offline/online split calculation:
-                                # offline_time = wall_clock_duration - online_time_from_AFK
-                                slot_duration = offline_duration
-
-                                # Get tags from any event in this group
-                                raw_tags = task_events_for_key[0].data.get("tags", [])
-                                task_tags = (
-                                    [raw_tags]
-                                    if isinstance(raw_tags, str)
-                                    else list(raw_tags)
-                                )
-
-                                # BUG FIX: Build offline_task slots with correct duration semantics.
-                                # BACKGROUND: OFFLINE tasks show two durations:
-                                #  - duration: wall-clock time (system was powered off) — from offline processor
-                                #  - actual_duration: time actually tracked as activity (online_time from AFK overlaps)
-                                # These differ because the system was offline (no tracking) for part of the period.
-                                #
-                                # PRIOR BUG: When online_time wasn't explicitly set, __post_init__ would silently
-                                # default actual_duration = duration, causing:
-                                #   offline_time_display = duration - event_duration
-                                #                       = offline_duration - online_time (WRONG: using defaults)
-                                # This produced negative values when online_time > offline_duration.
-                                #
-                                # FIX: Now actual_duration and event_duration are explicit, preventing silent defaults.
-                                # Also moved to canonical builder (OfflineTaskProcessor.get_synthetic_slot) to
-                                # eliminate the duplicate code path and ensure consistency.
-                                slot_start_tz = slot_start.astimezone()
-                                slot_end_tz = slot_end.astimezone()
-                                online_time = offline_event_durations.get(key, timedelta(0))
-                                offline_slot_dict = {
-                                    "type": "offline_task",
-                                    "start": slot_start_tz,
-                                    "end": slot_end_tz,
-                                    "duration": slot_duration,  # Wall-clock duration (period system was off)
-                                    "actual_duration": online_time,  # For totals: only tracked (online) time
-                                    "event_duration": online_time,  # For display: offline_time = duration - event_duration
-                                    "productive_duration": timedelta(0),
-                                    "project": project,
-                                    "task": task_name,
-                                    "tags": task_tags,
-                                    "categories": [
-                                        build_offline_category_structure(
-                                            slot_duration,
-                                            start_time=slot_start_tz,
-                                            end_time=slot_end_tz,
-                                        )
-                                    ],
-                                }
-                                timeline.add_from_dict(offline_slot_dict)
+                    # Use canonical builder from OfflineTaskProcessor
+                    # This ensures all offline_task slots are built consistently with proper
+                    # event_duration field (critical for TimelineSlot validation).
+                    task_events_for_key = offline_event_groups.get(key, [])
+                    if task_events_for_key:
+                        offline_slot_dict = offline_processor.get_synthetic_slot(
+                            key, task_events_for_key
+                        )
+                        if offline_slot_dict:  # Builder returns {} if events is empty
+                            timeline.add_from_dict(offline_slot_dict)
 
         # Timeline auto-sorts on insertion, no need to manually sort
 
