@@ -280,6 +280,12 @@ from tw_report.core.categories import (
     get_category_score,
     categorize_event,
 )
+from tw_report.core.task_matching import (
+    find_active_task,
+    get_task_info,
+    task_has_offline_tag,
+    build_offline_category_structure,
+)
 
 # --- Constants and Configuration ---
 
@@ -713,76 +719,6 @@ def _excluded(name: str, exclusions: Optional[List[str]]) -> bool:
 # --- Shared Utility Functions (used by both default and timeline reports) ---
 
 
-
-def find_active_task(event: Event, task_events: List[Event]) -> Optional[Event]:
-    """Find the taskwarrior event that overlaps with the given window event.
-
-    Returns the overlapping task event or None if no overlap found.
-    Used in generate_report_data(), generate_timeline_data(), and main().
-    """
-    return next(
-        (
-            task
-            for task in task_events
-            if event.timestamp < task.timestamp + task.duration
-            and task.timestamp < event.timestamp + event.duration
-        ),
-        None,
-    )
-
-
-def get_task_info(active_task: Event) -> Tuple[str, str]:
-    """Extract task name and project from an active taskwarrior event.
-
-    Returns (task_name, project) tuple. Task name falls back through
-    title → label → task → NO_TASK. Project defaults to NO_PROJECT.
-    """
-    task_name = (
-        active_task.data.get("title")
-        or active_task.data.get("label")
-        or active_task.data.get("task")
-        or NO_TASK
-    )
-    project = active_task.data.get("project", NO_PROJECT)
-    return task_name, project
-
-
-def task_has_offline_tag(task_event: Event) -> bool:
-    """Check if a task event has the 'offline' tag (case-insensitive)."""
-    raw_tags = task_event.data.get("tags", [])
-    tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
-    return "offline" in (t.lower() for t in tags)
-
-
-def build_offline_category_structure(
-    duration: timedelta,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-) -> Dict:
-    """Build an Offline category structure for both hierarchical and timeline reports.
-
-    Args:
-        duration: Total duration of the offline task
-        start_time: Optional start time for timeline reports
-        end_time: Optional end time for timeline reports
-
-    Returns:
-        A dict representing the Offline category that can be used in both report types
-    """
-    if start_time is not None and end_time is not None:
-        return {
-            "category": "Offline",
-            "duration": duration,
-            "start": start_time,
-            "end": end_time,
-            "apps": [],
-        }
-    else:
-        return {
-            "total_duration": duration,
-            "apps": {},
-            "prod_score": 0.0,
-        }
 
 
 # --- Report Formatting and Printing ---
