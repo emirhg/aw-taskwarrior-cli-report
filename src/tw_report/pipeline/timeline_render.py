@@ -750,6 +750,10 @@ def print_timeline_report(
                     group_total_duration, group_productive_duration, group_afk_duration
                 )
                 time_range = f"{start_str}-{end_str}"
+                # Print date prefix on separate line if available, then content below
+                if pending_date_prefix is not None:
+                    print(pending_date_prefix)
+                    pending_date_prefix = None
                 # Add space before task name to preserve alignment with offline tasks (which use *)
                 formatted_task = f" {task_name}" if task_name != NO_TASK else task_name
                 print(format_timeline_columns(
@@ -759,7 +763,6 @@ def print_timeline_report(
                     gaps=gaps_str,
                     duration=base_duration,
                 ))
-                pending_date_prefix = None
                 _render_slot_detail(slot, detail_level, width)
             else:
                 # AFK slot on rollup day: render as regular slot
