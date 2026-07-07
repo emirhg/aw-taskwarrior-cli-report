@@ -614,8 +614,11 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
             (s.get("actual_duration", s["duration"]) for s in group_slots if s.get("type") == "afk"),
             timedelta(0),
         )
+        # For offline_task slots: offline time = duration - event_duration (system was off)
+        # For other slots: no offline extension (they were tracked live)
         offline_extension_duration = sum(
-            (s.get("offline_extension_duration") or timedelta(0) for s in group_slots),
+            (s.get("duration", timedelta(0)) - s.get("event_duration", timedelta(0))
+             for s in group_slots if s.get("type") == "offline_task"),
             timedelta(0),
         )
         result.append({

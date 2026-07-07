@@ -614,7 +614,7 @@ class TestConsolidateByPeriod:
         assert result[2]["project"] == "Short"
 
     def test_consolidate_by_period_offline_extension(self):
-        """Should accumulate offline_extension_duration alongside afk_duration."""
+        """Should calculate offline_extension_duration from offline_task slots (duration - event_duration)."""
         from tw_report.core.consolidation import consolidate_by_period
 
         dt = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
@@ -628,7 +628,6 @@ class TestConsolidateByPeriod:
                 "productive_duration": timedelta(hours=1),
                 "project": "Work",
                 "task": "Common Task",
-                "offline_extension_duration": timedelta(hours=1),
                 "categories": [],
             },
             {
@@ -639,7 +638,17 @@ class TestConsolidateByPeriod:
                 "productive_duration": timedelta(0),
                 "project": "Work",
                 "task": "Common Task",
-                "offline_extension_duration": timedelta(minutes=15),
+                "categories": [],
+            },
+            {
+                "type": "offline_task",
+                "start": dt + timedelta(hours=3),
+                "duration": timedelta(hours=2),  # wall-clock time (system off + on)
+                "event_duration": timedelta(minutes=45),  # time system was on (tracked)
+                "actual_duration": timedelta(minutes=45),
+                "productive_duration": timedelta(minutes=30),
+                "project": "Work",
+                "task": "Common Task",
                 "categories": [],
             },
         ]
@@ -648,12 +657,15 @@ class TestConsolidateByPeriod:
 
         assert len(result) == 1
         assert result[0]["afk_duration"] == timedelta(minutes=30)
+        # offline = 2:00 - 0:45 = 1:15
         assert result[0]["offline_extension_duration"] == timedelta(hours=1, minutes=15)
 
     def test_collapse_tasks_preserves_offline_extension(self):
-        """collapse_tasks_to_project should preserve offline_extension_duration."""
+        """collapse_tasks_to_project should preserve offline_extension_duration when summing."""
         from tw_report.core.consolidation import collapse_tasks_to_project
 
+        # These rows would come from consolidate_by_period output, where offline_extension_duration
+        # has already been calculated from offline_task slots (duration - event_duration)
         rows = [
             {
                 "period_start": date(2026, 6, 27),
