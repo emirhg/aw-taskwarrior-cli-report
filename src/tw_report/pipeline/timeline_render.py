@@ -1047,40 +1047,72 @@ def print_period_consolidated_report(
         total_prod = timedelta(0)
         period_afk = timedelta(0)
         period_offline = timedelta(0)
+
+        # Accumulate totals and AFK/OFFLINE for all rows first
         for row in rows_to_display:
-            project = row["project"]
-            task = row.get("task", NO_TASK)
             duration = row.get("actual_duration", row["duration"])
-            # Include offline extension in displayed duration (system was powered off)
             offline_ext = row.get("offline_extension_duration", timedelta(0))
             display_duration = duration + offline_ext
             productive = row.get("productive_duration", timedelta(0))
             total_dur += display_duration
             total_prod += productive
-            # Accumulate AFK and OFFLINE gap time for period total (silent accumulation)
             period_afk += row.get("afk_duration", timedelta(0))
             period_offline += row.get("offline_extension_duration", timedelta(0))
 
-            # Render based on detail level
-            if detail_level == 1:
-                # Project only
+        # Render based on detail level
+        if detail_level == 1:
+            # Project only: render flat list
+            for row in rows_to_display:
+                project = row["project"]
+                duration = row.get("actual_duration", row["duration"])
+                offline_ext = row.get("offline_extension_duration", timedelta(0))
+                display_duration = duration + offline_ext
+                productive = row.get("productive_duration", timedelta(0))
                 duration_str = format_duration_tracked_prod(display_duration, productive)
                 left = f"     ▶ {project}"
                 print(format_timeline_line(left, duration_str, max_left_width=95))
-            else:
-                # detail_level >= 2: show project >> task
-                duration_str = format_duration_tracked_prod(display_duration, productive)
-                abbrev_project = abbreviate_project_path(project, task)
-                # Always show task if: (a) project is NO_PROJECT (task is main ID), or (b) task is meaningful
-                if task and (task != NO_TASK or project == NO_PROJECT):
-                    left = f"     ▶ {abbrev_project} ▶▶ {task}"
-                else:
-                    left = f"     ▶ {abbrev_project}"
+        else:
+            # detail_level >= 2: group tasks by project
+            # First, calculate project totals for sorting
+            project_totals = {}
+            for row in rows_to_display:
+                proj = row["project"]
+                dur = row.get("actual_duration", row["duration"]) + row.get("offline_extension_duration", timedelta(0))
+                project_totals[proj] = project_totals.get(proj, timedelta(0)) + dur
+
+            # Sort rows by project duration (descending), then by project name
+            sorted_rows = sorted(rows_to_display, key=lambda r: (-project_totals[r["project"]].total_seconds(), r["project"]))
+
+            for project, project_group in groupby(sorted_rows, key=lambda r: r["project"]):
+                project_rows = list(project_group)
+
+                # Calculate project total
+                proj_duration = sum((r.get("actual_duration", r["duration"]) + r.get("offline_extension_duration", timedelta(0)) for r in project_rows), timedelta(0))
+                proj_productive = sum((r.get("productive_duration", timedelta(0)) for r in project_rows), timedelta(0))
+
+                # Render project header
+                duration_str = format_duration_tracked_prod(proj_duration, proj_productive)
+                left = f"     ▶ {project}"
                 print(format_timeline_line(left, duration_str, max_left_width=95))
 
-                # detail_level >= 3: render category/app/title sub-rows
-                if detail_level >= 3:
-                    _render_slot_detail(row, detail_level, width)
+                # Render tasks under this project
+                for row in project_rows:
+                    task = row.get("task", NO_TASK)
+                    duration = row.get("actual_duration", row["duration"])
+                    offline_ext = row.get("offline_extension_duration", timedelta(0))
+                    display_duration = duration + offline_ext
+                    productive = row.get("productive_duration", timedelta(0))
+                    duration_str = format_duration_tracked_prod(display_duration, productive)
+
+                    if task and task != NO_TASK:
+                        left = f"       ▶▶ {task}"
+                    else:
+                        left = f"       ▶▶ No task"
+                    print(format_timeline_line(left, duration_str, max_left_width=95))
+
+                    # detail_level >= 3: render category/app/title sub-rows
+                    if detail_level >= 3:
+                        _render_slot_detail(row, detail_level, width)
 
         # Period total line — show AFK/OFFLINE breakdown
         total_line = ("Week total (tracked):" if mode == "week"
