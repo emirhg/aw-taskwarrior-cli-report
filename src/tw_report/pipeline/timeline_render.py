@@ -1052,11 +1052,17 @@ def print_period_consolidated_report(
             task = row.get("task", NO_TASK)
             duration = row.get("actual_duration", row["duration"])
             productive = row.get("productive_duration", timedelta(0))
+
             total_dur += duration
             total_prod += productive
             # Accumulate AFK and OFFLINE gap time for period total (silent accumulation)
             period_afk += row.get("afk_duration", timedelta(0))
             period_offline += row.get("offline_extension_duration", timedelta(0))
+
+            # Skip zero-duration rows from rendering (but keep them in totals)
+            # These are tasks that exist in TaskWarrior but have no tracked time
+            if duration == timedelta(0):
+                continue
 
             # Render based on detail level
             if detail_level == 1:
