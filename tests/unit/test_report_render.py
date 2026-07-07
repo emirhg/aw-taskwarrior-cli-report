@@ -216,8 +216,9 @@ class TestPrintReport:
         assert "▶ Project: Platform" in captured.out
         assert "• Task: Code Review" in captured.out
         assert "• Task: Meetings" in captured.out
-        # Should not show "No project assigned" in totals
-        assert "Total Time:" in captured.out
+        # Should show footer with Total Time in TOTALS section
+        assert "TOTALS" in captured.out
+        assert "Total Time" in captured.out
 
     def test_report_detail_level_1(self, base_time, sample_report_data, capsys):
         """Detail level 1: projects only."""

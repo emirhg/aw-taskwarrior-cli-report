@@ -325,8 +325,9 @@ class TestPrintTimelineReport:
             last_event_time=base_time.replace(hour=17),
         )
         captured = capsys.readouterr()
-        assert "Period:" in captured.out
-        assert "Total Time:" in captured.out
+        assert "Period" in captured.out  # in SUMMARY section
+        assert "TOTALS" in captured.out
+        assert "Total Time" in captured.out
 
     def test_report_ends_with_separators(self, base_time, sample_slots, capsys):
         """Report should end with proper separators."""
