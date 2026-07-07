@@ -194,10 +194,31 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Timeline report: show activity as continuous slots ordered by time.",
     )
-    parser.add_argument(
+    consolidate_group = parser.add_mutually_exclusive_group()
+    consolidate_group.add_argument(
         "--consolidate",
         action="store_true",
         help="Consolidate sessions: merge consecutive sessions of the same task (even with gaps) unless interrupted by another task.",
+    )
+    consolidate_group.add_argument(
+        "--consolidate-day",
+        action="store_true",
+        help="Consolidate to one line per project per day (totals only, no time range).",
+    )
+    consolidate_group.add_argument(
+        "--consolidate-week",
+        action="store_true",
+        help="Consolidate to one line per project per ISO week (Mon-Sun).",
+    )
+    consolidate_group.add_argument(
+        "--consolidate-month",
+        action="store_true",
+        help="Consolidate to one line per project per calendar month.",
+    )
+    consolidate_group.add_argument(
+        "--consolidate-year",
+        action="store_true",
+        help="Consolidate to one line per project per calendar year.",
     )
     parser.add_argument(
         "--exclude-non-project",

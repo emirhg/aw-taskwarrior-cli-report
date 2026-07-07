@@ -928,4 +928,146 @@ def print_timeline_report(
     print("=" * width)
 
 
+def print_period_consolidated_report(
+    slots: List[Dict],
+    period: str,
+    start_time: datetime,
+    end_time: datetime,
+    period_mode: str,
+    non_afk_time: timedelta = None,
+    productive_time: timedelta = None,
+    task_based: bool = True,
+    **kwargs,
+):
+    """Print a period-consolidated timeline report (day/week/month/year summaries).
+
+    Shows one line per (period, project) with just total duration + productivity,
+    no start/end time range (time range no longer makes sense for a whole day/week).
+
+    Args:
+        slots: Pre-consolidated list from consolidate_by_period() with fields:
+               period_start, project, duration, actual_duration, productive_duration, afk_duration
+        period: Human-readable period string (e.g., ":year", "2026-01-01")
+        start_time, end_time: Start/end of the query period (for header)
+        period_mode: "day" | "week" | "month" | "year" (for labeling)
+        non_afk_time, productive_time: Metrics for header
+        task_based: Whether this is task-based report
+        **kwargs: Other metrics (distracting_time, unscored_time, current_session_*, etc.)
+    """
+    from datetime import date
+
+    width = get_terminal_width()
+
+    # Compute totals for header (same as print_timeline_report)
+    all_regular = [s for s in slots if s.get("type") != "offline"]
+    tracked = [s for s in all_regular if s.get("project") != NO_PROJECT]
+
+    total_duration = sum(
+        (s.get("actual_duration", s["duration"]) for s in tracked), timedelta(0)
+    )
+    total_productive = sum(
+        (s.get("productive_duration", timedelta(0)) for s in tracked), timedelta(0)
+    )
+    total_all = sum(
+        (s.get("actual_duration", s["duration"]) for s in all_regular), timedelta(0)
+    )
+    total_productive_all = sum(
+        (s.get("productive_duration", timedelta(0)) for s in all_regular), timedelta(0)
+    )
+    total_afk = sum(
+        (s.get("afk_duration", timedelta(0)) for s in slots), timedelta(0)
+    )
+
+    # Print shared header
+    print_report_header(
+        title=" Timeline Report ",
+        period=period,
+        start_time=start_time,
+        end_time=end_time,
+        total_duration=total_duration,
+        task_based=task_based,
+        non_afk_time=non_afk_time,
+        productive_time=productive_time,
+        total_time_all=total_all,
+        afk_time=total_afk,
+        **{k: v for k, v in kwargs.items() if k in [
+            "productive_task_time", "first_event_time", "last_event_time",
+            "distracting_time", "unscored_time", "current_session_start",
+            "current_session_end", "current_session_duration", "last_break_start",
+            "last_break_end", "last_break_duration"
+        ]},
+    )
+
+    if not slots:
+        print("No activity found for the specified period.")
+        print("=" * width)
+        return
+
+    # Group by period_start for display
+    current_period = None
+    period_slots = []
+    period_total_duration = timedelta(0)
+    period_total_productive = timedelta(0)
+
+    def format_period_label(period_start: date, mode: str) -> str:
+        """Format period-start date as a label."""
+        if mode == "day":
+            return period_start.strftime("%Y-%m-%d %a")
+        elif mode == "week":
+            sunday = period_start + timedelta(days=6)
+            week_num = period_start.isocalendar()[1]
+            return f"W{week_num} {period_start.strftime('%Y-%m-%d')} - {sunday.strftime('%Y-%m-%d')}"
+        elif mode == "month":
+            return period_start.strftime("%Y-%m %B")
+        elif mode == "year":
+            return period_start.strftime("%Y")
+        return str(period_start)
+
+    def print_period_block(ps: date, slots_in_period: List[Dict], mode: str):
+        """Print one period block (label + projects in period + period total)."""
+        print(format_period_label(ps, mode))
+        total_dur = timedelta(0)
+        total_prod = timedelta(0)
+        for slot in slots_in_period:
+            project = slot["project"]
+            duration = slot.get("actual_duration", slot["duration"])
+            productive = slot.get("productive_duration", timedelta(0))
+            total_dur += duration
+            total_prod += productive
+
+            # Use format_timeline_line for consistency with detail_level==1 rendering
+            duration_str = format_duration_tracked_prod(duration, productive)
+            left = f"     ▶ {project}"
+            print(format_timeline_line(left, duration_str, max_left_width=95))
+
+        # Period total line
+        total_line = ("Week total (tracked):" if mode == "week"
+                     else "Month total (tracked):" if mode == "month"
+                     else "Year total (tracked):" if mode == "year"
+                     else "Day total (tracked):")
+        duration_str = format_duration_tracked_prod(total_dur, total_prod)
+        print((total_line + "  " + duration_str).rjust(width))
+        print()
+
+    # Print all periods
+    for slot in slots:
+        ps = slot["period_start"]
+        if ps != current_period:
+            if current_period is not None:
+                print_period_block(current_period, period_slots, period_mode)
+            current_period = ps
+            period_slots = []
+        period_slots.append(slot)
+
+    # Print final period
+    if current_period is not None:
+        print_period_block(current_period, period_slots, period_mode)
+
+    # Final totals line
+    print(
+        ("Total Time: " + format_duration_tracked_prod(total_all, total_productive_all)).rjust(width)
+    )
+    print("=" * width)
+
+
 # --- Main Execution ---

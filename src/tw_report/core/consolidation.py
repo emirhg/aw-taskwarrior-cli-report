@@ -379,3 +379,72 @@ class TimelineSlotManager:
             List of slots
         """
         return self.timeline.get_slots_as_dicts()
+
+
+def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
+    """Group slots into (period_bucket, project) totals — no task, no time range.
+
+    Unlike TimelineSlotManager.consolidate() (order-dependent consecutive-run
+    merge of same project+task+date slots), this does a full dict-keyed
+    group-by across the whole slot list: every slot for a given period
+    bucket + project is summed together regardless of order or task.
+
+    Args:
+        slots: List of slot dicts (from timeline or consolidation)
+        period: "day" | "week" | "month" | "year"
+
+    Returns:
+        List of dicts with fields: period_start, project, duration, actual_duration,
+        productive_duration, afk_duration. Sorted by (period_start, descending duration).
+
+    Raises:
+        ValueError: If period is not one of the recognized values
+    """
+    from datetime import date, timedelta
+    from typing import Dict, Tuple
+
+    def bucket_start(dt) -> date:
+        d = dt.date()
+        if period == "day":
+            return d
+        elif period == "week":
+            # Monday of the week containing dt, same as period.py :week/:lastweek
+            return d - timedelta(days=dt.weekday())
+        elif period == "month":
+            return d.replace(day=1)
+        elif period == "year":
+            return d.replace(month=1, day=1)
+        raise ValueError(f"Unknown period: {period}")
+
+    # Group-by: exclude offline gap markers, keep everything else
+    groups: Dict[Tuple[date, str], List[Dict]] = {}
+    for slot in slots:
+        if slot.get("type") == "offline":
+            continue  # gap markers only
+        key = (bucket_start(slot["start"]), slot["project"])
+        groups.setdefault(key, []).append(slot)
+
+    result = []
+    for (period_start, project), group_slots in groups.items():
+        actual_duration = sum(
+            (s.get("actual_duration", s["duration"]) for s in group_slots), timedelta(0)
+        )
+        productive_duration = sum(
+            (s.get("productive_duration", timedelta(0)) for s in group_slots), timedelta(0)
+        )
+        afk_duration = sum(
+            (s.get("actual_duration", s["duration"]) for s in group_slots if s.get("type") == "afk"),
+            timedelta(0),
+        )
+        result.append({
+            "period_start": period_start,
+            "project": project,
+            "duration": actual_duration,  # mirrors actual_duration for fallback-compat
+            "actual_duration": actual_duration,
+            "productive_duration": productive_duration,
+            "afk_duration": afk_duration,
+        })
+
+    # Sort by period_start, then by descending duration (most time spent first)
+    result.sort(key=lambda r: (r["period_start"], -r["actual_duration"].total_seconds()))
+    return result

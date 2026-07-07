@@ -11,7 +11,7 @@ This file focuses on Issue #2: Multiple OFF entries not being consolidated.
 """
 
 import pytest
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone, date
 
 
 class TestBasicConsolidation:
@@ -301,3 +301,312 @@ All tests marked with @pytest.mark.xfail(reason="Issue #2...")
 should convert to PASSED.
 """
 
+
+
+class TestConsolidateByPeriod:
+    """Test period-level consolidation (day/week/month/year)."""
+
+    def test_consolidate_by_day(self):
+        """Should group all activity on same day under one project."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt1 = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
+        dt2 = datetime(2026, 6, 27, 14, 0, tzinfo=timezone.utc)
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt1,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Task A",
+                "categories": [],
+            },
+            {
+                "type": "regular",
+                "start": dt2,
+                "duration": timedelta(hours=3),
+                "actual_duration": timedelta(hours=3),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Task B",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "day")
+
+        assert len(result) == 1
+        assert result[0]["project"] == "Work"
+        assert result[0]["actual_duration"] == timedelta(hours=5)
+        assert result[0]["productive_duration"] == timedelta(hours=2)
+
+    def test_consolidate_by_week(self):
+        """Should group all activity in same ISO week under one project."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        # 2026-06-27 is Saturday; ISO week 26 (Mon 2026-06-22 - Sun 2026-06-28)
+        dt1 = datetime(2026, 6, 22, 8, 0, tzinfo=timezone.utc)  # Monday
+        dt2 = datetime(2026, 6, 27, 14, 0, tzinfo=timezone.utc)  # Saturday
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt1,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Climb",
+                "task": "Task A",
+                "categories": [],
+            },
+            {
+                "type": "regular",
+                "start": dt2,
+                "duration": timedelta(hours=3),
+                "actual_duration": timedelta(hours=3),
+                "productive_duration": timedelta(hours=2),
+                "project": "Climb",
+                "task": "Task B",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "week")
+
+        assert len(result) == 1
+        assert result[0]["project"] == "Climb"
+        assert result[0]["actual_duration"] == timedelta(hours=5)
+        assert result[0]["period_start"] == date(2026, 6, 22)
+
+    def test_consolidate_by_month(self):
+        """Should group all activity in same month under one project."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt1 = datetime(2026, 6, 1, 8, 0, tzinfo=timezone.utc)
+        dt2 = datetime(2026, 6, 30, 14, 0, tzinfo=timezone.utc)
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt1,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Task A",
+                "categories": [],
+            },
+            {
+                "type": "regular",
+                "start": dt2,
+                "duration": timedelta(hours=3),
+                "actual_duration": timedelta(hours=3),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Task B",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "month")
+
+        assert len(result) == 1
+        assert result[0]["project"] == "Work"
+        assert result[0]["actual_duration"] == timedelta(hours=5)
+        assert result[0]["period_start"] == date(2026, 6, 1)
+
+    def test_consolidate_by_year(self):
+        """Should group all activity in same year under one project."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt1 = datetime(2026, 1, 1, 8, 0, tzinfo=timezone.utc)
+        dt2 = datetime(2026, 12, 31, 14, 0, tzinfo=timezone.utc)
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt1,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Climb",
+                "task": "Task A",
+                "categories": [],
+            },
+            {
+                "type": "regular",
+                "start": dt2,
+                "duration": timedelta(hours=10),
+                "actual_duration": timedelta(hours=10),
+                "productive_duration": timedelta(hours=5),
+                "project": "Climb",
+                "task": "Task B",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "year")
+
+        assert len(result) == 1
+        assert result[0]["project"] == "Climb"
+        assert result[0]["actual_duration"] == timedelta(hours=12)
+        assert result[0]["period_start"] == date(2026, 1, 1)
+
+    def test_consolidate_by_period_multiple_projects(self):
+        """Should create separate entries for different projects in same period."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Task A",
+                "categories": [],
+            },
+            {
+                "type": "regular",
+                "start": dt + timedelta(hours=2),
+                "duration": timedelta(hours=3),
+                "actual_duration": timedelta(hours=3),
+                "productive_duration": timedelta(hours=2),
+                "project": "Climb",
+                "task": "Task B",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "day")
+
+        assert len(result) == 2
+        projects = {r["project"]: r for r in result}
+        assert projects["Work"]["actual_duration"] == timedelta(hours=2)
+        assert projects["Climb"]["actual_duration"] == timedelta(hours=3)
+
+    def test_consolidate_by_period_excludes_offline_gaps(self):
+        """Should exclude type='offline' gap markers from consolidation."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Task A",
+                "categories": [],
+            },
+            {
+                "type": "offline",  # Should be excluded
+                "start": dt + timedelta(hours=2),
+                "duration": timedelta(minutes=30),
+                "actual_duration": timedelta(minutes=30),
+                "productive_duration": timedelta(0),
+                "project": "No project",
+                "task": "OFFLINE",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "day")
+
+        assert len(result) == 1
+        assert result[0]["project"] == "Work"
+        assert result[0]["actual_duration"] == timedelta(hours=2)
+
+    def test_consolidate_by_period_includes_afk(self):
+        """Should include type='afk' slots and accumulate afk_duration per (period, project) group."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Task A",
+                "categories": [],
+            },
+            {
+                "type": "afk",
+                "start": dt + timedelta(hours=2),
+                "duration": timedelta(minutes=30),
+                "actual_duration": timedelta(minutes=30),
+                "productive_duration": timedelta(0),
+                "project": "Work",  # Same project, so AFK accumulates here
+                "task": "AFK",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "day")
+
+        # Both slots are grouped under "Work"
+        assert len(result) == 1
+        assert result[0]["project"] == "Work"
+        assert result[0]["afk_duration"] == timedelta(minutes=30)
+
+    def test_consolidate_by_period_sorting(self):
+        """Should sort by period_start, then by descending duration."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt1 = datetime(2026, 6, 22, 8, 0, tzinfo=timezone.utc)  # Monday of week 26
+        dt2 = datetime(2026, 6, 29, 8, 0, tzinfo=timezone.utc)  # Monday of week 27
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt2,
+                "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
+                "productive_duration": timedelta(0),
+                "project": "Short",
+                "task": "Task B",
+                "categories": [],
+            },
+            {
+                "type": "regular",
+                "start": dt2,
+                "duration": timedelta(hours=5),
+                "actual_duration": timedelta(hours=5),
+                "productive_duration": timedelta(0),
+                "project": "Long",
+                "task": "Task B",
+                "categories": [],
+            },
+            {
+                "type": "regular",
+                "start": dt1,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(0),
+                "project": "Work",
+                "task": "Task A",
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "week")
+
+        # Should be sorted by period_start (week 26, then week 27)
+        # Within each week, by descending duration
+        assert result[0]["period_start"] == date(2026, 6, 22)
+        assert result[1]["period_start"] == date(2026, 6, 29)
+        assert result[1]["project"] == "Long"  # 5h > 1h, so Long comes first
+        assert result[2]["project"] == "Short"

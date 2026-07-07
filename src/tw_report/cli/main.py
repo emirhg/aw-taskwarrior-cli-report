@@ -18,7 +18,7 @@ from tw_report.core.categories import (
     get_category_score,
     load_categories,
 )
-from tw_report.core.consolidation import TimelineSlotManager
+from tw_report.core.consolidation import TimelineSlotManager, consolidate_by_period
 from tw_report.core.events import get_bucket_id, get_events
 from tw_report.core.filtering import EventFilter, NO_PROJECT, NO_TASK
 from tw_report.core.offline import OfflineTaskProcessor
@@ -55,7 +55,7 @@ from tw_report.pipeline.processors import (
     matches_user_filters,
 )
 from tw_report.pipeline.report_render import print_report
-from tw_report.pipeline.timeline_render import print_timeline_report
+from tw_report.pipeline.timeline_render import print_timeline_report, print_period_consolidated_report
 from tw_report.utils.formatting import normalize_title
 
 
@@ -514,36 +514,71 @@ def main():
         # Convert timeline to dicts for downstream processing
         slots = timeline.get_slots_as_dicts()
 
-        # Optionally consolidate sessions: merge consecutive sessions of the same task
-        # unless interrupted by another task
-        if args.consolidate:
-            slot_manager = TimelineSlotManager(None, event_filter)
-            slot_manager.add_slots(slots)
-            slots = slot_manager.consolidate()
+        # Determine which consolidation mode to use
+        period_mode = None
+        if args.consolidate_day:
+            period_mode = "day"
+        elif args.consolidate_week:
+            period_mode = "week"
+        elif args.consolidate_month:
+            period_mode = "month"
+        elif args.consolidate_year:
+            period_mode = "year"
 
-        TimelineReport(print_timeline_report).present(
-            slots=slots,
-            period=period,
-            start_time=start_time,
-            end_time=end_time,
-            detail_level=args.detail_level,
-            non_afk_time=context.metrics.non_afk_time,
-            productive_time=context.metrics.productive_time,
-            productive_task_time=context.metrics.productive_task_time,
-            first_event_time=context.metrics.first_event_time,
-            last_event_time=context.metrics.last_event_time,
-            task_based=context.is_task_based_report,
-            distracting_time=context.metrics.distracting_time,
-            unscored_time=context.metrics.unscored_time,
-            rollup=(args.timesheet and args.consolidate),
-            current_session_start=context.metrics.current_session_start,
-            current_session_end=context.metrics.current_session_end,
-            current_session_duration=context.metrics.current_session_duration,
-            last_break_start=context.metrics.last_break_start,
-            last_break_end=context.metrics.last_break_end,
-            last_break_duration=context.metrics.last_break_duration,
-            afk_events=afk_events,
-        )
+        if period_mode:
+            # Period-level consolidation (day/week/month/year)
+            consolidated = consolidate_by_period(slots, period_mode)
+            TimelineReport(print_period_consolidated_report).present(
+                slots=consolidated,
+                period=period,
+                start_time=start_time,
+                end_time=end_time,
+                period_mode=period_mode,
+                non_afk_time=context.metrics.non_afk_time,
+                productive_time=context.metrics.productive_time,
+                productive_task_time=context.metrics.productive_task_time,
+                first_event_time=context.metrics.first_event_time,
+                last_event_time=context.metrics.last_event_time,
+                task_based=context.is_task_based_report,
+                distracting_time=context.metrics.distracting_time,
+                unscored_time=context.metrics.unscored_time,
+                current_session_start=context.metrics.current_session_start,
+                current_session_end=context.metrics.current_session_end,
+                current_session_duration=context.metrics.current_session_duration,
+                last_break_start=context.metrics.last_break_start,
+                last_break_end=context.metrics.last_break_end,
+                last_break_duration=context.metrics.last_break_duration,
+            )
+        else:
+            # Standard timeline report (optionally with fine-grain consolidation)
+            if args.consolidate:
+                slot_manager = TimelineSlotManager(None, event_filter)
+                slot_manager.add_slots(slots)
+                slots = slot_manager.consolidate()
+
+            TimelineReport(print_timeline_report).present(
+                slots=slots,
+                period=period,
+                start_time=start_time,
+                end_time=end_time,
+                detail_level=args.detail_level,
+                non_afk_time=context.metrics.non_afk_time,
+                productive_time=context.metrics.productive_time,
+                productive_task_time=context.metrics.productive_task_time,
+                first_event_time=context.metrics.first_event_time,
+                last_event_time=context.metrics.last_event_time,
+                task_based=context.is_task_based_report,
+                distracting_time=context.metrics.distracting_time,
+                unscored_time=context.metrics.unscored_time,
+                rollup=(args.timesheet and args.consolidate),
+                current_session_start=context.metrics.current_session_start,
+                current_session_end=context.metrics.current_session_end,
+                current_session_duration=context.metrics.current_session_duration,
+                last_break_start=context.metrics.last_break_start,
+                last_break_end=context.metrics.last_break_end,
+                last_break_duration=context.metrics.last_break_duration,
+                afk_events=afk_events,
+            )
     else:
         # If no task_events, treat as non-task-based report regardless of is_task_based_report
         report_task_based = (
