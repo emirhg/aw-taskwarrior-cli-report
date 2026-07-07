@@ -85,6 +85,15 @@ def main():
     period, search_term = parse_positional_args(args.args)
     args.search = search_term  # Set search term from positional args (None if not provided)
 
+    # Adjust default period based on consolidation mode (if no explicit period provided)
+    if period == ":today":  # Only adjust if using the default period
+        if args.consolidate_week and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
+            period = ":week"
+        elif args.consolidate_month and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
+            period = ":month"
+        elif args.consolidate_year and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
+            period = ":year"
+
     # Resolve task UUID if --task-id is provided
     task_uuid = None
     if args.task_id:
