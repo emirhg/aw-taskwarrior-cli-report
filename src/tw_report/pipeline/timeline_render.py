@@ -1051,8 +1051,11 @@ def print_period_consolidated_report(
             project = row["project"]
             task = row.get("task", NO_TASK)
             duration = row.get("actual_duration", row["duration"])
+            # Include offline extension in displayed duration (system was powered off)
+            offline_ext = row.get("offline_extension_duration", timedelta(0))
+            display_duration = duration + offline_ext
             productive = row.get("productive_duration", timedelta(0))
-            total_dur += duration
+            total_dur += display_duration
             total_prod += productive
             # Accumulate AFK and OFFLINE gap time for period total (silent accumulation)
             period_afk += row.get("afk_duration", timedelta(0))
@@ -1061,12 +1064,12 @@ def print_period_consolidated_report(
             # Render based on detail level
             if detail_level == 1:
                 # Project only
-                duration_str = format_duration_tracked_prod(duration, productive)
+                duration_str = format_duration_tracked_prod(display_duration, productive)
                 left = f"     ▶ {project}"
                 print(format_timeline_line(left, duration_str, max_left_width=95))
             else:
                 # detail_level >= 2: show project >> task
-                duration_str = format_duration_tracked_prod(duration, productive)
+                duration_str = format_duration_tracked_prod(display_duration, productive)
                 abbrev_project = abbreviate_project_path(project, task)
                 # Always show task if: (a) project is NO_PROJECT (task is main ID), or (b) task is meaningful
                 if task and (task != NO_TASK or project == NO_PROJECT):
