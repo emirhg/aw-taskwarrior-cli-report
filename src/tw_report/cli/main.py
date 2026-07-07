@@ -81,6 +81,10 @@ def main():
     args = parse_args()
     client = ActivityWatchClient("tw-report")
 
+    # Period consolidation flags imply --timesheet (user shouldn't need to pass both)
+    if args.consolidate_day or args.consolidate_week or args.consolidate_month or args.consolidate_year:
+        args.timesheet = True
+
     # Parse positional arguments to separate period from search term
     period, search_term = parse_positional_args(args.args)
     args.search = search_term  # Set search term from positional args (None if not provided)
