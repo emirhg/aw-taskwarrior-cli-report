@@ -66,7 +66,7 @@ from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 from tw_report.core.consolidation import collapse_tasks_to_project
-from tw_report.pipeline.report_render import print_report_footer
+from tw_report.pipeline.report_render import print_report_summary, print_report_totals
 from tw_report.utils.formatting import (
     format_duration,
     format_duration_tracked_prod,
@@ -355,6 +355,29 @@ def print_timeline_report(
         (s.get("duration", timedelta(0)) - s.get("event_duration", timedelta(0))
          for s in slots if s.get("type") == "offline_task"),
         timedelta(0),
+    )
+
+    # Print SUMMARY at top
+    print_report_summary(
+        title=" Timeline Report ",
+        period=period,
+        start_time=start_time,
+        end_time=end_time,
+        total_duration=total_duration,
+        task_based=task_based,
+        non_afk_time=non_afk_time,
+        productive_time=productive_time,
+        productive_task_time=productive_task_time,
+        first_event_time=first_event_time,
+        last_event_time=last_event_time,
+        distracting_time=distracting_time,
+        unscored_time=unscored_time,
+        current_session_start=current_session_start,
+        current_session_end=current_session_end,
+        current_session_duration=current_session_duration,
+        last_break_start=last_break_start,
+        last_break_end=last_break_end,
+        last_break_duration=last_break_duration,
     )
 
     if not slots:
@@ -894,35 +917,16 @@ def print_timeline_report(
             )
         print()
 
-    # Display footer (SUMMARY + TOTALS at bottom)
+    # Print TOTALS at bottom
     # Note: In consolidated mode, AFK time is already included in total_time_all,
     # so we only add it in regular (non-consolidated) mode
     total_time_final = (
         total_time_all + total_afk_time if not has_consolidated_afk else total_time_all
     )
 
-    print_report_footer(
-        title=" Timeline Report ",
-        period=period,
-        start_time=start_time,
-        end_time=end_time,
-        total_duration=total_duration,
+    print_report_totals(
         total_time_all=total_time_final,
         total_productive_all=total_productive_all,
-        task_based=task_based,
-        non_afk_time=non_afk_time,
-        productive_time=productive_time,
-        productive_task_time=productive_task_time,
-        first_event_time=first_event_time,
-        last_event_time=last_event_time,
-        distracting_time=distracting_time,
-        unscored_time=unscored_time,
-        current_session_start=current_session_start,
-        current_session_end=current_session_end,
-        current_session_duration=current_session_duration,
-        last_break_start=last_break_start,
-        last_break_end=last_break_end,
-        last_break_duration=last_break_duration,
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
     )
@@ -982,6 +986,29 @@ def print_period_consolidated_report(
     )
     total_offline = sum(
         (s.get("offline_extension_duration", timedelta(0)) for s in slots), timedelta(0)
+    )
+
+    # Print SUMMARY at top
+    print_report_summary(
+        title=" Timeline Report ",
+        period=period,
+        start_time=start_time,
+        end_time=end_time,
+        total_duration=total_duration,
+        task_based=task_based,
+        non_afk_time=non_afk_time,
+        productive_time=productive_time,
+        productive_task_time=kwargs.get("productive_task_time"),
+        first_event_time=kwargs.get("first_event_time"),
+        last_event_time=kwargs.get("last_event_time"),
+        distracting_time=kwargs.get("distracting_time"),
+        unscored_time=kwargs.get("unscored_time"),
+        current_session_start=kwargs.get("current_session_start"),
+        current_session_end=kwargs.get("current_session_end"),
+        current_session_duration=kwargs.get("current_session_duration"),
+        last_break_start=kwargs.get("last_break_start"),
+        last_break_end=kwargs.get("last_break_end"),
+        last_break_duration=kwargs.get("last_break_duration"),
     )
 
     if not slots:
@@ -1075,29 +1102,10 @@ def print_period_consolidated_report(
     if current_period is not None:
         print_period_block(current_period, period_slots, period_mode)
 
-    # Print footer (SUMMARY + TOTALS at bottom)
-    print_report_footer(
-        title=" Timeline Report ",
-        period=period,
-        start_time=start_time,
-        end_time=end_time,
-        total_duration=total_duration,
+    # Print TOTALS at bottom
+    print_report_totals(
         total_time_all=total_all,
         total_productive_all=total_productive_all,
-        task_based=task_based,
-        non_afk_time=non_afk_time,
-        productive_time=productive_time,
-        productive_task_time=kwargs.get("productive_task_time"),
-        first_event_time=kwargs.get("first_event_time"),
-        last_event_time=kwargs.get("last_event_time"),
-        distracting_time=kwargs.get("distracting_time"),
-        unscored_time=kwargs.get("unscored_time"),
-        current_session_start=kwargs.get("current_session_start"),
-        current_session_end=kwargs.get("current_session_end"),
-        current_session_duration=kwargs.get("current_session_duration"),
-        last_break_start=kwargs.get("last_break_start"),
-        last_break_end=kwargs.get("last_break_end"),
-        last_break_duration=kwargs.get("last_break_duration"),
         total_afk=total_afk if total_afk > timedelta(0) else None,
         total_offline=total_offline if total_offline > timedelta(0) else None,
     )

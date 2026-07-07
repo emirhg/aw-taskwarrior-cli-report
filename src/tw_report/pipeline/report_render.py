@@ -19,14 +19,12 @@ from tw_report.utils.formatting import (
 )
 
 
-def print_report_footer(
+def print_report_summary(
     title: str,
     period: str,
     start_time: datetime,
     end_time: datetime,
     total_duration: timedelta,
-    total_time_all: timedelta,
-    total_productive_all: timedelta,
     task_based: bool,
     non_afk_time: Optional[timedelta] = None,
     productive_time: Optional[timedelta] = None,
@@ -42,14 +40,11 @@ def print_report_footer(
     last_break_start: Optional[datetime] = None,
     last_break_end: Optional[datetime] = None,
     last_break_duration: Optional[timedelta] = None,
-    total_afk: Optional[timedelta] = None,
-    total_offline: Optional[timedelta] = None,
 ) -> None:
-    """Print report footer with SUMMARY and TOTALS sections at the bottom.
+    """Print report header with SUMMARY section at the top.
 
-    Moved from the top of the report (previously print_report_header) to the
-    bottom. Displays period info and metrics in a clean aligned format, followed
-    by the final Total Time with AFK/OFFLINE breakdown as separate sub-lines.
+    Displays period info and metrics in a clean aligned format at the top.
+    Note: AFK time is NOT shown here (it appears in TOTALS section to avoid duplication).
 
     Args:
         title: Report title (centered with = padding)
@@ -57,8 +52,6 @@ def print_report_footer(
         start_time: Start of report period
         end_time: End of report period
         total_duration: Total project-tracked time
-        total_time_all: Grand total time (for TOTALS section)
-        total_productive_all: Grand total productive time
         task_based: If True, show task-based metrics; if False, show category-based
         non_afk_time: Total non-AFK time (must be present for metric display)
         productive_time: Total productive time
@@ -74,25 +67,20 @@ def print_report_footer(
         last_break_start: Start of last break
         last_break_end: End of last break
         last_break_duration: Duration of last break
-        total_afk: Total AFK time (for TOTALS sub-line)
-        total_offline: Total OFFLINE time (for TOTALS sub-line)
     """
     width = get_terminal_width()
 
-    print()  # blank line before footer
     print(title.center(width, "="))
 
-    # SUMMARY section: period, active time, and metrics
+    # SUMMARY section: period, active time, and metrics (NO AFK time)
     print("SUMMARY")
     print("─" * width)
 
     print(f"Period{' ' * (32 - 6)}{period} ({start_time.date()} to {end_time.date()})")
 
     if non_afk_time and first_event_time and last_event_time:
-        # Calculate total active time (non-AFK + AFK)
-        afk_add = total_afk if total_afk else timedelta(0)
-        total_active_time = non_afk_time + afk_add
-        active_time_str = format_duration(total_active_time)
+        # Calculate total active time (non-AFK only, AFK is in TOTALS section)
+        active_time_str = format_duration(non_afk_time)
 
         # Format time window from actual non-afk events
         first_date = first_event_time.date()
@@ -104,10 +92,6 @@ def print_report_footer(
 
         summary_line = f"Active Time{' ' * (32 - 11)}{active_time_str} ({time_window})"
         print(summary_line)
-
-        if total_afk and total_afk > timedelta(0):
-            afk_str = format_duration(total_afk)
-            print(f"AFK time{' ' * (32 - 8)}{afk_str}")
 
         if task_based:
             task_time_pct = (
@@ -176,7 +160,27 @@ def print_report_footer(
             break_str = f"{format_duration(last_break_duration)} ({break_start_str} to {break_end_str})"
             print(f"Last Break{' ' * (32 - 10)}{break_str}")
 
-    # TOTALS section: final total with AFK/OFFLINE breakdown
+    print("-" * width)
+
+
+def print_report_totals(
+    total_time_all: timedelta,
+    total_productive_all: timedelta,
+    total_afk: Optional[timedelta] = None,
+    total_offline: Optional[timedelta] = None,
+) -> None:
+    """Print TOTALS section with gap breakdown at the bottom of report.
+
+    Shows Total Time with AFK and OFFLINE time as separate indented sub-lines.
+
+    Args:
+        total_time_all: Grand total time
+        total_productive_all: Grand total productive time
+        total_afk: Total AFK time (for sub-line, shown only if non-zero)
+        total_offline: Total OFFLINE time (for sub-line, shown only if non-zero)
+    """
+    width = get_terminal_width()
+
     print()
     print("TOTALS")
     print("─" * width)
@@ -475,6 +479,30 @@ def print_report(
         if project != NO_PROJECT
     )
 
+    # Print SUMMARY at top
+    print_report_summary(
+        title=" Timesheet Report ",
+        period=period,
+        start_time=start_time,
+        end_time=end_time,
+        total_duration=total_duration,
+        task_based=task_based,
+        non_afk_time=non_afk_time,
+        productive_time=productive_time,
+        productive_task_time=productive_task_time,
+        first_event_time=first_event_time,
+        last_event_time=last_event_time,
+        distracting_time=distracting_time,
+        unscored_time=unscored_time,
+        total_score=total_score,
+        current_session_start=current_session_start,
+        current_session_end=current_session_end,
+        current_session_duration=current_session_duration,
+        last_break_start=last_break_start,
+        last_break_end=last_break_end,
+        last_break_duration=last_break_duration,
+    )
+
     if not report_data:
         print("No activity found for the specified period.")
 
@@ -576,30 +604,10 @@ def print_report(
             if detail_level >= 2:
                 print()
 
-    # Print footer (SUMMARY + TOTALS at bottom)
-    print_report_footer(
-        title=" Timesheet Report ",
-        period=period,
-        start_time=start_time,
-        end_time=end_time,
-        total_duration=total_duration,
+    # Print TOTALS at bottom
+    print_report_totals(
         total_time_all=total_duration,
         total_productive_all=productive_task_time or timedelta(0),
-        task_based=task_based,
-        non_afk_time=non_afk_time,
-        productive_time=productive_time,
-        productive_task_time=productive_task_time,
-        first_event_time=first_event_time,
-        last_event_time=last_event_time,
-        distracting_time=distracting_time,
-        unscored_time=unscored_time,
-        total_score=total_score,
-        current_session_start=current_session_start,
-        current_session_end=current_session_end,
-        current_session_duration=current_session_duration,
-        last_break_start=last_break_start,
-        last_break_end=last_break_end,
-        last_break_duration=last_break_duration,
         total_afk=None,
         total_offline=None,
     )
