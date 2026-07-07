@@ -21,6 +21,8 @@ def parse_period(period_str: str) -> Tuple[datetime, datetime]:
     - :lastweek — full previous week (Monday-Sunday)
     - :month — 1st of current month to today
     - :lastmonth — full previous month
+    - :year — 1st of current year to today
+    - :lastyear — full previous calendar year
     - :all — from epoch to now
     - YYYY-MM-DD — specific day
     - YYYY-MM-DD YYYY-MM-DD — date range (inclusive on both ends)
@@ -67,6 +69,16 @@ def parse_period(period_str: str) -> Tuple[datetime, datetime]:
         start_of_last_month = end_of_last_month.replace(day=1)
         start = start_of_last_month
         end = end_of_last_month.replace(
+            hour=23, minute=59, second=59, microsecond=999999
+        )
+    elif period_str == ":year":
+        start = today_start.replace(month=1, day=1)
+        end = today_end
+    elif period_str == ":lastyear":
+        end_of_last_year = today_start.replace(month=1, day=1) - timedelta(days=1)
+        start_of_last_year = end_of_last_year.replace(month=1, day=1)
+        start = start_of_last_year
+        end = end_of_last_year.replace(
             hour=23, minute=59, second=59, microsecond=999999
         )
     elif period_str == ":all":

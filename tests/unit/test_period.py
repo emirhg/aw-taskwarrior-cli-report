@@ -80,6 +80,26 @@ class TestPeriodKeywords:
         assert start == start_of_last_month
         assert end.date() == end_of_last_month.date()
 
+    def test_year(self):
+        """Period :year should return Jan 1 of current year to today."""
+        start, end = parse_period(":year")
+        now = datetime.now().astimezone()
+        jan_1 = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        assert start == jan_1
+        assert end.date() == now.date()
+
+    def test_lastyear(self):
+        """Period :lastyear should return full previous calendar year."""
+        start, end = parse_period(":lastyear")
+        now = datetime.now().astimezone()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_of_last_year = today_start.replace(month=1, day=1) - timedelta(days=1)
+        start_of_last_year = end_of_last_year.replace(month=1, day=1)
+
+        assert start == start_of_last_year
+        assert end.date() == end_of_last_year.date()
+
     def test_all(self):
         """Period :all should return epoch to now."""
         start, end = parse_period(":all")
