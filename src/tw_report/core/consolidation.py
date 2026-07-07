@@ -540,6 +540,9 @@ def collapse_tasks_to_project(rows: List[Dict]) -> List[Dict]:
         afk_duration = sum(
             (r.get("afk_duration", timedelta(0)) for r in group_rows), timedelta(0)
         )
+        offline_extension_duration = sum(
+            (r.get("offline_extension_duration", timedelta(0)) for r in group_rows), timedelta(0)
+        )
         result.append({
             "period_start": period_start,
             "project": project,
@@ -547,6 +550,7 @@ def collapse_tasks_to_project(rows: List[Dict]) -> List[Dict]:
             "actual_duration": actual_duration,
             "productive_duration": productive_duration,
             "afk_duration": afk_duration,
+            "offline_extension_duration": offline_extension_duration,
         })
 
     result.sort(key=lambda r: (r["period_start"], -r["actual_duration"].total_seconds()))
@@ -610,6 +614,10 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
             (s.get("actual_duration", s["duration"]) for s in group_slots if s.get("type") == "afk"),
             timedelta(0),
         )
+        offline_extension_duration = sum(
+            (s.get("offline_extension_duration") or timedelta(0) for s in group_slots),
+            timedelta(0),
+        )
         result.append({
             "period_start": period_start,
             "project": project,
@@ -618,6 +626,7 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
             "actual_duration": actual_duration,
             "productive_duration": productive_duration,
             "afk_duration": afk_duration,
+            "offline_extension_duration": offline_extension_duration,
             "categories": merge_categories(group_slots),
         })
 

@@ -612,3 +612,74 @@ class TestConsolidateByPeriod:
         assert result[1]["period_start"] == date(2026, 6, 29)
         assert result[1]["project"] == "Long"  # 5h > 1h, so Long comes first
         assert result[2]["project"] == "Short"
+
+    def test_consolidate_by_period_offline_extension(self):
+        """Should accumulate offline_extension_duration alongside afk_duration."""
+        from tw_report.core.consolidation import consolidate_by_period
+
+        dt = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
+
+        slots = [
+            {
+                "type": "regular",
+                "start": dt,
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "project": "Work",
+                "task": "Common Task",
+                "offline_extension_duration": timedelta(hours=1),
+                "categories": [],
+            },
+            {
+                "type": "afk",
+                "start": dt + timedelta(hours=2),
+                "duration": timedelta(minutes=30),
+                "actual_duration": timedelta(minutes=30),
+                "productive_duration": timedelta(0),
+                "project": "Work",
+                "task": "Common Task",
+                "offline_extension_duration": timedelta(minutes=15),
+                "categories": [],
+            },
+        ]
+
+        result = consolidate_by_period(slots, "day")
+
+        assert len(result) == 1
+        assert result[0]["afk_duration"] == timedelta(minutes=30)
+        assert result[0]["offline_extension_duration"] == timedelta(hours=1, minutes=15)
+
+    def test_collapse_tasks_preserves_offline_extension(self):
+        """collapse_tasks_to_project should preserve offline_extension_duration."""
+        from tw_report.core.consolidation import collapse_tasks_to_project
+
+        rows = [
+            {
+                "period_start": date(2026, 6, 27),
+                "project": "Work",
+                "task": "Task A",
+                "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
+                "productive_duration": timedelta(hours=1),
+                "afk_duration": timedelta(minutes=15),
+                "offline_extension_duration": timedelta(minutes=30),
+            },
+            {
+                "period_start": date(2026, 6, 27),
+                "project": "Work",
+                "task": "Task B",
+                "duration": timedelta(hours=1),
+                "actual_duration": timedelta(hours=1),
+                "productive_duration": timedelta(minutes=30),
+                "afk_duration": timedelta(minutes=10),
+                "offline_extension_duration": timedelta(minutes=20),
+            },
+        ]
+
+        result = collapse_tasks_to_project(rows)
+
+        assert len(result) == 1
+        assert result[0]["project"] == "Work"
+        assert result[0]["afk_duration"] == timedelta(minutes=25)
+        assert result[0]["offline_extension_duration"] == timedelta(minutes=50)

@@ -981,6 +981,9 @@ def print_period_consolidated_report(
     total_afk = sum(
         (s.get("afk_duration", timedelta(0)) for s in slots), timedelta(0)
     )
+    total_offline = sum(
+        (s.get("offline_extension_duration", timedelta(0)) for s in slots), timedelta(0)
+    )
 
     # Print shared header
     print_report_header(
@@ -1038,6 +1041,8 @@ def print_period_consolidated_report(
 
         total_dur = timedelta(0)
         total_prod = timedelta(0)
+        period_afk = timedelta(0)
+        period_offline = timedelta(0)
         for row in rows_to_display:
             project = row["project"]
             task = row.get("task", NO_TASK)
@@ -1045,6 +1050,9 @@ def print_period_consolidated_report(
             productive = row.get("productive_duration", timedelta(0))
             total_dur += duration
             total_prod += productive
+            # Accumulate AFK and OFFLINE gap time for period total (silent accumulation)
+            period_afk += row.get("afk_duration", timedelta(0))
+            period_offline += row.get("offline_extension_duration", timedelta(0))
 
             # Render based on detail level
             if detail_level == 1:
@@ -1067,12 +1075,12 @@ def print_period_consolidated_report(
                 if detail_level >= 3:
                     _render_slot_detail(row, detail_level, width)
 
-        # Period total line
+        # Period total line — show AFK/OFFLINE breakdown
         total_line = ("Week total (tracked):" if mode == "week"
                      else "Month total (tracked):" if mode == "month"
                      else "Year total (tracked):" if mode == "year"
                      else "Day total (tracked):")
-        duration_str = format_duration_tracked_prod(total_dur, total_prod)
+        duration_str = format_duration_with_gaps(total_dur, total_prod, period_afk, period_offline)
         print((total_line + "  " + duration_str).rjust(width))
         print()
 
@@ -1090,9 +1098,9 @@ def print_period_consolidated_report(
     if current_period is not None:
         print_period_block(current_period, period_slots, period_mode)
 
-    # Final totals line
+    # Final totals line — show AFK/OFFLINE breakdown
     print(
-        ("Total Time: " + format_duration_tracked_prod(total_all, total_productive_all)).rjust(width)
+        ("Total Time: " + format_duration_with_gaps(total_all, total_productive_all, total_afk, total_offline)).rjust(width)
     )
     print("=" * width)
 
