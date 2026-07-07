@@ -108,6 +108,8 @@ W25 2026-06-18 Thu
 - `:lastweek` — Previous week
 - `:month` — Current month (1st-today)
 - `:lastmonth` — Previous month
+- `:year` — Current year (Jan 1-today)
+- `:lastyear` — Previous calendar year
 - `:all` — All history
 - `2026-06-18` — Specific date
 - `2026-06-18 2026-06-25` — Date range
