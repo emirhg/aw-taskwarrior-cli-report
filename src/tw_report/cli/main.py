@@ -528,8 +528,14 @@ def main():
         if period_mode:
             # Period-level consolidation (day/week/month/year)
             consolidated = consolidate_by_period(slots, period_mode)
+            # Filter consolidated results based on EventFilter rules
+            # (e.g., --exclude-non-project, --exclude-offline)
+            filtered_consolidated = [
+                slot for slot in consolidated
+                if event_filter.should_include_entry(slot)
+            ]
             TimelineReport(print_period_consolidated_report).present(
-                slots=consolidated,
+                slots=filtered_consolidated,
                 period=period,
                 start_time=start_time,
                 end_time=end_time,
