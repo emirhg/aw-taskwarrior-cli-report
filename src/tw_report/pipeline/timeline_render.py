@@ -1056,7 +1056,8 @@ def print_period_consolidated_report(
                 # detail_level >= 2: show project >> task
                 duration_str = format_duration_tracked_prod(duration, productive)
                 abbrev_project = abbreviate_project_path(project, task)
-                if task and task != NO_TASK:
+                # Always show task if: (a) project is NO_PROJECT (task is main ID), or (b) task is meaningful
+                if task and (task != NO_TASK or project == NO_PROJECT):
                     left = f"     ▶ {abbrev_project} ▶▶ {task}"
                 else:
                     left = f"     ▶ {abbrev_project}"
