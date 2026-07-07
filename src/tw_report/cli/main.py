@@ -4,6 +4,7 @@ tw-report CLI entry point with full orchestration.
 Handles all argument parsing, data fetching, processing, and report generation.
 """
 
+import sys
 from datetime import timedelta
 from typing import Dict, List, Optional
 
@@ -28,6 +29,19 @@ from tw_report.core.task_matching import (
     get_task_info,
     task_has_offline_tag,
 )
+from tw_report.core.task_uuid_filtering import (
+    get_task_uuid,
+    get_events_by_uuid,
+)
+from tw_report.core.project_filtering import (
+    get_events_by_project,
+    should_skip_window_bucket,
+    resolve_project_filter_value,
+)
+from tw_report.core.task_filtering import (
+    get_events_by_task,
+    resolve_task_filter_value,
+)
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.pipeline.generation import generate_gap_entries, generate_timeline_data
 from tw_report.pipeline.models import ReportContext
@@ -38,6 +52,7 @@ from tw_report.pipeline.processors import (
     compute_metrics,
     merge_overlapping_afk_periods,
     aggregate_hierarchy,
+    matches_user_filters,
 )
 from tw_report.pipeline.report_render import print_report
 from tw_report.pipeline.timeline_render import print_timeline_report
@@ -70,6 +85,36 @@ def main():
     period, search_term = parse_positional_args(args.args)
     args.search = search_term  # Set search term from positional args (None if not provided)
 
+    # Resolve task UUID if --task-id is provided
+    task_uuid = None
+    if args.task_id:
+        task_uuid = get_task_uuid(args.task_id)
+        if not task_uuid:
+            print(f"Error: Task {args.task_id} not found", file=sys.stderr)
+            return 1
+
+    # Resolve project filter values (may be task IDs, UUIDs, or literal patterns)
+    if args.project:
+        resolved_projects = []
+        for value in args.project:
+            resolved, error = resolve_project_filter_value(value)
+            if error:
+                print(f"Error: {error}", file=sys.stderr)
+                return 1
+            resolved_projects.append(resolved)
+        args.project = resolved_projects
+
+    # Resolve task filter values (may be task IDs, UUIDs, or literal patterns)
+    if args.task:
+        resolved_tasks = []
+        for value in args.task:
+            resolved, error = resolve_task_filter_value(value)
+            if error:
+                print(f"Error: {error}", file=sys.stderr)
+                return 1
+            resolved_tasks.append(resolved)
+        args.task = resolved_tasks
+
     # Create unified event filter for consistent filtering across all entry types
     event_filter = EventFilter(
         project_patterns=args.project or [],
@@ -87,17 +132,26 @@ def main():
     categories_json = load_categories(args.categories)
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
 
-    window_bucket = get_bucket_id("window")
-    window_events = get_events(client, window_bucket, start_time, end_time)
+    # Determine if window bucket queries can be skipped
+    # Task UUID mode always skips window/AFK buckets
+    skip_window = task_uuid or should_skip_window_bucket(args, args.detail_level)
 
-    # Categorize all window events (including those during AFK periods)
-    # This ensures generate_gap_entries can extract categories for AFK slot details
-    for event in window_events:
-        categorize_event(event, compiled_categories)
+    # When filtering by task UUID or project, skip window and AFK buckets (no app-level data needed)
+    if skip_window:
+        window_events = []
+        afk_events = []
+    else:
+        window_bucket = get_bucket_id("window")
+        window_events = get_events(client, window_bucket, start_time, end_time)
 
-    # Fetch AFK events (needed for filtering AFK time or for --timesheet)
-    afk_bucket = get_bucket_id("afk")
-    afk_events = get_events(client, afk_bucket, start_time, end_time)
+        # Categorize all window events (including those during AFK periods)
+        # This ensures generate_gap_entries can extract categories for AFK slot details
+        for event in window_events:
+            categorize_event(event, compiled_categories)
+
+        # Fetch AFK events (needed for filtering AFK time or for --timesheet)
+        afk_bucket = get_bucket_id("afk")
+        afk_events = get_events(client, afk_bucket, start_time, end_time)
 
     # Merge any overlapping not-afk periods (data quality fix)
     afk_events = merge_overlapping_afk_periods(afk_events)
@@ -147,7 +201,25 @@ def main():
 
     if is_task_based_report:
         task_bucket = get_bucket_id("taskwarrior")
-        task_events = get_events(client, task_bucket, start_time, end_time)
+        # Apply bucket-level filtering based on query type
+        if task_uuid:
+            # Task UUID mode: filter by UUID
+            task_events = get_events_by_uuid(
+                client, task_bucket, start_time, end_time, task_uuid
+            )
+        elif skip_window and args.project:
+            # Project filter mode (window skipped): filter by project at bucket level
+            task_events = get_events_by_project(
+                client, task_bucket, start_time, end_time, args.project[0]
+            )
+        elif skip_window and args.task:
+            # Task filter mode (window skipped): filter by task name at bucket level
+            task_events = get_events_by_task(
+                client, task_bucket, start_time, end_time, args.task[0]
+            )
+        else:
+            # Normal mode: fetch all events
+            task_events = get_events(client, task_bucket, start_time, end_time)
         if not task_events:
             task_events = None
             is_task_based_report = False
@@ -161,23 +233,42 @@ def main():
             (event.timestamp + event.duration).astimezone() for event in not_afk_events
         )
 
-    canonical_events = build_canonical_events(
-        window_events=window_events,
-        not_afk_events=not_afk_events,
-        include_afk=args.include_afk,
-        task_events=task_events,
-        args=args,
-        no_project_label=NO_PROJECT,
-        no_task_label=NO_TASK,
-        categorize_event=categorize_event,
-        compiled_categories=compiled_categories,
-        get_category_score=get_category_score,
-        cat_score_map=cat_score_map,
-        find_active_task=find_active_task,
-        get_task_info=get_task_info,
-        matches_any=_matches_any,
-        excluded=_excluded,
-    )
+    # Special case: task-UUID mode or project/task-filter mode (skip window bucket)
+    # Convert taskwarrior events directly to canonical events (skip window correlation)
+    if skip_window and task_events:
+        from tw_report.pipeline.models import ReportEvent
+
+        canonical_events = []
+        for task_event in task_events:
+            task_name, project = get_task_info(task_event)
+            rep = ReportEvent(
+                event=task_event,
+                project=project,
+                task=task_name,
+                active_task=task_event,
+            )
+            # Apply user filters to ensure correctness (e.g., when --task filtering is set)
+            if matches_user_filters(rep, args, _matches_any, _excluded):
+                canonical_events.append(rep)
+    else:
+        # Normal mode: correlate window events to task events
+        canonical_events = build_canonical_events(
+            window_events=window_events,
+            not_afk_events=not_afk_events,
+            include_afk=args.include_afk,
+            task_events=task_events,
+            args=args,
+            no_project_label=NO_PROJECT,
+            no_task_label=NO_TASK,
+            categorize_event=categorize_event,
+            compiled_categories=compiled_categories,
+            get_category_score=get_category_score,
+            cat_score_map=cat_score_map,
+            find_active_task=find_active_task,
+            get_task_info=get_task_info,
+            matches_any=_matches_any,
+            excluded=_excluded,
+        )
 
     # Process OFFLINE task events using the extracted OfflineTaskProcessor
     # This replaces ~150 lines of scattered logic with a clean, testable class
@@ -309,15 +400,36 @@ def main():
         # Use Timeline for internal slot management (Phase 3 migration)
         timeline = Timeline()
 
-        # Add slots from timeline data
-        initial_slots = generate_timeline_data(
-            timeline_events,
-            context.afk_events,
-            context.cat_score_map,
-            detail_level=args.detail_level,
-            deduplicate_categories=args.deduplicate_categories,
-            get_category_score=get_category_score,
-        )
+        # Task-only modes: taskwarrior events (no window events, no AFK correlation)
+        # This includes: task UUID mode (--task-id) and project filter mode
+        if skip_window:
+            # Build slots directly from taskwarrior events (simpler format)
+            initial_slots = []
+            for rep in context.canonical_events:
+                event = rep.event
+                slot = {
+                    "start": event.timestamp.astimezone(),
+                    "end": (event.timestamp + event.duration).astimezone(),
+                    "duration": event.duration,
+                    "actual_duration": event.duration,  # Required by TimelineSlot
+                    "project": rep.project,
+                    "task": rep.task,
+                    "category": "Task Activity",  # Placeholder category
+                    "type": "activity",
+                    "categories": [],
+                }
+                initial_slots.append(slot)
+        else:
+            # Normal mode: window events with AFK correlation
+            initial_slots = generate_timeline_data(
+                timeline_events,
+                context.afk_events,
+                context.cat_score_map,
+                detail_level=args.detail_level,
+                deduplicate_categories=args.deduplicate_categories,
+                get_category_score=get_category_score,
+            )
+
         timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
 
         # Inject synthetic slots for OFFLINE task events

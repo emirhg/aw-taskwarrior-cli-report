@@ -60,6 +60,7 @@ def reorder_arguments(argv: List[str]) -> List[str]:
                     "--min-score",
                     "--max-score",
                     "--detail-level",
+                    "--task-id",
                 ]:
                     optional_args.append(argv[i + 1])
                     i += 1
@@ -102,6 +103,12 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         help="Do not intersect with Taskwarrior events; report all activity.",
     )
     parser.add_argument(
+        "--task-id",
+        type=int,
+        metavar="ID",
+        help="Show only events for a specific TaskWarrior task ID (filters by UUID, skips window bucket).",
+    )
+    parser.add_argument(
         "--include-afk", action="store_true", help="Include AFK time in the report."
     )
     parser.add_argument(
@@ -130,14 +137,16 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         type=str,
         action="append",
         metavar="PATTERN",
-        help="Filter: show only entries whose project matches PATTERN (partial, repeatable = OR).",
+        help="Filter: show only entries whose project matches PATTERN (partial, repeatable = OR). "
+             "PATTERN may also be a TaskWarrior task ID or UUID, which resolves to that task's project.",
     )
     parser.add_argument(
         "--task",
         type=str,
         action="append",
         metavar="PATTERN",
-        help="Filter: show only entries whose task matches PATTERN.",
+        help="Filter: show only entries whose task matches PATTERN. "
+             "PATTERN may also be a TaskWarrior task ID or UUID, which resolves to that task's name.",
     )
     parser.add_argument(
         "--app",
