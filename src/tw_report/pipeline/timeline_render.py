@@ -639,8 +639,8 @@ def print_timeline_report(
             day_afk_duration = timedelta(0)
             date_str = group_date.strftime("%Y-%m-%d")
             day_str = group_date.strftime("%a")
-            # Align same-week dates: 5 spaces + date + day (matches time entry indentation)
-            pending_date_prefix = f"     {date_str} {day_str}"
+            # Align same-week dates: 4 spaces + date + day
+            pending_date_prefix = f"    {date_str} {day_str}"
             current_date = group_date
 
         # Flush pending date header for non-rollup days before printing the group
