@@ -14,8 +14,8 @@ storage and querying, while maintaining backward compatibility with
 dict-based slot APIs.
 """
 
-from datetime import timedelta
-from typing import Any, Dict, List
+from datetime import timedelta, date
+from typing import Any, Dict, List, Tuple
 
 from tw_report.core.timeline import Timeline
 
@@ -381,21 +381,195 @@ class TimelineSlotManager:
         return self.timeline.get_slots_as_dicts()
 
 
-def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
-    """Group slots into (period_bucket, project) totals — no task, no time range.
+def merge_categories(group: List[Dict]) -> List[Dict]:
+    """Merge categories from all slots in a group (extracted from TimelineSlotManager).
 
-    Unlike TimelineSlotManager.consolidate() (order-dependent consecutive-run
-    merge of same project+task+date slots), this does a full dict-keyed
-    group-by across the whole slot list: every slot for a given period
-    bucket + project is summed together regardless of order or task.
+    Combines nested category/app/title structures while preserving all detail.
+    Produces a list of category dicts in the exact format expected by
+    _render_slot_detail() in timeline_render.py.
+
+    Args:
+        group: List of slot dicts to extract categories from
+
+    Returns:
+        Merged list of category dictionaries with nested apps and titles
+    """
+    merged_cats: Dict[str, Dict] = {}
+
+    for s in group:
+        for cat_info in s.get("categories", []):
+            cat = cat_info["category"]
+            if cat not in merged_cats:
+                merged_cats[cat] = {
+                    "duration": timedelta(0),
+                    "start": cat_info.get("start"),
+                    "end": cat_info.get("end"),
+                    "apps": {},
+                }
+            else:
+                # Update start/end to expand range
+                cat_start = cat_info.get("start")
+                cat_end = cat_info.get("end")
+                if cat_start and (
+                    not merged_cats[cat]["start"] or cat_start < merged_cats[cat]["start"]
+                ):
+                    merged_cats[cat]["start"] = cat_start
+                if cat_end and (
+                    not merged_cats[cat]["end"] or cat_end > merged_cats[cat]["end"]
+                ):
+                    merged_cats[cat]["end"] = cat_end
+
+            merged_cats[cat]["duration"] += cat_info["duration"]
+
+            # Merge apps nested under category
+            for app_info in cat_info.get("apps", []):
+                app = app_info["app"]
+                if app not in merged_cats[cat]["apps"]:
+                    merged_cats[cat]["apps"][app] = {
+                        "duration": timedelta(0),
+                        "start": app_info.get("start"),
+                        "end": app_info.get("end"),
+                        "titles": {},
+                    }
+                else:
+                    app_start = app_info.get("start")
+                    app_end = app_info.get("end")
+                    if app_start and (
+                        not merged_cats[cat]["apps"][app]["start"]
+                        or app_start < merged_cats[cat]["apps"][app]["start"]
+                    ):
+                        merged_cats[cat]["apps"][app]["start"] = app_start
+                    if app_end and (
+                        not merged_cats[cat]["apps"][app]["end"]
+                        or app_end > merged_cats[cat]["apps"][app]["end"]
+                    ):
+                        merged_cats[cat]["apps"][app]["end"] = app_end
+
+                merged_cats[cat]["apps"][app]["duration"] += app_info["duration"]
+
+                # Merge titles under app
+                for title_info in app_info.get("titles", []):
+                    title = title_info["title"]
+                    if title not in merged_cats[cat]["apps"][app]["titles"]:
+                        merged_cats[cat]["apps"][app]["titles"][title] = {
+                            "duration": timedelta(0),
+                            "start": title_info.get("start"),
+                            "end": title_info.get("end"),
+                        }
+                    else:
+                        t_start = title_info.get("start")
+                        t_end = title_info.get("end")
+                        if t_start and (
+                            not merged_cats[cat]["apps"][app]["titles"][title]["start"]
+                            or t_start < merged_cats[cat]["apps"][app]["titles"][title]["start"]
+                        ):
+                            merged_cats[cat]["apps"][app]["titles"][title]["start"] = t_start
+                        if t_end and (
+                            not merged_cats[cat]["apps"][app]["titles"][title]["end"]
+                            or t_end > merged_cats[cat]["apps"][app]["titles"][title]["end"]
+                        ):
+                            merged_cats[cat]["apps"][app]["titles"][title]["end"] = t_end
+
+                    merged_cats[cat]["apps"][app]["titles"][title]["duration"] += title_info["duration"]
+
+    # Convert to list format with sorted apps/titles
+    merged_categories = []
+    for cat, cat_data in sorted(merged_cats.items(), key=lambda x: x[1].get("start", "")):
+        cat_info = {
+            "category": cat,
+            "duration": cat_data["duration"],
+            "start": cat_data.get("start"),
+            "end": cat_data.get("end"),
+        }
+        if cat_data["apps"]:
+            cat_info["apps"] = []
+            for app_name in sorted(cat_data["apps"].keys()):
+                app_data = cat_data["apps"][app_name]
+                app_info = {
+                    "app": app_name,
+                    "duration": app_data["duration"],
+                    "start": app_data.get("start"),
+                    "end": app_data.get("end"),
+                }
+                if app_data["titles"]:
+                    app_info["titles"] = [
+                        {
+                            "title": title_name,
+                            "duration": app_data["titles"][title_name]["duration"],
+                            "start": app_data["titles"][title_name].get("start"),
+                            "end": app_data["titles"][title_name].get("end"),
+                        }
+                        for title_name in sorted(app_data["titles"].keys())
+                    ]
+                else:
+                    app_info["titles"] = []
+                cat_info["apps"].append(app_info)
+
+        merged_categories.append(cat_info)
+
+    return merged_categories
+
+
+def collapse_tasks_to_project(rows: List[Dict]) -> List[Dict]:
+    """Collapse (period, project, task) rows down to (period, project) totals.
+
+    Sums durations/productivity per project, drops task and categories fields.
+    Used by print_period_consolidated_report() when detail_level == 1 to
+    reproduce the original project-only summary from the now-finer-grained
+    consolidate_by_period() output.
+
+    Args:
+        rows: List of (period, project, task) rows from consolidate_by_period()
+
+    Returns:
+        List of (period, project) summary rows
+    """
+    groups: Dict[Tuple[date, str], List[Dict]] = {}
+    for row in rows:
+        key = (row["period_start"], row["project"])
+        groups.setdefault(key, []).append(row)
+
+    result = []
+    for (period_start, project), group_rows in groups.items():
+        actual_duration = sum(
+            (r.get("actual_duration", r["duration"]) for r in group_rows), timedelta(0)
+        )
+        productive_duration = sum(
+            (r.get("productive_duration", timedelta(0)) for r in group_rows), timedelta(0)
+        )
+        afk_duration = sum(
+            (r.get("afk_duration", timedelta(0)) for r in group_rows), timedelta(0)
+        )
+        result.append({
+            "period_start": period_start,
+            "project": project,
+            "duration": actual_duration,
+            "actual_duration": actual_duration,
+            "productive_duration": productive_duration,
+            "afk_duration": afk_duration,
+        })
+
+    result.sort(key=lambda r: (r["period_start"], -r["actual_duration"].total_seconds()))
+    return result
+
+
+def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
+    """Group slots into (period_bucket, project, task) totals with category data.
+
+    Groups at task granularity (finer than before) for all detail levels, then
+    print_period_consolidated_report() decides whether to collapse to project-only
+    or show task detail. This allows detail_level >= 2 to show task breakdown.
+
+    Each result row includes merged categories for detail_level >= 3.
 
     Args:
         slots: List of slot dicts (from timeline or consolidation)
         period: "day" | "week" | "month" | "year"
 
     Returns:
-        List of dicts with fields: period_start, project, duration, actual_duration,
-        productive_duration, afk_duration. Sorted by (period_start, descending duration).
+        List of dicts with fields: period_start, project, task, duration, actual_duration,
+        productive_duration, afk_duration, categories. Sorted by period, then project total
+        duration (descending), then task duration (descending).
 
     Raises:
         ValueError: If period is not one of the recognized values
@@ -416,16 +590,16 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
             return d.replace(month=1, day=1)
         raise ValueError(f"Unknown period: {period}")
 
-    # Group-by: exclude offline gap markers, keep everything else
-    groups: Dict[Tuple[date, str], List[Dict]] = {}
+    # Group-by (period, project, task): exclude offline gap markers, keep everything else
+    groups: Dict[Tuple[date, str, str], List[Dict]] = {}
     for slot in slots:
         if slot.get("type") == "offline":
             continue  # gap markers only
-        key = (bucket_start(slot["start"]), slot["project"])
+        key = (bucket_start(slot["start"]), slot["project"], slot["task"])
         groups.setdefault(key, []).append(slot)
 
     result = []
-    for (period_start, project), group_slots in groups.items():
+    for (period_start, project, task), group_slots in groups.items():
         actual_duration = sum(
             (s.get("actual_duration", s["duration"]) for s in group_slots), timedelta(0)
         )
@@ -439,12 +613,27 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
         result.append({
             "period_start": period_start,
             "project": project,
-            "duration": actual_duration,  # mirrors actual_duration for fallback-compat
+            "task": task,
+            "duration": actual_duration,
             "actual_duration": actual_duration,
             "productive_duration": productive_duration,
             "afk_duration": afk_duration,
+            "categories": merge_categories(group_slots),
         })
 
-    # Sort by period_start, then by descending duration (most time spent first)
-    result.sort(key=lambda r: (r["period_start"], -r["actual_duration"].total_seconds()))
+    # Sort by: period_start, then project's total duration (descending),
+    # then individual task duration (descending)
+    # To get project totals for sorting, group by (period, project)
+    project_totals = {}
+    for row in result:
+        key = (row["period_start"], row["project"])
+        project_totals[key] = project_totals.get(key, timedelta(0)) + row["actual_duration"]
+
+    result.sort(
+        key=lambda r: (
+            r["period_start"],
+            -project_totals[(r["period_start"], r["project"])].total_seconds(),
+            -r["actual_duration"].total_seconds(),
+        )
+    )
     return result

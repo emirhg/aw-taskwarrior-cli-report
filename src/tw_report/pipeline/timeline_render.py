@@ -65,6 +65,7 @@ from aw_transform import filter_keyvals
 from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
+from tw_report.core.consolidation import collapse_tasks_to_project
 from tw_report.pipeline.report_render import print_report_header
 from tw_report.utils.formatting import (
     format_duration,
@@ -934,6 +935,7 @@ def print_period_consolidated_report(
     start_time: datetime,
     end_time: datetime,
     period_mode: str,
+    detail_level: int = 1,
     non_afk_time: timedelta = None,
     productive_time: timedelta = None,
     task_based: bool = True,
@@ -941,15 +943,17 @@ def print_period_consolidated_report(
 ):
     """Print a period-consolidated timeline report (day/week/month/year summaries).
 
-    Shows one line per (period, project) with just total duration + productivity,
-    no start/end time range (time range no longer makes sense for a whole day/week).
+    Shows summaries grouped by period and project (or project + task at detail_level >= 2),
+    with total duration + productivity, no start/end time range.
 
     Args:
         slots: Pre-consolidated list from consolidate_by_period() with fields:
-               period_start, project, duration, actual_duration, productive_duration, afk_duration
+               period_start, project, task, duration, actual_duration, productive_duration,
+               afk_duration, categories
         period: Human-readable period string (e.g., ":year", "2026-01-01")
         start_time, end_time: Start/end of the query period (for header)
         period_mode: "day" | "week" | "month" | "year" (for labeling)
+        detail_level: Controls rendering depth (1=project only, 2+=task, 3+=categories)
         non_afk_time, productive_time: Metrics for header
         task_based: Whether this is task-based report
         **kwargs: Other metrics (distracting_time, unscored_time, current_session_*, etc.)
@@ -1024,21 +1028,43 @@ def print_period_consolidated_report(
         return str(period_start)
 
     def print_period_block(ps: date, slots_in_period: List[Dict], mode: str):
-        """Print one period block (label + projects in period + period total)."""
+        """Print one period block (label + projects/tasks in period + period total)."""
         print(format_period_label(ps, mode))
+
+        # Collapse to project-only at detail_level == 1
+        rows_to_display = slots_in_period
+        if detail_level == 1:
+            rows_to_display = collapse_tasks_to_project(slots_in_period)
+
         total_dur = timedelta(0)
         total_prod = timedelta(0)
-        for slot in slots_in_period:
-            project = slot["project"]
-            duration = slot.get("actual_duration", slot["duration"])
-            productive = slot.get("productive_duration", timedelta(0))
+        for row in rows_to_display:
+            project = row["project"]
+            task = row.get("task", NO_TASK)
+            duration = row.get("actual_duration", row["duration"])
+            productive = row.get("productive_duration", timedelta(0))
             total_dur += duration
             total_prod += productive
 
-            # Use format_timeline_line for consistency with detail_level==1 rendering
-            duration_str = format_duration_tracked_prod(duration, productive)
-            left = f"     ▶ {project}"
-            print(format_timeline_line(left, duration_str, max_left_width=95))
+            # Render based on detail level
+            if detail_level == 1:
+                # Project only
+                duration_str = format_duration_tracked_prod(duration, productive)
+                left = f"     ▶ {project}"
+                print(format_timeline_line(left, duration_str, max_left_width=95))
+            else:
+                # detail_level >= 2: show project >> task
+                duration_str = format_duration_tracked_prod(duration, productive)
+                abbrev_project = abbreviate_project_path(project, task)
+                if task and task != NO_TASK:
+                    left = f"     ▶ {abbrev_project} ▶▶ {task}"
+                else:
+                    left = f"     ▶ {abbrev_project}"
+                print(format_timeline_line(left, duration_str, max_left_width=95))
+
+                # detail_level >= 3: render category/app/title sub-rows
+                if detail_level >= 3:
+                    _render_slot_detail(row, detail_level, width)
 
         # Period total line
         total_line = ("Week total (tracked):" if mode == "week"

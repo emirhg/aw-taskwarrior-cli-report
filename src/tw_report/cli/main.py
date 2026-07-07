@@ -553,6 +553,7 @@ def main():
                 start_time=start_time,
                 end_time=end_time,
                 period_mode=period_mode,
+                detail_level=args.detail_level,
                 non_afk_time=context.metrics.non_afk_time,
                 productive_time=context.metrics.productive_time,
                 productive_task_time=context.metrics.productive_task_time,

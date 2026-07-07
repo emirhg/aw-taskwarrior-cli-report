@@ -321,7 +321,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=2),
                 "productive_duration": timedelta(hours=1),
                 "project": "Work",
-                "task": "Task A",
+                "task": "Common Task",
                 "categories": [],
             },
             {
@@ -331,7 +331,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=3),
                 "productive_duration": timedelta(hours=1),
                 "project": "Work",
-                "task": "Task B",
+                "task": "Common Task",
                 "categories": [],
             },
         ]
@@ -340,6 +340,7 @@ class TestConsolidateByPeriod:
 
         assert len(result) == 1
         assert result[0]["project"] == "Work"
+        assert result[0]["task"] == "Common Task"
         assert result[0]["actual_duration"] == timedelta(hours=5)
         assert result[0]["productive_duration"] == timedelta(hours=2)
 
@@ -359,7 +360,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=2),
                 "productive_duration": timedelta(hours=1),
                 "project": "Climb",
-                "task": "Task A",
+                "task": "Common Task",
                 "categories": [],
             },
             {
@@ -369,7 +370,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=3),
                 "productive_duration": timedelta(hours=2),
                 "project": "Climb",
-                "task": "Task B",
+                "task": "Common Task",
                 "categories": [],
             },
         ]
@@ -396,7 +397,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=2),
                 "productive_duration": timedelta(hours=1),
                 "project": "Work",
-                "task": "Task A",
+                "task": "Common Task",
                 "categories": [],
             },
             {
@@ -406,7 +407,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=3),
                 "productive_duration": timedelta(hours=1),
                 "project": "Work",
-                "task": "Task B",
+                "task": "Common Task",
                 "categories": [],
             },
         ]
@@ -433,7 +434,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=2),
                 "productive_duration": timedelta(hours=1),
                 "project": "Climb",
-                "task": "Task A",
+                "task": "Common Task",
                 "categories": [],
             },
             {
@@ -443,7 +444,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=10),
                 "productive_duration": timedelta(hours=5),
                 "project": "Climb",
-                "task": "Task B",
+                "task": "Common Task",
                 "categories": [],
             },
         ]
@@ -527,7 +528,7 @@ class TestConsolidateByPeriod:
         assert result[0]["actual_duration"] == timedelta(hours=2)
 
     def test_consolidate_by_period_includes_afk(self):
-        """Should include type='afk' slots and accumulate afk_duration per (period, project) group."""
+        """Should include type='afk' slots and accumulate afk_duration per (period, project, task) group."""
         from tw_report.core.consolidation import consolidate_by_period
 
         dt = datetime(2026, 6, 27, 8, 0, tzinfo=timezone.utc)
@@ -540,7 +541,7 @@ class TestConsolidateByPeriod:
                 "actual_duration": timedelta(hours=2),
                 "productive_duration": timedelta(hours=1),
                 "project": "Work",
-                "task": "Task A",
+                "task": "Common Task",
                 "categories": [],
             },
             {
@@ -549,17 +550,18 @@ class TestConsolidateByPeriod:
                 "duration": timedelta(minutes=30),
                 "actual_duration": timedelta(minutes=30),
                 "productive_duration": timedelta(0),
-                "project": "Work",  # Same project, so AFK accumulates here
-                "task": "AFK",
+                "project": "Work",
+                "task": "Common Task",  # Same project AND task, so AFK accumulates here
                 "categories": [],
             },
         ]
 
         result = consolidate_by_period(slots, "day")
 
-        # Both slots are grouped under "Work"
+        # Both slots are grouped under "Work" "Common Task"
         assert len(result) == 1
         assert result[0]["project"] == "Work"
+        assert result[0]["task"] == "Common Task"
         assert result[0]["afk_duration"] == timedelta(minutes=30)
 
     def test_consolidate_by_period_sorting(self):
