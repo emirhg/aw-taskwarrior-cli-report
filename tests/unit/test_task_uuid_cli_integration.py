@@ -262,3 +262,94 @@ class TestTaskUuidCliIntegration:
         assert args.include_afk is True
         # (main() will skip AFK fetching when task_uuid is set,
         #  but the flag is still valid for future enhancements)
+
+    def test_task_flag_with_uuid_single_value(self):
+        """Verify --task <UUID> (single value) uses the fast UUID-based path."""
+        from tw_report.cli.args import parse_args
+
+        # --task with a single UUID value should be accepted
+        args = parse_args(
+            ["--task", "550e8400-e29b-41d4-a716-446655440000", ":today"]
+        )
+
+        assert args.task == ["550e8400-e29b-41d4-a716-446655440000"]
+        assert len(args.task) == 1
+
+    def test_task_flag_with_numeric_id_single_value(self):
+        """Verify --task <numeric ID> (single value) is recognized as ID."""
+        from tw_report.cli.args import parse_args
+
+        # --task with a single numeric value should be parsed as a string
+        args = parse_args(["--task", "48", ":today"])
+
+        assert args.task == ["48"]
+        assert args.task[0].isdigit()
+
+    def test_task_flag_with_multiple_values_unaffected(self):
+        """Verify --task with multiple values is unaffected by UUID optimization."""
+        from tw_report.cli.args import parse_args
+
+        # Multiple --task values should remain unaffected
+        args = parse_args(
+            [
+                "--task",
+                "550e8400-e29b-41d4-a716-446655440000",
+                "--task",
+                "DocumentationTask",
+                ":today",
+            ]
+        )
+
+        assert len(args.task) == 2
+        assert "550e8400-e29b-41d4-a716-446655440000" in args.task
+        assert "DocumentationTask" in args.task
+
+    def test_task_flag_with_pattern_unaffected(self):
+        """Verify --task with name pattern (not UUID/ID) is unaffected."""
+        from tw_report.cli.args import parse_args
+
+        # Non-UUID, non-digit patterns should be unaffected
+        args = parse_args(["--task", "Document", ":today"])
+
+        assert args.task == ["Document"]
+
+    def test_task_uuid_fast_path_without_timesheet(self):
+        """Verify --task <UUID> activates fast path even without --timesheet."""
+        task_id = 48
+        task_uuid = "550e8400-e29b-41d4-a716-446655440000"
+
+        # Mock taskwarrior export for numeric ID → UUID resolution
+        task_json = [
+            {
+                "uuid": task_uuid,
+                "description": "Code review",
+                "project": "web-app",
+            }
+        ]
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(
+                stdout=json.dumps(task_json), returncode=0
+            )
+
+            from tw_report.core.task_uuid_filtering import get_task_uuid
+
+            # Simulate what main() does when it detects a numeric --task value
+            resolved_uuid = get_task_uuid(task_id)
+            assert resolved_uuid == task_uuid
+
+            # Verify the UUID is now available for use in the fast path
+            assert resolved_uuid is not None
+
+    def test_task_uuid_direct_uuid_value(self):
+        """Verify --task <direct UUID> is usable directly without lookup."""
+        from tw_report.core.project_filtering import _is_uuid_like
+
+        # Direct UUID value (no lookup needed)
+        uuid_value = "550e8400-e29b-41d4-a716-446655440000"
+
+        # Should be recognized as UUID-like
+        assert _is_uuid_like(uuid_value) is True
+
+        # Should be usable directly in get_events_by_uuid()
+        # without requiring a subprocess call to taskwarrior

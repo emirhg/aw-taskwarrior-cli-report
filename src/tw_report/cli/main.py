@@ -34,6 +34,7 @@ from tw_report.core.task_uuid_filtering import (
     get_events_by_uuid,
 )
 from tw_report.core.project_filtering import (
+    _is_uuid_like,
     get_events_by_project,
     should_skip_window_bucket,
     resolve_project_filter_value,
@@ -105,6 +106,19 @@ def main():
         if not task_uuid:
             print(f"Error: Task {args.task_id} not found", file=sys.stderr)
             return 1
+
+    # Detect task ID/UUID in a single --task value for efficient server-side
+    # filtering (mirrors --task-id). Only applies when exactly one --task value
+    # is given, since bucket-level fetch elsewhere only ever honors args.task[0].
+    if not task_uuid and args.task and len(args.task) == 1:
+        value = args.task[0]
+        if value.isdigit():
+            task_uuid = get_task_uuid(int(value))
+        elif _is_uuid_like(value):
+            task_uuid = value
+        # If resolution fails, leave task_uuid as None — the existing
+        # resolve_task_filter_value() call below will raise the correct
+        # "not found" error for this same value.
 
     # Resolve project filter values (may be task IDs, UUIDs, or literal patterns)
     if args.project:
