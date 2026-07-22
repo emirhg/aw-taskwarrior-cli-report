@@ -51,6 +51,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from aw_core.models import Event
 
+from tw_report.core.categories import build_categories_from_window_events
+
 if TYPE_CHECKING:
     from tw_report.core.filtering import EventFilter
 
@@ -126,6 +128,8 @@ class OfflineTaskProcessor:
         self.offline_event_durations: Dict[Tuple, timedelta] = {}
         self.event_groups: Dict[Tuple, List[Event]] = {}
         self.task_real_durations: Dict[Tuple, timedelta] = {}  # Store events per group
+        self.offline_categories: Dict[Tuple, List[Dict]] = {}  # Categories from window reconciliation
+        self.consumed_window_event_ids: set = set()  # Track which window events are used
 
     def process(self) -> Tuple[Dict, Dict, Dict[Tuple, List[Event]], Dict]:
         """
@@ -515,10 +519,29 @@ class OfflineTaskProcessor:
         # This determines what portion of wall_clock_duration was recorded as AFK
         online_time = self._calculate_online_time_from_afk(wall_clock_start, wall_clock_end)
 
+        # Calculate window event coverage and reconcile with OFFLINE task duration
+        # This replaces the flat "Offline" bucket with real category/app/title detail
+        # where window events were actually tracked during the OFFLINE period
+        window_covered_duration, window_categories = self._calculate_window_coverage(
+            wall_clock_start, wall_clock_end
+        )
+
+        # Build reconciled categories: window categories + remainder as "Offline"
+        offline_remainder = wall_clock_duration - window_covered_duration
+        reconciled_categories = window_categories.copy()
+        if offline_remainder > timedelta(0):
+            reconciled_categories.append({
+                "category": "Offline",
+                "duration": offline_remainder,
+                "start": wall_clock_start.astimezone() if hasattr(wall_clock_start, 'astimezone') else wall_clock_start,
+                "end": wall_clock_end.astimezone() if hasattr(wall_clock_end, 'astimezone') else wall_clock_end,
+            })
+
         # Store results
         self.offline_durations[group_key] = wall_clock_duration
         self.offline_event_durations[group_key] = online_time
         self.event_groups[group_key] = sorted_events  # Store events for this group
+        self.offline_categories[group_key] = reconciled_categories
 
     def _calculate_online_time_from_afk(
         self, period_start: datetime, period_end: datetime
@@ -567,6 +590,44 @@ class OfflineTaskProcessor:
 
         return online_time
 
+    def _calculate_window_coverage(
+        self, period_start: datetime, period_end: datetime
+    ) -> Tuple[timedelta, List[Dict]]:
+        """
+        Calculate window event coverage during an OFFLINE task period.
+
+        Extracts ActivityWatch window events that overlap with the OFFLINE task period,
+        builds a category > app > title breakdown of what the user was actually doing,
+        and computes the total covered duration.
+
+        Args:
+            period_start: Start of the OFFLINE task period
+            period_end: End of the OFFLINE task period
+
+        Returns:
+            Tuple of (window_covered_duration, categories_list)
+            - window_covered_duration: Sum of overlapping window event durations
+            - categories_list: List of dicts with category/app/title breakdown
+                               Empty list if no window events overlap the period
+        """
+        categories = build_categories_from_window_events(
+            self.window_events, period_start, period_end
+        )
+
+        # Calculate total duration covered by window events
+        window_covered_duration = timedelta(0)
+        for cat_dict in categories:
+            window_covered_duration += cat_dict["duration"]
+
+        # Track which window events were actually consumed
+        for window_event in self.window_events:
+            window_start = window_event.timestamp
+            window_end = window_event.timestamp + window_event.duration
+            if window_start < period_end and window_end > period_start:
+                self.consumed_window_event_ids.add(id(window_event))
+
+        return window_covered_duration, categories
+
     def get_synthetic_slot(self, key: Tuple[str, str], task_events_for_key: List[Event]) -> Dict:
         """
         Build a synthetic slot for an OFFLINE task.
@@ -612,6 +673,24 @@ class OfflineTaskProcessor:
         raw_tags = task_events_for_key[0].data.get("tags", [])
         task_tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
 
+        # Use reconciled categories (window events + offline remainder) if available,
+        # otherwise fall back to a flat "Offline" bucket for backward compatibility
+        categories = self.offline_categories.get(key, [
+            {
+                "category": "Offline",
+                "duration": slot_duration,
+                "start": slot_start.astimezone(),
+                "end": slot_end.astimezone(),
+            }
+        ])
+
+        # Ensure categories are timezone-aware (in case they came from build_categories_from_window_events)
+        for cat in categories:
+            if hasattr(cat.get("start"), "astimezone"):
+                cat["start"] = cat["start"].astimezone()
+            if hasattr(cat.get("end"), "astimezone"):
+                cat["end"] = cat["end"].astimezone()
+
         return {
             "type": "offline_task",
             "start": slot_start.astimezone(),
@@ -623,12 +702,5 @@ class OfflineTaskProcessor:
             "project": project,
             "task": task,
             "tags": task_tags,
-            "categories": [
-                {
-                    "category": "Offline",
-                    "duration": slot_duration,
-                    "start": slot_start.astimezone(),
-                    "end": slot_end.astimezone(),
-                }
-            ],
+            "categories": categories,
         }

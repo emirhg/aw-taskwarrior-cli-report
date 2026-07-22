@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import re
+from datetime import timedelta
 from typing import Dict, List, Optional, Pattern, Tuple
 
 from aw_core.models import Event
@@ -199,3 +200,198 @@ def categorize_event(
         matched_cats.sort(key=lambda x: (-x[0], x[1]))
         # Store the most specific matching category
         event.data["$category"] = [matched_cats[0][1]]
+
+
+def build_categories_from_window_events(
+    window_events: List[Event],
+    period_start,
+    period_end,
+) -> List[Dict]:
+    """Aggregate window events overlapping a time period into categories > apps > titles.
+
+    Extracts ActivityWatch window categorization data from events that overlap a given
+    time period, builds a nested structure of category > app > title > events, and
+    flattens it into the TimelineSlot.categories list format.
+
+    This is a shared helper used by:
+    - generate_gap_entries(): Extract categories from window events during AFK periods
+    - OfflineTaskProcessor: Extract categories from window events during OFFLINE periods
+
+    Args:
+        window_events: List of ActivityWatch window events
+        period_start: Start of the time period to aggregate (datetime)
+        period_end: End of the time period to aggregate (datetime)
+
+    Returns:
+        List of category dicts with structure:
+        [{
+            "category": "string",
+            "duration": timedelta,
+            "start": datetime,
+            "end": datetime,
+            "apps": [{
+                "app": "string",
+                "duration": timedelta,
+                "start": datetime,
+                "end": datetime,
+                "titles": [{
+                    "title": "string",
+                    "duration": timedelta,
+                    "start": datetime,
+                    "end": datetime,
+                    "events": [Event, ...]
+                }, ...]
+            }, ...]
+        }, ...]
+        Returns empty list if no window events overlap the period.
+    """
+    if not window_events:
+        return []
+
+    categories = {}
+
+    for window_event in window_events:
+        window_start = window_event.timestamp
+        window_end = window_event.timestamp + window_event.duration
+
+        # Check if window event overlaps with the period
+        if window_start < period_end and window_end > period_start:
+            # Calculate overlap duration
+            overlap_start = max(window_start, period_start)
+            overlap_end = min(window_end, period_end)
+            overlap_duration = overlap_end - overlap_start
+
+            # Extract categories from this window event
+            event_categories = window_event.data.get("$category", [])
+            # Only process if there's actual categorization - don't create fake categories
+            # for uncategorized window events
+
+            for cat in event_categories:
+                if cat not in categories:
+                    categories[cat] = {
+                        "category": cat,
+                        "duration": timedelta(0),
+                        "start": overlap_start,
+                        "end": overlap_end,
+                        "apps": {},
+                    }
+                else:
+                    # Expand time window (don't accumulate duration here, do it from apps later)
+                    cat_data = categories[cat]
+                    if overlap_start < cat_data["start"]:
+                        cat_data["start"] = overlap_start
+                    if overlap_end > cat_data["end"]:
+                        cat_data["end"] = overlap_end
+
+                # Extract app name (window title) if available
+                app_name = window_event.data.get("app", "Unknown")
+                if app_name not in categories[cat]["apps"]:
+                    categories[cat]["apps"][app_name] = {
+                        "app": app_name,
+                        "duration": timedelta(0),
+                        "start": overlap_start,
+                        "end": overlap_end,
+                        "titles": {},
+                    }
+                else:
+                    app_data = categories[cat]["apps"][app_name]
+                    app_data["duration"] += overlap_duration
+                    if overlap_start < app_data["start"]:
+                        app_data["start"] = overlap_start
+                    if overlap_end > app_data["end"]:
+                        app_data["end"] = overlap_end
+
+                # Extract title if available
+                title = window_event.data.get("title", "Unknown")
+                if title not in categories[cat]["apps"][app_name]["titles"]:
+                    categories[cat]["apps"][app_name]["titles"][title] = {
+                        "title": title,
+                        "duration": overlap_duration,
+                        "start": overlap_start,
+                        "end": overlap_end,
+                        "events": [window_event],
+                    }
+                else:
+                    title_data = categories[cat]["apps"][app_name]["titles"][title]
+                    title_data["duration"] += overlap_duration
+                    if overlap_start < title_data["start"]:
+                        title_data["start"] = overlap_start
+                    if overlap_end > title_data["end"]:
+                        title_data["end"] = overlap_end
+                    if "events" not in title_data:
+                        title_data["events"] = []
+                    title_data["events"].append(window_event)
+
+                categories[cat]["apps"][app_name]["duration"] += overlap_duration
+
+    # Convert categories dict to list format for consistency with regular slots
+    merged_categories = []
+    for cat, cat_data in categories.items():
+        # Compute category duration from sum of app durations (to avoid double-counting)
+        cat_duration = sum(
+            (app_data["duration"] for app_data in cat_data["apps"].values()),
+            timedelta(0),
+        )
+
+        # Recalculate category start/end from app children's actual times
+        cat_start = None
+        cat_end = None
+        for app_data in cat_data["apps"].values():
+            app_start = app_data.get("start")
+            app_end = app_data.get("end")
+            if app_start and (cat_start is None or app_start < cat_start):
+                cat_start = app_start
+            if app_end and (cat_end is None or app_end > cat_end):
+                cat_end = app_end
+
+        cat_info = {
+            "category": cat,
+            "duration": cat_duration,
+            "start": cat_start,
+            "end": cat_end,
+        }
+        if cat_data["apps"]:
+            # Build apps list with recalculated start/end from title children
+            apps_list = []
+            for app_name, app_data in cat_data["apps"].items():
+                # Recalculate app start/end from title children's actual times
+                app_start = None
+                app_end = None
+                for title_data in app_data.get("titles", {}).values():
+                    title_start = title_data.get("start")
+                    title_end = title_data.get("end")
+                    if title_start and (app_start is None or title_start < app_start):
+                        app_start = title_start
+                    if title_end and (app_end is None or title_end > app_end):
+                        app_end = title_end
+
+                # If no titles, use the app's existing start/end
+                if app_start is None:
+                    app_start = app_data.get("start")
+                if app_end is None:
+                    app_end = app_data.get("end")
+
+                app_info = {
+                    "app": app_name,
+                    "duration": app_data["duration"],
+                    "start": app_start,
+                    "end": app_end,
+                    "titles": [
+                        {
+                            "title": t,
+                            "duration": title_data["duration"],
+                            "start": title_data.get("start"),
+                            "end": title_data.get("end"),
+                            "events": title_data.get("events", []),
+                        }
+                        for t, title_data in app_data["titles"].items()
+                    ]
+                    if app_data["titles"]
+                    else [],
+                }
+                apps_list.append(app_info)
+
+            cat_info["apps"] = apps_list
+        merged_categories.append(cat_info)
+
+    return merged_categories

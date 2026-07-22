@@ -313,13 +313,14 @@ def main():
         )
         offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
 
-    # Exclude window events correlated with OFFLINE tasks — their time comes from
-    # the raw task event duration, not from window activity.
-    if offline_task_durations:
+    # Exclude ONLY window events that were actually consumed by OFFLINE task groups.
+    # Window events tied to offline-tagged tasks but outside any group's span are NOT excluded,
+    # allowing them to flow through aggregate_hierarchy() normally (fixes a latent bug).
+    if offline_processor and offline_processor.consumed_window_event_ids:
         canonical_events = [
             rep
             for rep in canonical_events
-            if rep.active_task is None or not task_has_offline_tag(rep.active_task)
+            if id(rep.event) not in offline_processor.consumed_window_event_ids
         ]
 
     metrics = compute_metrics(
@@ -355,7 +356,7 @@ def main():
     # Replace task durations for OFFLINE tasks with aggregated event duration
     # (calculated from span of all task events for that project/task)
     # Skip if --exclude-offline flag is set
-    if not args.exclude_offline:
+    if not args.exclude_offline and offline_processor:
         # Apply user filters to OFFLINE tasks
         search_value = getattr(args, "search", None)
         has_filters = bool(search_value or args.project or args.task or args.app)
@@ -382,7 +383,21 @@ def main():
                 ):
                     continue  # Skip excluded task
 
-            offline_cat = build_offline_category_structure(offline_duration)
+            # Build categories from reconciled window+offline breakdown
+            # Get categories from OfflineTaskProcessor (which includes real window events
+            # + offline remainder), convert from list-of-dicts to dict-by-category-name
+            reconciled_categories_list = offline_processor.offline_categories.get(key, [])
+            offline_categories_dict = {}
+            for cat_dict in reconciled_categories_list:
+                cat_name = cat_dict.get("category", "Unknown")
+                # Convert list format to hierarchical dict format with duration + apps
+                offline_categories_dict[cat_name] = {
+                    "total_duration": cat_dict.get("duration", timedelta(0)),
+                    "prod_score": 0.0,
+                    # Note: apps/titles breakdown from list format not used in hierarchical
+                    # reporting, only the duration per category
+                }
+
             if project in report_data and task_name in report_data[project]["tasks"]:
                 # Task exists in report from aggregate_hierarchy; replace its duration
                 task_node = report_data[project]["tasks"][task_name]
@@ -394,8 +409,8 @@ def main():
                     - old_duration
                     + offline_duration
                 )
-                # Replace categories: clear existing and add only the Offline category
-                task_node["categories"] = {"Offline": offline_cat}
+                # Replace categories with reconciled breakdown
+                task_node["categories"] = offline_categories_dict
             else:
                 # Task not in report (no window events); add it from scratch
                 proj_node = report_data.setdefault(
@@ -411,7 +426,7 @@ def main():
                     },
                 )
                 proj_node["total_duration"] += offline_duration
-                task_node["categories"]["Offline"] = offline_cat
+                task_node["categories"] = offline_categories_dict
 
     # Generate timeline report if --timesheet is specified
     if args.timesheet:
