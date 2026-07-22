@@ -449,31 +449,28 @@ class OfflineTaskProcessor:
         if not sorted_events:
             return
 
-        # Calculate wall-clock span
-        wall_clock_start = sorted_events[0].timestamp
-        wall_clock_end = sorted_events[0].timestamp
-        has_incomplete = False
-
+        # FIXED: Sum actual event durations instead of using wall-clock span.
+        # Wall-clock span (first event to last event) creates artificial spans
+        # that exceed the actual work time by orders of magnitude.
+        #
+        # For OFFLINE tasks, the events ARE the complete record of work time.
+        # Simply sum them instead of assuming the system was off between first→last event.
+        wall_clock_duration = timedelta(0)
         for event in sorted_events:
             if event.duration:
-                event_end = event.timestamp + event.duration
-                wall_clock_end = max(wall_clock_end, event_end)
-            else:
-                has_incomplete = True
+                wall_clock_duration += event.duration
+            # Skip events without duration (incomplete records)
 
-        # For incomplete events, use a conservative estimate instead of extending
-        # to report end time (which created 500+ hour spans for pending OFFLINE tasks).
-        # Use 1 hour as default placeholder, not arbitrary report end time.
-        if has_incomplete:
-            # If we only have incomplete events, use 1 hour from start as placeholder
-            # (awaiting completion, so we can't know the real end time)
-            wall_clock_end = wall_clock_start + timedelta(hours=1)
-
-        wall_clock_duration = wall_clock_end - wall_clock_start
+        # For AFK calculation, we still need a time period.
+        # Use the span of actual events for AFK overlap detection.
+        wall_clock_start = sorted_events[0].timestamp
+        wall_clock_end = sorted_events[-1].timestamp
+        if wall_clock_end == wall_clock_start:
+            # If all events are at same timestamp, extend slightly for AFK detection
+            wall_clock_end = wall_clock_start + timedelta(seconds=1)
 
         # Calculate offline vs online time using AFK bucket
-        # online_time = periods where AFK bucket has events (system was on)
-        # offline_time = periods where AFK bucket has NO events (system was off)
+        # This determines what portion of wall_clock_duration was recorded as AFK
         online_time = self._calculate_online_time_from_afk(wall_clock_start, wall_clock_end)
 
         # Store results

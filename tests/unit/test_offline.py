@@ -251,33 +251,51 @@ class TestOfflineEdgeCases:
 
 # ============================================================================
 # OFFLINE PROCESSOR TEST SUMMARY
-    def test_offline_incomplete_event_not_extended_to_report_end(self):
+    def test_offline_uses_event_duration_sum_not_wall_clock_span(self):
         """
-        Fix for bug: incomplete OFFLINE tasks (no duration) were extending
-        wall_clock_end to report end time, creating 500+ hour spans.
+        Fix for bug: OFFLINE tasks were calculating wall-clock span from first
+        to last event, creating artificial 500+ hour durations (e.g., June 30
+        to July 6 = 142+ hours) when actual work time was only ~4 hours.
 
-        This test ensures incomplete events use conservative 1-hour estimate
-        instead of arbitrary report end extension.
+        This test ensures OFFLINE task duration = sum of event durations,
+        not span from first event timestamp to last event timestamp.
         """
-        # Task event with zero duration (represents incomplete/pending task)
-        # When task has no duration, `if event.duration` evaluates to False/falsy
-        incomplete_task = Event(
-            timestamp=datetime(2026, 6, 29, 21, 31, tzinfo=timezone.utc),
-            duration=timedelta(0),  # ← Zero duration (falsy) - was causing 513+ hours
+        # Create 3 events spread over several days, totaling 2 hours
+        event1 = Event(
+            timestamp=datetime(2026, 6, 30, 0, 53, 52, tzinfo=timezone.utc),
+            duration=timedelta(hours=1, minutes=0),
             data={
-                "project": "Ecosistema.Habitat.Mantenimiento del hogar.Recamara",
-                "title": "Instalar contactos y apagadores",
                 "uuid": "e7e9d2b1-9f68-484c-ad44-29c9e5889027",
+                "project": "Test",
+                "title": "Task 1",
+                "tags": ["OFFLINE"],
+            },
+        )
+        event2 = Event(
+            timestamp=datetime(2026, 7, 2, 10, 0, 0, tzinfo=timezone.utc),
+            duration=timedelta(minutes=30),
+            data={
+                "uuid": "e7e9d2b1-9f68-484c-ad44-29c9e5889027",
+                "project": "Test",
+                "title": "Task 1",
+                "tags": ["OFFLINE"],
+            },
+        )
+        event3 = Event(
+            timestamp=datetime(2026, 7, 6, 20, 0, 0, tzinfo=timezone.utc),
+            duration=timedelta(minutes=30),
+            data={
+                "uuid": "e7e9d2b1-9f68-484c-ad44-29c9e5889027",
+                "project": "Test",
+                "title": "Task 1",
                 "tags": ["OFFLINE"],
             },
         )
 
-        # Report spans an entire week (7 days)
-        report_start = datetime(2026, 6, 29, 0, 0, tzinfo=timezone.utc)
-        report_end = datetime(2026, 7, 6, 23, 59, 59, tzinfo=timezone.utc)
+        report_end = datetime(2026, 7, 7, 23, 59, 59, tzinfo=timezone.utc)
 
         processor = OfflineTaskProcessor(
-            task_events=[incomplete_task],
+            task_events=[event1, event2, event3],
             window_events=[],
             afk_events=[],
             event_filter=Mock(),
@@ -286,15 +304,12 @@ class TestOfflineEdgeCases:
 
         offline_durations, _, _, _ = processor.process()
 
-        # Key assertion: duration should be 1 hour (conservative estimate),
-        # NOT 168+ hours (entire week span)
+        # Key assertion: duration should be SUM of events (2 hours),
+        # NOT wall-clock span (June 30 to July 6 = ~150+ hours)
         for duration in offline_durations.values():
-            assert duration < timedelta(hours=10), (
-                f"Incomplete OFFLINE task should have ~1 hour estimate, "
-                f"not {duration} (which spans entire report period)"
-            )
-            assert duration == timedelta(hours=1), (
-                f"Expected 1 hour estimate for incomplete OFFLINE event, got {duration}"
+            assert duration == timedelta(hours=2), (
+                f"OFFLINE task duration should be sum of events (2 hours), "
+                f"not wall-clock span. Got: {duration}"
             )
 
 
