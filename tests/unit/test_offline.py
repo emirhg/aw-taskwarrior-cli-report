@@ -257,8 +257,10 @@ class TestOfflineEdgeCases:
         to last event, creating artificial 500+ hour durations (e.g., June 30
         to July 6 = 142+ hours) when actual work time was only ~4 hours.
 
-        This test ensures OFFLINE task duration = sum of event durations,
-        not span from first event timestamp to last event timestamp.
+        This test ensures:
+        1. OFFLINE task duration = sum of event durations, not span
+        2. Events are split by calendar day boundaries (not just time gaps)
+        3. Each calendar day gets its own group (prevents > 24 hour groups)
         """
         # Create 3 events spread over several days, totaling 2 hours
         event1 = Event(
@@ -304,17 +306,23 @@ class TestOfflineEdgeCases:
 
         offline_durations, _, _, _ = processor.process()
 
-        # Key assertion: events are split by time gaps > 24 hours into separate groups.
+        # Key assertion: events are split by calendar day boundaries into separate groups.
         # Each group's duration = sum of that group's events (not wall-clock span).
-        # With gaps > 24h, we get 3 separate groups: 1h, 30m, 30m
+        # With 3 events on 3 different days, we get 3 separate groups: 1h, 30m, 30m
         assert len(offline_durations) == 3, (
-            f"Expected 3 separate OFFLINE groups (split by 24h+ gaps), "
+            f"Expected 3 separate OFFLINE groups (one per calendar day), "
             f"got {len(offline_durations)}"
         )
         durations_list = sorted(offline_durations.values())
         assert durations_list[0] == timedelta(minutes=30), f"Group 1: {durations_list[0]}"
         assert durations_list[1] == timedelta(minutes=30), f"Group 2: {durations_list[1]}"
         assert durations_list[2] == timedelta(hours=1), f"Group 3: {durations_list[2]}"
+
+        # Verify all durations are <= 24 hours
+        for duration in offline_durations.values():
+            assert duration.total_seconds() <= 86400, (
+                f"Group duration {duration} exceeds 24 hours"
+            )
 
 
 # ============================================================================

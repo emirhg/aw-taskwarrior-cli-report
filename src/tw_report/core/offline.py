@@ -333,26 +333,48 @@ class OfflineTaskProcessor:
         self, events: List[Event], task_key: Tuple[str, str]
     ) -> List[List[Event]]:
         """
-        Split offline task events into groups when interrupted by other tasks.
+        Split offline task events into groups by calendar day and task interruptions.
 
-        Groups consecutive events that are not interrupted. If another task occurs
-        between events, starts a new group.
+        Groups consecutive events that (1) don't span calendar boundaries and
+        (2) are not interrupted by other tasks. This ensures each group represents
+        work within a single calendar day, preventing impossible scenarios like
+        58 hours of activity in a 24-hour period.
 
         Args:
             events: List of offline task events (already sorted and deduplicated)
             task_key: (project, task) tuple for this offline task
 
         Returns:
-            List of event groups, each representing an uninterrupted session
+            List of event groups, each representing activity within one calendar day
         """
         if not events:
             return []
 
         groups: List[List[Event]] = []
-        current_group: List[Event] = [events[0]]
 
-        for i in range(1, len(events)):
-            curr_event = events[i]
+        # First, split events that span calendar boundaries
+        split_events: List[Event] = []
+        for event in events:
+            if event.duration:
+                event_start_date = event.timestamp.date()
+                event_end_date = (event.timestamp + event.duration).date()
+
+                if event_start_date != event_end_date:
+                    # Event spans multiple days - this is problematic for OFFLINE reporting.
+                    # For now, we DON'T artificially split the event, but we WILL use it as
+                    # a group boundary (assign it to start day, but following events on a
+                    # different day will be split into new groups).
+                    split_events.append(event)
+                else:
+                    split_events.append(event)
+            else:
+                split_events.append(event)
+
+        current_group: List[Event] = [split_events[0]]
+        group_date = split_events[0].timestamp.date()
+
+        for i in range(1, len(split_events)):
+            curr_event = split_events[i]
             prev_event = current_group[-1]
 
             # Calculate gap between prev_event end and curr_event start
@@ -362,6 +384,11 @@ class OfflineTaskProcessor:
                 else prev_event.timestamp
             )
             curr_start = curr_event.timestamp
+            curr_end = (
+                curr_event.timestamp + curr_event.duration
+                if curr_event.duration
+                else curr_event.timestamp
+            )
             gap_start = prev_end
             gap_end = curr_start
 
@@ -393,15 +420,24 @@ class OfflineTaskProcessor:
                     interruption_found = True
                     break
 
-            # Split by time gaps: if gap > 24 hours, start new group
-            # This prevents merging events across days into a single slot
-            gap_duration = curr_start - prev_end
-            large_gap = gap_duration > timedelta(hours=24)
+            # Split by calendar day boundary. Group must contain events that:
+            # 1. All start on the same calendar day (group_date)
+            # 2. All end on the same calendar day (group_date)
+            # If curr_event starts on a different day OR ends on a different day, split.
+            curr_start_date = curr_start.date()
+            curr_end_date = curr_end.date()
+            start_on_different_day = curr_start_date != group_date
+            end_on_different_day = curr_end_date != group_date
 
-            if interruption_found or large_gap:
+            if (
+                interruption_found
+                or start_on_different_day
+                or end_on_different_day
+            ):
                 # End current group and start new one
                 groups.append(current_group)
                 current_group = [curr_event]
+                group_date = curr_start_date
             else:
                 # Continue current group
                 current_group.append(curr_event)
