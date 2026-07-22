@@ -393,7 +393,12 @@ class OfflineTaskProcessor:
                     interruption_found = True
                     break
 
-            if interruption_found:
+            # Split by time gaps: if gap > 24 hours, start new group
+            # This prevents merging events across days into a single slot
+            gap_duration = curr_start - prev_end
+            large_gap = gap_duration > timedelta(hours=24)
+
+            if interruption_found or large_gap:
                 # End current group and start new one
                 groups.append(current_group)
                 current_group = [curr_event]

@@ -304,13 +304,17 @@ class TestOfflineEdgeCases:
 
         offline_durations, _, _, _ = processor.process()
 
-        # Key assertion: duration should be SUM of events (2 hours),
-        # NOT wall-clock span (June 30 to July 6 = ~150+ hours)
-        for duration in offline_durations.values():
-            assert duration == timedelta(hours=2), (
-                f"OFFLINE task duration should be sum of events (2 hours), "
-                f"not wall-clock span. Got: {duration}"
-            )
+        # Key assertion: events are split by time gaps > 24 hours into separate groups.
+        # Each group's duration = sum of that group's events (not wall-clock span).
+        # With gaps > 24h, we get 3 separate groups: 1h, 30m, 30m
+        assert len(offline_durations) == 3, (
+            f"Expected 3 separate OFFLINE groups (split by 24h+ gaps), "
+            f"got {len(offline_durations)}"
+        )
+        durations_list = sorted(offline_durations.values())
+        assert durations_list[0] == timedelta(minutes=30), f"Group 1: {durations_list[0]}"
+        assert durations_list[1] == timedelta(minutes=30), f"Group 2: {durations_list[1]}"
+        assert durations_list[2] == timedelta(hours=1), f"Group 3: {durations_list[2]}"
 
 
 # ============================================================================
