@@ -464,9 +464,10 @@ class OfflineTaskProcessor:
         # For AFK calculation, we still need a time period.
         # Use the span of actual events for AFK overlap detection.
         wall_clock_start = sorted_events[0].timestamp
-        wall_clock_end = sorted_events[-1].timestamp
-        if wall_clock_end == wall_clock_start:
-            # If all events are at same timestamp, extend slightly for AFK detection
+        last_event = sorted_events[-1]
+        wall_clock_end = last_event.timestamp + (last_event.duration or timedelta(0))
+        if wall_clock_end <= wall_clock_start:
+            # If no duration on last event, extend slightly for AFK detection
             wall_clock_end = wall_clock_start + timedelta(seconds=1)
 
         # Calculate offline vs online time using AFK bucket
@@ -561,10 +562,9 @@ class OfflineTaskProcessor:
 
         project, task = key[0], key[1]
         start_times = [e.timestamp for e in task_events_for_key]
-        end_times = [e.timestamp + e.duration for e in task_events_for_key]
         slot_start = min(start_times)
-        slot_end = max(end_times)
         slot_duration = self.offline_durations.get(key, timedelta(0))
+        slot_end = slot_start + slot_duration
         online_time = self.offline_event_durations.get(key, timedelta(0))
 
         # Get tags from any event in this group
