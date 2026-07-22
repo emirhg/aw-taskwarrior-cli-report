@@ -533,8 +533,8 @@ class OfflineTaskProcessor:
             reconciled_categories.append({
                 "category": "Offline",
                 "duration": offline_remainder,
-                "start": wall_clock_start.astimezone() if hasattr(wall_clock_start, 'astimezone') else wall_clock_start,
-                "end": wall_clock_end.astimezone() if hasattr(wall_clock_end, 'astimezone') else wall_clock_end,
+                "start": wall_clock_start,
+                "end": wall_clock_end,
             })
 
         # Store results
@@ -679,22 +679,15 @@ class OfflineTaskProcessor:
             {
                 "category": "Offline",
                 "duration": slot_duration,
-                "start": slot_start.astimezone(),
-                "end": slot_end.astimezone(),
+                "start": slot_start,
+                "end": slot_end,
             }
         ])
 
-        # Ensure categories are timezone-aware (in case they came from build_categories_from_window_events)
-        for cat in categories:
-            if hasattr(cat.get("start"), "astimezone"):
-                cat["start"] = cat["start"].astimezone()
-            if hasattr(cat.get("end"), "astimezone"):
-                cat["end"] = cat["end"].astimezone()
-
         return {
             "type": "offline_task",
-            "start": slot_start.astimezone(),
-            "end": slot_end.astimezone(),
+            "start": slot_start,
+            "end": slot_end,
             "duration": slot_duration,
             "actual_duration": online_time,
             "event_duration": online_time,
