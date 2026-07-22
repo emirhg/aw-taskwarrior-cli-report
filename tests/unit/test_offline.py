@@ -11,7 +11,11 @@ This file focuses on Issue #1: OFFLINE task duration becomes 0:00:00.
 """
 
 import pytest
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock
+
+from aw_core.models import Event
+from tw_report.core.offline import OfflineTaskProcessor
 
 
 class TestOfflineTaskDetection:
@@ -247,6 +251,53 @@ class TestOfflineEdgeCases:
 
 # ============================================================================
 # OFFLINE PROCESSOR TEST SUMMARY
+    def test_offline_incomplete_event_not_extended_to_report_end(self):
+        """
+        Fix for bug: incomplete OFFLINE tasks (no duration) were extending
+        wall_clock_end to report end time, creating 500+ hour spans.
+
+        This test ensures incomplete events use conservative 1-hour estimate
+        instead of arbitrary report end extension.
+        """
+        # Task event with zero duration (represents incomplete/pending task)
+        # When task has no duration, `if event.duration` evaluates to False/falsy
+        incomplete_task = Event(
+            timestamp=datetime(2026, 6, 29, 21, 31, tzinfo=timezone.utc),
+            duration=timedelta(0),  # ← Zero duration (falsy) - was causing 513+ hours
+            data={
+                "project": "Ecosistema.Habitat.Mantenimiento del hogar.Recamara",
+                "title": "Instalar contactos y apagadores",
+                "uuid": "e7e9d2b1-9f68-484c-ad44-29c9e5889027",
+                "tags": ["OFFLINE"],
+            },
+        )
+
+        # Report spans an entire week (7 days)
+        report_start = datetime(2026, 6, 29, 0, 0, tzinfo=timezone.utc)
+        report_end = datetime(2026, 7, 6, 23, 59, 59, tzinfo=timezone.utc)
+
+        processor = OfflineTaskProcessor(
+            task_events=[incomplete_task],
+            window_events=[],
+            afk_events=[],
+            event_filter=Mock(),
+            end_time=report_end,
+        )
+
+        offline_durations, _, _, _ = processor.process()
+
+        # Key assertion: duration should be 1 hour (conservative estimate),
+        # NOT 168+ hours (entire week span)
+        for duration in offline_durations.values():
+            assert duration < timedelta(hours=10), (
+                f"Incomplete OFFLINE task should have ~1 hour estimate, "
+                f"not {duration} (which spans entire report period)"
+            )
+            assert duration == timedelta(hours=1), (
+                f"Expected 1 hour estimate for incomplete OFFLINE event, got {duration}"
+            )
+
+
 # ============================================================================
 
 """

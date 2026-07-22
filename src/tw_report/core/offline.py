@@ -461,9 +461,13 @@ class OfflineTaskProcessor:
             else:
                 has_incomplete = True
 
-        # If any incomplete event found, extend to report end time
-        if has_incomplete and self.end_time:
-            wall_clock_end = self.end_time
+        # For incomplete events, use a conservative estimate instead of extending
+        # to report end time (which created 500+ hour spans for pending OFFLINE tasks).
+        # Use 1 hour as default placeholder, not arbitrary report end time.
+        if has_incomplete:
+            # If we only have incomplete events, use 1 hour from start as placeholder
+            # (awaiting completion, so we can't know the real end time)
+            wall_clock_end = wall_clock_start + timedelta(hours=1)
 
         wall_clock_duration = wall_clock_end - wall_clock_start
 
