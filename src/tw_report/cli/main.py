@@ -323,6 +323,22 @@ def main():
             if id(rep.event) not in offline_processor.consumed_window_event_ids
         ]
 
+    # Mark window events with offline_extension_duration to show OFFLINE time notation.
+    # For each window event that overlaps with an OFFLINE task period, calculate the overlap
+    # and store it as offline_extension_duration so timeline rendering can display "(HH:MM:SS OFFLINE)".
+    # Note: Use only offline_durations (the aggregated duration per task), not the groups,
+    # to determine if activity occurred during an OFFLINE session. A task is "offline" if we
+    # have an entry for it, regardless of which specific events comprised it.
+    if offline_processor and offline_task_durations:
+        # For each canonical event (window activity), check if active_task is OFFLINE-tagged
+        for rep in canonical_events:
+            active_task = rep.active_task
+            if active_task and task_has_offline_tag(active_task):
+                # This window event occurred during an OFFLINE-tagged task.
+                # Mark the entire window event duration as offline_extension.
+                window_duration = rep.event.duration
+                rep.event.data["offline_extension_duration"] = window_duration
+
     metrics = compute_metrics(
         canonical_events=canonical_events,
         cat_score_map=cat_score_map,

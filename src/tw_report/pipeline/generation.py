@@ -540,6 +540,13 @@ def generate_timeline_data(
                         [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
                     )
 
+            # Calculate total offline_extension_duration from all window events in this slot
+            offline_overlap = timedelta(0)
+            for event_wrapper in events:
+                window_event = event_wrapper["event"]
+                if "offline_extension_duration" in window_event.data:
+                    offline_overlap += window_event.data["offline_extension_duration"]
+
             slot = {
                 "type": "regular",
                 "start": slot_start,
@@ -553,6 +560,8 @@ def generate_timeline_data(
                 "afk_period_end": afk_event.timestamp + afk_event.duration,
                 "tags": task_tags,
             }
+            if offline_overlap.total_seconds() > 0:
+                slot["offline_extension_duration"] = offline_overlap
             if detail_level >= 3 and categories_list:
                 slot["categories"] = categories_list
 
