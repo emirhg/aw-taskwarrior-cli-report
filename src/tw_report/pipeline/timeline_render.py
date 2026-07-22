@@ -409,7 +409,12 @@ def print_timeline_report(
 
         for slot in slots:
             start_dt = slot["start"]
-            slot_duration = slot.get("actual_duration", slot["duration"])
+            # BUGFIX: Use wall-clock duration for calculating display time range, not actual_duration.
+            # actual_duration (from TaskWarrior) can be > wall-clock duration when the task spans
+            # AFK periods or gaps without window events. This caused split logic to calculate
+            # incorrect end times, creating slots like "22:35 - 00:25" when window events only
+            # spanned "22:35 - 23:14".
+            slot_duration = slot["duration"]  # Use actual window event span, not TW task duration
             end_dt = start_dt + slot_duration
 
             start_date = start_dt.date()
@@ -442,10 +447,15 @@ def print_timeline_report(
                 split_slot["start"] = piece_start
                 split_slot["duration"] = piece_duration
 
-                # Proportionally allocate actual_duration and productive_duration
+                # Proportionally allocate actual_duration and productive_duration based on
+                # wall-clock piece size (not TaskWarrior task duration)
                 if slot_duration.total_seconds() > 0:
                     ratio = piece_duration.total_seconds() / slot_duration.total_seconds()
-                    split_slot["actual_duration"] = piece_duration  # Use actual piece duration
+                    # actual_duration proportionally allocated to this day's piece
+                    if "actual_duration" in slot:
+                        split_slot["actual_duration"] = timedelta(
+                            seconds=slot["actual_duration"].total_seconds() * ratio
+                        )
                     if "productive_duration" in slot:
                         split_slot["productive_duration"] = timedelta(
                             seconds=slot["productive_duration"].total_seconds() * ratio
@@ -457,7 +467,8 @@ def print_timeline_report(
                                 seconds=slot[duration_field].total_seconds() * ratio
                             )
                 else:
-                    split_slot["actual_duration"] = piece_duration
+                    if "actual_duration" in slot:
+                        split_slot["actual_duration"] = piece_duration
 
                 split_slots.append(split_slot)
 
