@@ -566,6 +566,22 @@ def main():
         if args.exclude_afk:
             gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
 
+        # BUGFIX: Remove AFK slots for OFFLINE-tagged tasks to prevent overlap with OFFLINE synthetic slots
+        # When a user is AFK during an OFFLINE-tagged task, the OFFLINE synthetic slot already
+        # captures that period with accurate duration. Showing both AFK and OFFLINE slots creates
+        # confusing overlapping entries. Keep AFK-only entries (tasks="NO TASK") and AFK for non-OFFLINE tasks.
+        if offline_task_durations and gap_entries:
+            # Extract the base (project, task) keys from offline_task_durations
+            # (some keys might be 3-tuples with group_idx, so extract first 2 elements)
+            offline_tasks = set()
+            for key in offline_task_durations.keys():
+                offline_tasks.add((key[0], key[1]))
+
+            gap_entries = [
+                g for g in gap_entries
+                if g.get("type") != "afk" or (g.get("project"), g.get("task")) not in offline_tasks
+            ]
+
         # Add gap entries to timeline (auto-sorts on insertion)
         timeline.add_slots([TimelineSlot.from_dict(g) for g in gap_entries])
 

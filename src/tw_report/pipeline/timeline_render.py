@@ -57,7 +57,7 @@ This approach was chosen over fixed-column padding because:
   3. Dynamic padding maintains alignment without truncation
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from itertools import groupby
 import re
