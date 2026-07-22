@@ -821,8 +821,11 @@ def print_timeline_report(
                     gaps_str = ""
                     base_duration = slot_dur_str
                 else:
+                    # For regular slots, display the wall-clock duration (not TaskWarrior duration)
+                    # This ensures the displayed duration matches the time range
+                    display_duration = slot["duration"]
                     gaps_str, base_duration = split_gaps_and_duration(
-                        slot.get("actual_duration", slot["duration"]),
+                        display_duration,
                         slot.get("productive_duration", timedelta(0)),
                         slot.get("afk_duration"),
                     )
@@ -843,18 +846,22 @@ def print_timeline_report(
                 for slot in group_slots:
                     s_start = slot["start"].strftime("%H:%M")
                     s_end = (slot["start"] + slot["duration"]).strftime("%H:%M")
-                    slot_duration = slot.get("actual_duration", slot["duration"])
                     task_name = slot["task"]
                     abbrev_project = abbreviate_project_path(project_name, task_name)
 
                     # Separate gaps from duration for column alignment
                     if slot.get("type") == "afk":
-                        slot_dur_str = format_afk_label(slot_duration)
+                        slot_dur_str = format_afk_label(
+                            slot.get("actual_duration", slot["duration"])
+                        )
                         gaps_str = ""
                         base_duration = slot_dur_str
                     else:
+                        # For regular slots, display the wall-clock duration (not TaskWarrior duration)
+                        # This ensures the displayed duration matches the time range
+                        display_duration = slot["duration"]
                         gaps_str, base_duration = split_gaps_and_duration(
-                            slot_duration,
+                            display_duration,
                             slot.get("productive_duration", timedelta(0)),
                             slot.get("afk_duration"),
                         )
