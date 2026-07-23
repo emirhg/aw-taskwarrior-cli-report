@@ -932,6 +932,15 @@ def print_timeline_report(
                         )
                         gaps_str = ""
                         base_duration = slot_dur_str
+                    elif slot.get("type") == "offline_task":
+                        # For OFFLINE slots, display the actual_duration (online/tracked time)
+                        # The duration field is the wall-clock span (offline+online)
+                        display_duration = slot.get("actual_duration", timedelta(0))
+                        gaps_str, base_duration = split_gaps_and_duration(
+                            display_duration,
+                            slot.get("productive_duration", timedelta(0)),
+                            slot.get("afk_duration"),
+                        )
                     else:
                         # For regular slots, display the wall-clock duration (not TaskWarrior duration)
                         # This ensures the displayed duration matches the time range
