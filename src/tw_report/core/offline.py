@@ -217,34 +217,12 @@ class OfflineTaskProcessor:
 
             unique_events = [by_timestamp[ts] for ts in sorted(by_timestamp.keys())]
 
-            # Filter out spurious events BEFORE splitting
-            # 1. Zero-duration events (but keep events without duration - they're running/incomplete)
-            # 2. Events significantly shorter than median (likely artifacts)
-            significant_events = [
-                e for e in unique_events if e.duration is None or e.duration.total_seconds() > 60
-            ]
+            # OFFLINE-tagged task events are explicit user markers: process all of them.
+            # Unlike general events, OFFLINE events are not noise—they represent complete
+            # work sessions as recorded by TaskWarrior. Don't filter by duration thresholds.
 
-            if not significant_events:
-                continue
-
-            # Calculate median duration (excluding events without duration) for filtering
-            durations_with_values = [
-                e.duration.total_seconds() for e in significant_events if e.duration is not None
-            ]
-            if durations_with_values:
-                durations = sorted(durations_with_values)
-                median_duration = durations[len(durations) // 2]
-                # Keep events that are at least 25% of median duration, PLUS any events without duration
-                filtered_for_split = [
-                    e
-                    for e in significant_events
-                    if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
-                ]
-            else:
-                filtered_for_split = significant_events
-
-            # Split filtered events into groups based on interruptions from other tasks
-            event_groups = self._split_by_task_interruptions(filtered_for_split, key)
+            # Split all unique events into groups based on interruptions from other tasks
+            event_groups = self._split_by_task_interruptions(unique_events, key)
 
             # Process each uninterrupted group separately
             for group_idx, group_events in enumerate(event_groups):
