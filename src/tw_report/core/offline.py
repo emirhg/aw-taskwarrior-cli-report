@@ -482,16 +482,31 @@ class OfflineTaskProcessor:
             # Calculate online time by summing AFK overlaps with EACH TASK EVENT (not the span)
             # This avoids overcounting when task events have gaps between them
 
-            # OPTIMIZATION: Pre-filter AFK events to relevant time window to avoid O(n*m) nested loop
-            # Calculate the span of all task events
-            min_task_time = min(e.timestamp for e in sorted_events)
-            max_task_time = max(e.timestamp + (e.duration or timedelta(0)) for e in sorted_events)
+            # OPTIMIZATION: Filter AFK events to only those that overlap with task events
+            # We fetch all AFK for the period in one fast query, then filter in-memory
+            # to only the windows where tasks exist. This avoids 50+ separate API calls
+            # while still reducing dataset from 1559 to ~50-100 events.
 
-            # Filter AFK events to only those that could overlap with any task event
-            relevant_afk = [
-                afk for afk in self.afk_events
-                if afk.timestamp < max_task_time and (afk.timestamp + afk.duration) > min_task_time
-            ]
+            # Build set of time ranges from task events
+            task_time_ranges = []
+            for event in sorted_events:
+                event_start = event.timestamp
+                event_end = event_start + (event.duration or timedelta(0))
+                # Merge overlapping ranges
+                if task_time_ranges and task_time_ranges[-1][1] >= event_start:
+                    task_time_ranges[-1] = (task_time_ranges[-1][0], max(task_time_ranges[-1][1], event_end))
+                else:
+                    task_time_ranges.append((event_start, event_end))
+
+            # Filter AFK events to only those overlapping task time ranges
+            relevant_afk = []
+            for afk_event in self.afk_events:
+                afk_start = afk_event.timestamp
+                afk_end = afk_start + afk_event.duration
+                for task_start, task_end in task_time_ranges:
+                    if afk_start < task_end and afk_end > task_start:
+                        relevant_afk.append(afk_event)
+                        break  # Already added, no need to check other ranges
 
             online_time = timedelta(0)
             for event in sorted_events:
