@@ -218,20 +218,22 @@ class TestFormatOfflineTaskDuration:
     """
 
     def test_full_offline_time_no_productivity_data(self):
-        """When all time was offline with no productivity data, shows placeholder."""
+        """When all time was offline with no productivity data, don't show productivity."""
         result = format_offline_task_duration(
             timedelta(hours=2), timedelta(0)
         )
         assert "(02:00:00 OFF)" in result
-        assert "[   ---   ]" in result  # No measured productivity data
+        assert "00:00:00" in result
+        assert "[prod" not in result  # No productivity data shown
 
     def test_half_offline_time_no_productivity_data(self):
-        """When half the time was offline with no productivity data."""
+        """When half the time was offline with no productivity data, don't show productivity."""
         result = format_offline_task_duration(
             timedelta(hours=2), timedelta(hours=1)
         )
         assert "(01:00:00 OFF)" in result
-        assert "[   ---   ]" in result  # No measured productivity data
+        assert "01:00:00" in result
+        assert "[prod" not in result  # No productivity data shown
 
     def test_online_with_productivity_data(self):
         """When showing productivity based on measured data."""
@@ -247,7 +249,8 @@ class TestFormatOfflineTaskDuration:
         result = format_offline_task_duration(
             timedelta(0), timedelta(0)
         )
-        assert "[   ---   ]" in result  # No productive data available
+        assert "(00:00:00 OFF)" in result
+        assert "[prod" not in result  # No productivity data
 
 
 class TestGetTerminalWidth:

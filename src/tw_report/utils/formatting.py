@@ -30,25 +30,31 @@ def format_duration(duration: timedelta) -> str:
 def format_duration_tracked_prod(
     tracked_duration: timedelta, productive_within: timedelta
 ) -> str:
-    """Format duration plus [prod NN%] for tracked-slot totals.
+    """Format duration with optional [prod NN%] for tracked-slot totals.
 
-    Shows the duration with productivity percentage in a fixed-width format,
-    right-aligned to enable consistent visual alignment across multiple output lines.
+    Shows the duration with productivity percentage only if productivity exists.
+    If no productive activity, returns just the duration (no placeholder).
 
     Args:
         tracked_duration: Total time tracked in this slot
         productive_within: Time spent on productive activities within the tracked duration
 
     Returns:
-        String formatted as "HH:MM:SS  [prod XXX%]" with right-aligned percentage
-        (e.g., "[prod 100%]", "[prod  53%]", "[prod   3%]")
+        String formatted as "HH:MM:SS  [prod XXX%]" if productive > 0,
+        or just "HH:MM:SS" if no productivity data (no placeholder)
     """
     base = format_duration(tracked_duration)
     if tracked_duration.total_seconds() <= 0:
         return base
-    pct = productive_within.total_seconds() / tracked_duration.total_seconds() * 100
-    label = f"[prod {pct:>3.0f}%]"
-    return f"{base}  {label:>11}"
+
+    # Only show productivity percentage if there's actual productive time
+    if productive_within.total_seconds() > 0:
+        pct = productive_within.total_seconds() / tracked_duration.total_seconds() * 100
+        label = f"[prod {pct:>3.0f}%]"
+        return f"{base}  {label:>11}"
+    else:
+        # No productive time measured - return duration only
+        return base
 
 
 def format_afk_label(duration: timedelta) -> str:
@@ -212,7 +218,6 @@ def format_offline_task_duration(
     online_str = format_duration(event_duration)
 
     # Only show productivity if we have actual measured productive_duration > 0
-    # (productive_duration = 0 means no productivity measured, show placeholder instead)
     if (productive_duration is not None and
         productive_duration.total_seconds() > 0 and
         event_duration.total_seconds() > 0):
@@ -222,11 +227,10 @@ def format_offline_task_duration(
             * 100
         )
         label = f"[prod {pct:>3.0f}%]"
+        return f"({offline_str} OFF)  {online_str}  {label:>11}"
     else:
-        # No measured productivity data available - show empty placeholder
-        label = "[   ---   ]"
-
-    return f"({offline_str} OFF)  {online_str}  {label:>11}"
+        # No measured productivity data - don't show productivity at all
+        return f"({offline_str} OFF)  {online_str}"
 
 
 def get_terminal_width() -> int:
