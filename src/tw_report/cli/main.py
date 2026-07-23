@@ -357,7 +357,8 @@ def main():
 
     # Special case: task-UUID mode or project/task-filter mode (skip window bucket)
     # Convert taskwarrior events directly to canonical events (skip window correlation)
-    if skip_window and task_events:
+    # Also handles AFK optimization mode where window_events are intentionally empty
+    if (skip_window or not window_events) and task_events:
         from tw_report.pipeline.models import ReportEvent
 
         canonical_events = []
