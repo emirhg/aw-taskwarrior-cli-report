@@ -707,9 +707,9 @@ def print_timeline_report(
                         gaps_str = ""
                     base_duration = format_duration_tracked_prod(total_day_with_afk, day_productive)
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                    # Align day total with day date (4 spaces indentation)
-                    left_part = "    Day total:   "
-                    full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
+                    # Day total indented like entries (7 spaces) for pyramid shape
+                    left_part = "       Day total:   "
+                    full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
                     print(full_line.rstrip())
                 if not is_single_day:
                     total_week_with_afk = week_duration + week_afk_duration
@@ -722,7 +722,7 @@ def print_timeline_report(
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
                     # Align week total with week date (4 spaces indentation to match date column)
                     left_part = "    Week total (tracked):  "
-                    full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
+                    full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
                     print(full_line.rstrip())
                 print()
             current_week_key = slot_week
@@ -753,9 +753,9 @@ def print_timeline_report(
                     gaps_str = ""
                 base_duration = format_duration_tracked_prod(total_day_with_afk, day_productive)
                 right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                # Align day total with day date (4 spaces indentation)
-                left_part = "    Day total:   "
-                full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
+                # Day total indented like entries (7 spaces) for pyramid shape
+                left_part = "       Day total:   "
+                full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
                 print(full_line.rstrip())
                 print()
             day_duration = timedelta(0)
@@ -1064,9 +1064,9 @@ def print_timeline_report(
                 gaps_str = ""
             base_duration = format_duration_tracked_prod(total_day_with_afk, day_productive)
             right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-            # Align day total with day date (4 spaces indentation to match date column)
-            left_part = "    Day total:   "
-            full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
+            # Day total indented like entries (7 spaces) for pyramid shape
+            left_part = "       Day total:   "
+            full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
             print(full_line.rstrip())
         total_week_with_afk = week_duration + week_afk_duration
         if not is_single_day:
