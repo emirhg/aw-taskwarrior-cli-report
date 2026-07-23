@@ -300,30 +300,22 @@ def main():
             excluded=_excluded,
         )
 
-    # OFFLINE task reconciliation optimization:
-    # For detail_level <= 2 (no category/app breakdown needed), use AFK events instead of
-    # window events to determine online time. This is faster and avoids fetching thousands
-    # of window events when we only need to know if the system was on/off.
+    # OFFLINE task reconciliation requires window events to determine tracked online time.
+    # If window events were skipped (e.g., when filtering by task UUID), check if we have
+    # OFFLINE-tagged tasks and re-fetch windows if needed.
+    # Unless --exclude-online is set, in which case we intentionally skip online time reporting.
     exclude_online = getattr(args, "exclude_online", False)
-    use_afk_for_reconciliation = False
-
-    if task_events and not exclude_online:
+    if skip_window and task_events and not window_events and not exclude_online:
         has_offline_tasks = any(
             any('offline' in t.lower() for t in e.data.get('tags', []))
             for e in task_events
         )
         if has_offline_tasks:
-            # For detail_level <= 2, we don't need window categorization
-            if args.detail_level <= 2:
-                # Use fast AFK-based reconciliation (system on/off time)
-                use_afk_for_reconciliation = True
-                # Skip windows entirely - AFK events are enough
-            elif skip_window and not window_events:
-                # detail_level > 2 needs categories, so re-fetch windows
-                window_bucket = get_bucket_id("window")
-                window_events = get_events(client, window_bucket, start_time, end_time)
-                for event in window_events:
-                    categorize_event(event, compiled_categories)
+            # Re-fetch windows for OFFLINE task reconciliation
+            window_bucket = get_bucket_id("window")
+            window_events = get_events(client, window_bucket, start_time, end_time)
+            for event in window_events:
+                categorize_event(event, compiled_categories)
 
     # Process OFFLINE task events using the extracted OfflineTaskProcessor
     # This replaces ~150 lines of scattered logic with a clean, testable class
@@ -338,7 +330,6 @@ def main():
             afk_events=afk_events,
             event_filter=event_filter,
             end_time=end_time,
-            use_afk_for_reconciliation=use_afk_for_reconciliation,
         )
         offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
 
