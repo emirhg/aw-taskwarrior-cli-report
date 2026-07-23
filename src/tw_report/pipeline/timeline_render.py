@@ -720,9 +720,9 @@ def print_timeline_report(
                         gaps_str = ""
                     base_duration = format_duration_tracked_prod(total_week_with_afk, week_productive)
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                    # Align week total with week date (4 spaces indentation to match date column)
-                    left_part = "    Week total (tracked):  "
-                    full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
+                    # Week total aligned with week header (0 spaces) for pyramid shape
+                    left_part = "Week total (tracked):  "
+                    full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
                     print(full_line.rstrip())
                 print()
             current_week_key = slot_week
@@ -1077,9 +1077,9 @@ def print_timeline_report(
                 gaps_str = ""
             base_duration = format_duration_tracked_prod(total_week_with_afk, week_productive)
             right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-            # Align week total with week date (4 spaces indentation to match date column)
-            left_part = "    Week total (tracked):  "
-            full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
+            # Week total aligned with week header (0 spaces) for pyramid shape
+            left_part = "Week total (tracked):  "
+            full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
             print(full_line.rstrip())
         print()
 
