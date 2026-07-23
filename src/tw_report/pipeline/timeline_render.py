@@ -707,9 +707,9 @@ def print_timeline_report(
                         gaps_str = ""
                     base_duration = format_duration_tracked_prod(total_day_with_afk, day_productive)
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                    # Day total indented like entries (7 spaces) for pyramid shape
-                    left_part = "       Day total:   "
-                    full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
+                    # Day total indented 10 spaces for pyramid shape
+                    left_part = "          Day total:   "
+                    full_line = left_part.ljust(width - len(right_part) - 12) + "  " + right_part
                     print(full_line.rstrip())
                 if not is_single_day:
                     total_week_with_afk = week_duration + week_afk_duration
