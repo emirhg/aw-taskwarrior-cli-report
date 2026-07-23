@@ -604,6 +604,8 @@ def print_timeline_report(
     day_productive = timedelta(0)
     week_afk_duration = timedelta(0)
     day_afk_duration = timedelta(0)
+    week_offline_duration = timedelta(0)
+    day_offline_duration = timedelta(0)
 
     # Build list of (project, date, slots) for consecutive same-project same-date runs
     # offline_task slots are singletons to break up regular grouping
@@ -697,19 +699,25 @@ def print_timeline_report(
             if current_week_key is not None:
                 print(("-" * 22).rjust(width))
                 if not prev_date_was_rollup:
+                    total_day_with_afk = day_duration + day_afk_duration
+                    offline_str = f"  [offline: {format_duration(day_offline_duration)}]" if day_offline_duration > timedelta(0) else ""
                     print(
                         (
                             "Day total:   "
-                            + format_duration_tracked_prod(day_duration, day_productive)
+                            + format_duration_tracked_prod(total_day_with_afk, day_productive)
+                            + offline_str
                         ).rjust(width)
                     )
                 if not is_single_day:
+                    total_week_with_afk = week_duration + week_afk_duration
+                    offline_str = f"  [offline: {format_duration(week_offline_duration)}]" if week_offline_duration > timedelta(0) else ""
                     print(
                         (
                             "Week total (tracked):  "
                             + format_duration_tracked_prod(
-                                week_duration, week_productive
+                                total_week_with_afk, week_productive
                             )
+                            + offline_str
                         ).rjust(width)
                     )
                 print()
@@ -726,24 +734,29 @@ def print_timeline_report(
             day_productive = timedelta(0)
             week_afk_duration = timedelta(0)
             day_afk_duration = timedelta(0)
+            week_offline_duration = timedelta(0)
+            day_offline_duration = timedelta(0)
             prev_date_was_rollup = False
         elif group_date != current_date:
             # Date changed within same week: close previous day
             if not prev_date_was_rollup:
                 print(("-" * 22).rjust(width))
                 total_day_with_afk = day_duration + day_afk_duration
+                offline_str = f"  [offline: {format_duration(day_offline_duration)}]" if day_offline_duration > timedelta(0) else ""
                 print(
                     (
                         "Day total:   "
                         + format_duration_tracked_prod(
                             total_day_with_afk, day_productive
                         )
+                        + offline_str
                     ).rjust(width)
                 )
                 print()
             day_duration = timedelta(0)
             day_productive = timedelta(0)
             day_afk_duration = timedelta(0)
+            day_offline_duration = timedelta(0)
             date_str = group_date.strftime("%Y-%m-%d")
             day_str = group_date.strftime("%a")
             # Align same-week dates: 4 spaces + date + day
@@ -792,7 +805,7 @@ def print_timeline_report(
             # Add asterisk prefix to offline task name for easy spotting
             offline_task_name = f"*{task_name}"
 
-            time_range = f"{start_str} - {end_str}"
+            time_range = f"{start_str} - {end_str}".ljust(15)  # Pad for column alignment
             print(format_timeline_columns(
                 time_range=time_range,
                 project=abbrev_project,
@@ -807,6 +820,10 @@ def print_timeline_report(
             week_duration += event_duration
             day_afk_duration += timedelta(0)  # offline tasks don't have AFK time
             week_afk_duration += timedelta(0)
+            # Accumulate offline duration (wall_clock - actual_tracked)
+            offline_ext = wall_clock_duration - event_duration
+            day_offline_duration += offline_ext
+            week_offline_duration += offline_ext
 
             # offline_task slots are handled above, skip the regular group handling below
             continue
@@ -858,7 +875,7 @@ def print_timeline_report(
                 gaps_str, base_duration = split_gaps_and_duration(
                     group_total_duration, group_productive_duration, group_afk_duration
                 )
-                time_range = f"{start_str}-{end_str}"
+                time_range = f"{start_str}-{end_str}".ljust(15)  # Pad for column alignment
                 # Print date prefix on separate line if available, then content below
                 if pending_date_prefix is not None:
                     print(pending_date_prefix)
@@ -1035,18 +1052,22 @@ def print_timeline_report(
         print(("-" * 22).rjust(width))
         if not prev_date_was_rollup:
             total_day_with_afk = day_duration + day_afk_duration
+            offline_str = f"  [offline: {format_duration(day_offline_duration)}]" if day_offline_duration > timedelta(0) else ""
             print(
                 (
                     "Day total:   "
                     + format_duration_tracked_prod(total_day_with_afk, day_productive)
+                    + offline_str
                 ).rjust(width)
             )
         total_week_with_afk = week_duration + week_afk_duration
         if not is_single_day:
+            offline_str = f"  [offline: {format_duration(week_offline_duration)}]" if week_offline_duration > timedelta(0) else ""
             print(
                 (
                     "Week total (tracked):  "
                     + format_duration_tracked_prod(total_week_with_afk, week_productive)
+                    + offline_str
                 ).rjust(width)
             )
         print()
