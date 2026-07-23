@@ -414,6 +414,7 @@ def print_timeline_report(
         last_break_end=last_break_end,
         last_break_duration=last_break_duration,
         total_offline_time=total_offline_time,
+        total_time_all=total_time_all,
     )
 
     if not slots:
@@ -1141,6 +1142,7 @@ def print_period_consolidated_report(
         last_break_end=kwargs.get("last_break_end"),
         last_break_duration=kwargs.get("last_break_duration"),
         total_offline_time=total_offline,
+        total_time_all=total_all,
     )
 
     if not slots:

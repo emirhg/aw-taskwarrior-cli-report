@@ -41,6 +41,7 @@ def print_report_summary(
     last_break_end: Optional[datetime] = None,
     last_break_duration: Optional[timedelta] = None,
     total_offline_time: Optional[timedelta] = None,
+    total_time_all: Optional[timedelta] = None,
 ) -> None:
     """Print report header with SUMMARY section at the top.
 
@@ -81,18 +82,14 @@ def print_report_summary(
     print(f"Period{' ' * (32 - 6)}{period} ({start_time.date()} to {end_time.date()})")
 
     if non_afk_time and first_event_time and last_event_time:
-        # Calculate total tracking time: span from first to last activity
-        # This includes all online time, AFK time, and offline time for accurate percentage calculation
-        # For tasks with actual_duration > (online + offline), use the actual span as the denominator
-        total_offline_duration = total_offline_time if total_offline_time else timedelta(0)
-        total_tracking_time = non_afk_time + total_offline_duration
-
-        # If percentages would exceed 100% with the calculated total, use the span from first to last event
-        # This handles cases where TaskWarrior task durations exceed window event coverage
-        if last_event_time > first_event_time:
-            time_span = last_event_time - first_event_time
-            if time_span > total_tracking_time:
-                total_tracking_time = time_span
+        # Calculate total tracking time for percentage denominator
+        # Prefer total_time_all (includes AFK, non-AFK, and offline) for accurate percentages
+        # Fallback to non_afk_time + offline_time if total_time_all unavailable
+        if total_time_all and total_time_all > timedelta(0):
+            total_tracking_time = total_time_all
+        else:
+            total_offline_duration = total_offline_time if total_offline_time else timedelta(0)
+            total_tracking_time = non_afk_time + total_offline_duration
 
         # Display online time only (clarify it's not total)
         online_time_str = format_duration(non_afk_time)
