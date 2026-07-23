@@ -132,6 +132,15 @@ def split_slots_spanning_days(slots: List[Dict[str, Any]]) -> List[Dict[str, Any
             split_slots.append(slot)
             continue
 
+        # Guard against pathological cases: if a slot spans > 100 days (e.g., entire :all period),
+        # skip per-day splitting to avoid 20,000+ loop iterations which takes 90+ seconds.
+        # This can happen if an AFK or merged event accidentally spans the entire query period.
+        day_span = (end_date - start_date).days
+        if day_span > 100:
+            # For huge spans, keep the slot as-is instead of iterating day-by-day
+            split_slots.append(slot)
+            continue
+
         # Slot spans multiple days — split it
         current_dt = start_dt
 
@@ -442,6 +451,13 @@ def print_timeline_report(
 
             # If slot stays within same day, keep as-is
             if start_date == end_date:
+                split_slots.append(slot)
+                continue
+
+            # Guard against pathological cases: if a slot spans > 100 days (e.g., entire :all period),
+            # skip per-day splitting to avoid 20,000+ loop iterations which takes 90+ seconds.
+            day_span = (end_date - start_date).days
+            if day_span > 100:
                 split_slots.append(slot)
                 continue
 

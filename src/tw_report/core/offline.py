@@ -481,12 +481,24 @@ class OfflineTaskProcessor:
             # AFK-based optimization (detail_level <= 2): no category detail needed
             # Calculate online time by summing AFK overlaps with EACH TASK EVENT (not the span)
             # This avoids overcounting when task events have gaps between them
+
+            # OPTIMIZATION: Pre-filter AFK events to relevant time window to avoid O(n*m) nested loop
+            # Calculate the span of all task events
+            min_task_time = min(e.timestamp for e in sorted_events)
+            max_task_time = max(e.timestamp + (e.duration or timedelta(0)) for e in sorted_events)
+
+            # Filter AFK events to only those that could overlap with any task event
+            relevant_afk = [
+                afk for afk in self.afk_events
+                if afk.timestamp < max_task_time and (afk.timestamp + afk.duration) > min_task_time
+            ]
+
             online_time = timedelta(0)
             for event in sorted_events:
                 event_start = event.timestamp
                 event_end = event_start + (event.duration or timedelta(0))
-                # Sum AFK overlaps for this specific event
-                for afk_event in self.afk_events:
+                # Sum AFK overlaps for this specific event (using pre-filtered AFK list)
+                for afk_event in relevant_afk:
                     afk_start = afk_event.timestamp
                     afk_end = afk_start + afk_event.duration
                     if afk_start < event_end and afk_end > event_start:
