@@ -236,13 +236,17 @@ def main():
         afk_events = []
     elif use_afk_optimization:
         # AFK optimization: skip windows, fetch AFK for OFFLINE reconciliation
-        # Must fetch complete AFK data for entire period to avoid breaking overlap calculation.
-        # The issue: time-range optimization assumes AFK events are contained within task
-        # event windows, but AFK events can extend across task boundaries, causing
-        # negative offline time when overlap calculation uses incomplete AFK data.
+        # Now that AFK overlap is calculated per-task-event (not per span), we can use
+        # time-range optimization to fetch AFK only for windows where tasks exist.
+        # This makes --task <uuid> --timesheet :all fast (seconds instead of minutes).
         window_events = []
-        afk_bucket = get_bucket_id("afk")
-        afk_events = get_events(client, afk_bucket, start_time, end_time)
+        if task_time_ranges:
+            # Smart optimization: only fetch AFK for times when tasks exist
+            afk_events = _fetch_events_for_ranges(client, "afk", task_time_ranges)
+        else:
+            # Fallback: fetch all AFK for the period
+            afk_bucket = get_bucket_id("afk")
+            afk_events = get_events(client, afk_bucket, start_time, end_time)
     else:
         # Normal case: fetch both windows and AFK for category detail
         if task_time_ranges:
