@@ -201,12 +201,84 @@ Run with: `python debug_*.py`
 - **docs/PROJECT_FILTER_RESOLUTION.md** — Project ID/UUID auto-detection
 - **index.txt** — File-by-file navigation and hot spots
 
+## Performance Optimization Patterns & Learnings
+
+### How to Diagnose Performance Issues (Critical Workflow)
+
+**Real example: 95-second command reduced to 10 seconds (10x speedup)**
+
+When a command is unexpectedly slow:
+
+1. **Add instrumentation at entry/exit of major functions** (use `time.perf_counter()`)
+   - Don't just profile the entire command — you'll get time spent inside AW client initialization, network calls, etc.
+   - Add timing around data fetching, processing stages, and rendering
+   - This will immediately reveal where the 100+ seconds are actually going
+
+2. **Follow the data, not your assumptions**
+   - Initial belief: "AFK optimization isn't working, need to optimize rendering"
+   - Reality after profiling: "generate_gap_entries is spending 2.8s on build_categories_from_window_events()"
+   - Deeper profiling: "It's iterating through 186,279 window events 4 times"
+   - Root cause: "OFFLINE task reconciliation is re-fetching the entire period's windows (1970-2026)"
+
+3. **Look for secondary fetches that bypass optimizations**
+   - Optimization 1 (AFK): Skip windows entirely for detail_level ≤ 2 ✅
+   - Optimization 2 (Time-range): Fetch windows only for task time windows ✅
+   - **Bug**: Code path for OFFLINE task reconciliation was re-fetching windows for entire period ✅ FOUND THE BUG
+   - Lesson: When an optimization exists but doesn't deliver expected speedup, check if a secondary code path bypasses it
+
+4. **Reuse existing patterns instead of creating new logic**
+   - The fix didn't invent a new optimization strategy
+   - It reused `_fetch_events_for_ranges(client, "window", task_time_ranges)` that already existed
+   - Cost: 1 conditional check + reuse existing function = 6 lines changed
+   - Result: 186K → 1.9K events (99% reduction), 95s → 10s
+
+### Key Insights for Future Performance Work
+
+**Time-range optimization is powerful for sparse data over large periods**
+- When filtering by task UUID over `:year` or `:all` period:
+  - Task events are sparse (71 events over 56 years)
+  - Tasks occur in ~50 disjoint time windows
+  - Fetching window events for entire period: 100K+ events
+  - Fetching window events only for task windows: 1-5K events
+  - This explains why the fix was 10x faster
+
+**The unaccounted time is the real bottleneck**
+- Initial profiling showed 3s accounted, 102s unaccounted
+- The 3s was rendering (fast after optimization)
+- The 102s was in data fetching (what we actually needed to optimize)
+- Lesson: If profiling accounts for <50% of total time, the missing time is where the problem is
+
+**Check all code paths when optimizations seem broken**
+- AFK optimization path: working correctly (skip windows, use AFK)
+- OFFLINE reconciliation path: re-fetching windows anyway, undoing the optimization
+- These paths only intersect when OFFLINE-tagged tasks exist
+- Lesson: Test optimizations with realistic data (this project has all tasks tagged "offline")
+
+**Don't commit to algorithmic fixes too quickly**
+- Initial hypothesis: "generate_gap_entries is doing something expensive with 30 AFK events"
+- Truth: "generate_gap_entries is fine; it's iterating through 186K window events"
+- The code was already fast — it just had too much data
+- Lesson: Measure first, optimize data volume before optimizing algorithms
+
+### When to Apply This Pattern
+
+Use this approach when:
+- User reports "command X is taking too long" (subjectively slow, no clear reason)
+- Optimization exists but doesn't seem to help
+- Large time periods (`:year`, `:all`) are slow but short periods (`:today`) are fast
+- The slow command is rare/optional (not on critical path)
+
+Don't use this for:
+- Obvious algorithmic problems (O(n²) when O(n) is possible)
+- Known bottlenecks (database queries, network roundtrips without batching)
+- Regression diagnosis (use git bisect instead)
+
 ## When to Escalate
 
 - **Agent type mismatch**: Use **implementer** for code changes, **planner** for design, **documentation** for task lifecycle moves, **version_control** for commit message reviews.
 - **Multi-step refactors**: Use **workspace** agent for parallel-development (worktree) setup.
 - **New report types**: Use **planner** to review design before **implementer** codes it.
-- **Performance issues**: Profile first (`debug_profile.py`), then decide between algorithm or architectural fixes.
+- **Performance issues**: Add timing instrumentation first; follow the data to the real bottleneck; reuse existing patterns.
 
 ## Contact & Feedback
 
