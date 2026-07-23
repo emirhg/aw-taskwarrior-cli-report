@@ -26,6 +26,11 @@ from tw_report.pipeline.processors import window_event_productive_duration
 from tw_report.utils.formatting import normalize_title, sanitize_title
 
 
+# Minimum duration threshold for including window events in timeline
+# Events shorter than this are considered ActivityWatch tracking noise
+MIN_EVENT_DURATION = timedelta(seconds=30)
+
+
 def _merge_overlapping_events(events: List[Event]) -> List[Event]:
     """Merge overlapping events by taking the union of their time ranges.
 
@@ -242,9 +247,9 @@ def generate_timeline_data(
 
         for report_event in window_in_slot:
             event = report_event["event"]
-            # Skip zero-duration and very brief events (< 10 seconds - likely noise from AW tracking)
+            # Skip zero-duration and very brief events (< MIN_EVENT_DURATION - likely noise from AW tracking)
             # These create visual clutter in the timeline without meaningful activity information
-            if event.duration < timedelta(seconds=10):
+            if event.duration < MIN_EVENT_DURATION:
                 continue
 
             task_name = report_event["task"]
