@@ -160,8 +160,11 @@ def main():
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
 
     # Determine if window bucket queries can be skipped
-    # Task UUID mode always skips window/AFK buckets
-    skip_window = task_uuid or should_skip_window_bucket(args, args.detail_level)
+    # Note: Do NOT skip windows for task_uuid filtering, as OFFLINE task reconciliation
+    # requires window events to determine tracked online time during offline work sessions.
+    # The optimization of skipping windows for single-task queries is not worth breaking OFFLINE reconciliation.
+    skip_window = should_skip_window_bucket(args, args.detail_level)
+
 
     # When filtering by task UUID or project, skip window and AFK buckets (no app-level data needed)
     if skip_window:
@@ -296,6 +299,21 @@ def main():
             matches_any=_matches_any,
             excluded=_excluded,
         )
+
+    # OFFLINE task reconciliation requires window events to determine tracked online time.
+    # If window events were skipped (e.g., when filtering by task UUID), check if we have
+    # OFFLINE-tagged tasks and re-fetch windows if needed.
+    if skip_window and task_events and not window_events:
+        has_offline_tasks = any(
+            any('offline' in t.lower() for t in e.data.get('tags', []))
+            for e in task_events
+        )
+        if has_offline_tasks:
+            # Re-fetch windows for OFFLINE task reconciliation
+            window_bucket = get_bucket_id("window")
+            window_events = get_events(client, window_bucket, start_time, end_time)
+            for event in window_events:
+                categorize_event(event, compiled_categories)
 
     # Process OFFLINE task events using the extracted OfflineTaskProcessor
     # This replaces ~150 lines of scattered logic with a clean, testable class
@@ -498,6 +516,7 @@ def main():
             search_value = getattr(args, "search", None)
             has_filters = bool(search_value or args.project or args.task or args.app)
 
+        
             # Iterate through offline tasks (keys can be 2-element or 3-element tuples)
             if task_events:
                 for key, offline_duration in offline_task_durations.items():
