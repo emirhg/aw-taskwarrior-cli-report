@@ -293,7 +293,7 @@ def build_categories_from_window_events(
                 if app_name not in categories[cat]["apps"]:
                     categories[cat]["apps"][app_name] = {
                         "app": app_name,
-                        "duration": timedelta(0),
+                        "duration": overlap_duration,
                         "start": overlap_start,
                         "end": overlap_end,
                         "titles": {},
@@ -326,8 +326,6 @@ def build_categories_from_window_events(
                     if "events" not in title_data:
                         title_data["events"] = []
                     title_data["events"].append(window_event)
-
-                categories[cat]["apps"][app_name]["duration"] += overlap_duration
 
     # Convert categories dict to list format for consistency with regular slots
     merged_categories = []
