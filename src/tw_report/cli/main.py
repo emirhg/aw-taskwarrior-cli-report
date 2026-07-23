@@ -159,16 +159,17 @@ def main():
     categories_json = load_categories(args.categories)
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
 
-    # Determine if window bucket queries can be skipped
+    # Determine if window bucket queries can be skipped for general filtering
     skip_window = should_skip_window_bucket(args, args.detail_level)
 
     # AFK-based optimization for detail_level <= 2:
     # When we don't need category/app/title detail, skip expensive window bucket fetch
     # and use AFK events for OFFLINE task reconciliation (much faster).
-    use_afk_optimization = not skip_window and args.detail_level <= 2 and args.timesheet
+    use_afk_optimization = args.detail_level <= 2 and args.timesheet
 
-    # When filtering by task UUID or project, skip window and AFK buckets (no app-level data needed)
-    if skip_window:
+    # Fetch events based on optimization and filtering strategy
+    if skip_window and not use_afk_optimization:
+        # Skip both windows and AFK (extreme filtering case, not OFFLINE reconciliation needed)
         window_events = []
         afk_events = []
     elif use_afk_optimization:
@@ -177,6 +178,7 @@ def main():
         afk_bucket = get_bucket_id("afk")
         afk_events = get_events(client, afk_bucket, start_time, end_time)
     else:
+        # Normal case: fetch both windows and AFK for category detail
         window_bucket = get_bucket_id("window")
         window_events = get_events(client, window_bucket, start_time, end_time)
 
