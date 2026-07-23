@@ -701,25 +701,19 @@ def print_timeline_report(
                 if not prev_date_was_rollup:
                     total_day_with_afk = day_duration + day_afk_duration
                     offline_str = f"  [offline: {format_duration(day_offline_duration)}]" if day_offline_duration > timedelta(0) else ""
-                    print(
-                        (
-                            "Day total:   "
-                            + format_duration_tracked_prod(total_day_with_afk, day_productive)
-                            + offline_str
-                        ).rjust(width)
-                    )
+                    duration_str = format_duration_tracked_prod(total_day_with_afk, day_productive) + offline_str
+                    # Align with entry times: left part + right-aligned duration
+                    left_part = "Day total:   "
+                    full_line = left_part.ljust(width - len(duration_str) - 2) + "  " + duration_str
+                    print(full_line.rstrip())
                 if not is_single_day:
                     total_week_with_afk = week_duration + week_afk_duration
                     offline_str = f"  [offline: {format_duration(week_offline_duration)}]" if week_offline_duration > timedelta(0) else ""
-                    print(
-                        (
-                            "Week total (tracked):  "
-                            + format_duration_tracked_prod(
-                                total_week_with_afk, week_productive
-                            )
-                            + offline_str
-                        ).rjust(width)
-                    )
+                    duration_str = format_duration_tracked_prod(total_week_with_afk, week_productive) + offline_str
+                    # Align with entry times: left part + right-aligned duration
+                    left_part = "Week total (tracked):  "
+                    full_line = left_part.ljust(width - len(duration_str) - 2) + "  " + duration_str
+                    print(full_line.rstrip())
                 print()
             current_week_key = slot_week
             week_number = group_slots[0]["start"].isocalendar()[1]
@@ -743,15 +737,11 @@ def print_timeline_report(
                 print(("-" * 22).rjust(width))
                 total_day_with_afk = day_duration + day_afk_duration
                 offline_str = f"  [offline: {format_duration(day_offline_duration)}]" if day_offline_duration > timedelta(0) else ""
-                print(
-                    (
-                        "Day total:   "
-                        + format_duration_tracked_prod(
-                            total_day_with_afk, day_productive
-                        )
-                        + offline_str
-                    ).rjust(width)
-                )
+                duration_str = format_duration_tracked_prod(total_day_with_afk, day_productive) + offline_str
+                # Align with entry times: left part + right-aligned duration
+                left_part = "Day total:   "
+                full_line = left_part.ljust(width - len(duration_str) - 2) + "  " + duration_str
+                print(full_line.rstrip())
                 print()
             day_duration = timedelta(0)
             day_productive = timedelta(0)
@@ -1053,23 +1043,19 @@ def print_timeline_report(
         if not prev_date_was_rollup:
             total_day_with_afk = day_duration + day_afk_duration
             offline_str = f"  [offline: {format_duration(day_offline_duration)}]" if day_offline_duration > timedelta(0) else ""
-            print(
-                (
-                    "Day total:   "
-                    + format_duration_tracked_prod(total_day_with_afk, day_productive)
-                    + offline_str
-                ).rjust(width)
-            )
+            duration_str = format_duration_tracked_prod(total_day_with_afk, day_productive) + offline_str
+            # Align with entry times: left part + right-aligned duration
+            left_part = "Day total:   "
+            full_line = left_part.ljust(width - len(duration_str) - 2) + "  " + duration_str
+            print(full_line.rstrip())
         total_week_with_afk = week_duration + week_afk_duration
         if not is_single_day:
             offline_str = f"  [offline: {format_duration(week_offline_duration)}]" if week_offline_duration > timedelta(0) else ""
-            print(
-                (
-                    "Week total (tracked):  "
-                    + format_duration_tracked_prod(total_week_with_afk, week_productive)
-                    + offline_str
-                ).rjust(width)
-            )
+            duration_str = format_duration_tracked_prod(total_week_with_afk, week_productive) + offline_str
+            # Align with entry times: left part + right-aligned duration
+            left_part = "Week total (tracked):  "
+            full_line = left_part.ljust(width - len(duration_str) - 2) + "  " + duration_str
+            print(full_line.rstrip())
         print()
 
     # Print TOTALS at bottom
