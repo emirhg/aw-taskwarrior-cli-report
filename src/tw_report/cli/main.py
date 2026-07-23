@@ -5,10 +5,11 @@ Handles all argument parsing, data fetching, processing, and report generation.
 """
 
 import sys
-from datetime import timedelta
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
 from aw_client import ActivityWatchClient
+from aw_core.models import Event
 from aw_transform import filter_keyvals
 
 from tw_report.cli.args import parse_args, parse_positional_args
@@ -75,6 +76,52 @@ def _excluded(name: str, exclusions: Optional[List[str]]) -> bool:
     if not exclusions:
         return False
     return any(excl.lower() in name.lower() for excl in exclusions)
+
+
+def _get_time_ranges_from_events(events: List[Event]) -> List[Tuple[datetime, datetime]]:
+    """Extract non-overlapping time ranges from a list of events.
+
+    Merges overlapping or adjacent events into continuous time windows.
+    Used to optimize AFK/window fetching by only querying times when task events exist.
+    """
+    if not events:
+        return []
+
+    # Sort by start time
+    sorted_events = sorted(events, key=lambda e: e.timestamp)
+    ranges = []
+
+    for event in sorted_events:
+        event_start = event.timestamp
+        event_end = event.timestamp + event.duration
+
+        if ranges and ranges[-1][1] >= event_start:
+            # Overlapping or adjacent: merge
+            ranges[-1] = (ranges[-1][0], max(ranges[-1][1], event_end))
+        else:
+            # New range
+            ranges.append((event_start, event_end))
+
+    return ranges
+
+
+def _fetch_events_for_ranges(
+    client: ActivityWatchClient,
+    bucket_name: str,
+    time_ranges: List[Tuple[datetime, datetime]],
+) -> List[Event]:
+    """Fetch events from specified bucket for multiple time ranges.
+
+    More efficient than fetching for entire period when events are sparse.
+    """
+    events = []
+    bucket_id = get_bucket_id(bucket_name)
+    for start, end in time_ranges:
+        # Add small buffer (1 second) to ensure boundary events are included
+        buffer = timedelta(seconds=1)
+        range_events = get_events(client, bucket_id, start - buffer, end + buffer)
+        events.extend(range_events)
+    return events
 
 
 def main():
@@ -159,6 +206,21 @@ def main():
     categories_json = load_categories(args.categories)
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
 
+    # Smart optimization: when filtering by task UUID, fetch task events FIRST,
+    # then only fetch AFK/window events for the time ranges where tasks exist.
+    # This dramatically reduces data volume for sparse task data.
+    task_events_early = None
+    task_time_ranges = None
+    if task_uuid and not args.no_taskwarrior:
+        # Fetch task events first to determine what time windows we care about
+        task_bucket = get_bucket_id("taskwarrior")
+        task_events_early = get_events_by_uuid(
+            client, task_bucket, start_time, end_time, task_uuid
+        )
+        if task_events_early:
+            # Extract time ranges: only fetch AFK/window during these windows
+            task_time_ranges = _get_time_ranges_from_events(task_events_early)
+
     # Determine if window bucket queries can be skipped for general filtering
     skip_window = should_skip_window_bucket(args, args.detail_level)
 
@@ -174,22 +236,34 @@ def main():
         afk_events = []
     elif use_afk_optimization:
         # AFK optimization: skip windows, fetch AFK for OFFLINE reconciliation
+        # NOTE: Don't use time range optimization with AFK fetch, as incomplete AFK data
+        # breaks online/offline calculation. Always fetch complete AFK for the period.
         window_events = []
         afk_bucket = get_bucket_id("afk")
         afk_events = get_events(client, afk_bucket, start_time, end_time)
     else:
         # Normal case: fetch both windows and AFK for category detail
-        window_bucket = get_bucket_id("window")
-        window_events = get_events(client, window_bucket, start_time, end_time)
+        if task_time_ranges:
+            # Smart optimization: only fetch windows/AFK for times when tasks exist
+            # This dramatically reduces data volume for sparse task data (e.g., :year, :all)
+            window_events = _fetch_events_for_ranges(client, "window", task_time_ranges)
+            # Categorize all window events (including those during AFK periods)
+            for event in window_events:
+                categorize_event(event, compiled_categories)
+            afk_events = _fetch_events_for_ranges(client, "afk", task_time_ranges)
+        else:
+            # Normal: fetch for entire period
+            window_bucket = get_bucket_id("window")
+            window_events = get_events(client, window_bucket, start_time, end_time)
 
-        # Categorize all window events (including those during AFK periods)
-        # This ensures generate_gap_entries can extract categories for AFK slot details
-        for event in window_events:
-            categorize_event(event, compiled_categories)
+            # Categorize all window events (including those during AFK periods)
+            # This ensures generate_gap_entries can extract categories for AFK slot details
+            for event in window_events:
+                categorize_event(event, compiled_categories)
 
-        # Fetch AFK events (needed for filtering AFK time or for --timesheet)
-        afk_bucket = get_bucket_id("afk")
-        afk_events = get_events(client, afk_bucket, start_time, end_time)
+            # Fetch AFK events (needed for filtering AFK time or for --timesheet)
+            afk_bucket = get_bucket_id("afk")
+            afk_events = get_events(client, afk_bucket, start_time, end_time)
 
     # Merge any overlapping not-afk periods (data quality fix)
     afk_events = merge_overlapping_afk_periods(afk_events)
@@ -234,17 +308,15 @@ def main():
                 last_break_end = current_start.astimezone()
                 last_break_duration = current_start - previous_end
 
-    task_events = None
+    task_events = task_events_early  # Use pre-fetched task events if available
     is_task_based_report = not args.no_taskwarrior
 
-    if is_task_based_report:
+    if is_task_based_report and task_events is None:
         task_bucket = get_bucket_id("taskwarrior")
         # Apply bucket-level filtering based on query type
         if task_uuid:
-            # Task UUID mode: filter by UUID
-            task_events = get_events_by_uuid(
-                client, task_bucket, start_time, end_time, task_uuid
-            )
+            # Task UUID mode: filter by UUID (already fetched early, skip)
+            task_events = task_events_early
         elif skip_window and args.project:
             # Project filter mode (window skipped): filter by project at bucket level
             task_events = get_events_by_project(
