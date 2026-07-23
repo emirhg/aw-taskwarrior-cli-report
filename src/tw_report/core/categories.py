@@ -200,6 +200,11 @@ def categorize_event(
         matched_cats.sort(key=lambda x: (-x[0], x[1]))
         # Store the most specific matching category
         event.data["$category"] = [matched_cats[0][1]]
+    else:
+        # No matching category: assign "Uncategorized"
+        # This ensures all window events contribute to coverage calculations
+        # (e.g., OFFLINE task reconciliation), not just those with explicit rules
+        event.data["$category"] = ["Uncategorized"]
 
 
 def build_categories_from_window_events(
