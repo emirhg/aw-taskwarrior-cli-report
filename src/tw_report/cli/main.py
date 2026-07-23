@@ -404,8 +404,12 @@ def main():
         )
         if has_offline_tasks:
             # Re-fetch windows for OFFLINE task reconciliation
-            window_bucket = get_bucket_id("window")
-            window_events = get_events(client, window_bucket, start_time, end_time)
+            # Optimization: use task_time_ranges if available to avoid fetching entire period
+            if task_time_ranges:
+                window_events = _fetch_events_for_ranges(client, "window", task_time_ranges)
+            else:
+                window_bucket = get_bucket_id("window")
+                window_events = get_events(client, window_bucket, start_time, end_time)
             for event in window_events:
                 categorize_event(event, compiled_categories)
 
