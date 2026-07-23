@@ -663,7 +663,7 @@ class OfflineTaskProcessor:
             return {}
 
         project, task = key[0], key[1]
-        start_times = [e.timestamp for e in task_events_for_key]
+        start_times = [e.timestamp.astimezone() for e in task_events_for_key]
         slot_start = min(start_times)
         slot_duration = self.offline_durations.get(key, timedelta(0))
         slot_end = slot_start + slot_duration
