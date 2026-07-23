@@ -465,31 +465,10 @@ class OfflineTaskProcessor:
         if not group_events:
             return
 
-        # Filter out spurious events
-        significant_events = [
-            e for e in group_events if e.duration is None or e.duration.total_seconds() > 60
-        ]
-
-        if not significant_events:
-            return
-
-        # Calculate median duration (excluding events without duration)
-        durations_with_values = [
-            e.duration.total_seconds() for e in significant_events if e.duration is not None
-        ]
-
-        # Keep events that are at least 25% of median duration, plus incomplete events
-        if durations_with_values:
-            durations = sorted(durations_with_values)
-            median_duration = durations[len(durations) // 2]
-            sorted_events = [
-                e
-                for e in significant_events
-                if e.duration is None or e.duration.total_seconds() >= median_duration * 0.25
-            ]
-            sorted_events = sorted(sorted_events, key=lambda e: e.timestamp)
-        else:
-            sorted_events = sorted(significant_events, key=lambda e: e.timestamp)
+        # OFFLINE-tagged task events are explicit user markers: process all of them.
+        # Unlike general events, OFFLINE events are not noise—they represent complete
+        # work sessions as recorded by TaskWarrior. Sort them by timestamp and process.
+        sorted_events = sorted(group_events, key=lambda e: e.timestamp)
 
         if not sorted_events:
             return
