@@ -707,9 +707,9 @@ def print_timeline_report(
                         gaps_str = ""
                     base_duration = format_duration_tracked_prod(total_day_with_afk, day_productive)
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                    # Align with entry times: left part + right-aligned duration
+                    # Shift day total 5 spaces to the left for visual distinction
                     left_part = "Day total:   "
-                    full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+                    full_line = left_part.ljust(width - len(right_part) - 2 - 5) + "  " + right_part
                     print(full_line.rstrip())
                 if not is_single_day:
                     total_week_with_afk = week_duration + week_afk_duration
@@ -720,9 +720,9 @@ def print_timeline_report(
                         gaps_str = ""
                     base_duration = format_duration_tracked_prod(total_week_with_afk, week_productive)
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                    # Align with entry times: left part + right-aligned duration
+                    # Shift week total 10 spaces to the left for visual distinction
                     left_part = "Week total (tracked):  "
-                    full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+                    full_line = left_part.ljust(width - len(right_part) - 2 - 10) + "  " + right_part
                     print(full_line.rstrip())
                 print()
             current_week_key = slot_week
@@ -753,9 +753,9 @@ def print_timeline_report(
                     gaps_str = ""
                 base_duration = format_duration_tracked_prod(total_day_with_afk, day_productive)
                 right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                # Align with entry times: left part + right-aligned duration
+                # Shift day total 5 spaces to the left for visual distinction
                 left_part = "Day total:   "
-                full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+                full_line = left_part.ljust(width - len(right_part) - 2 - 5) + "  " + right_part
                 print(full_line.rstrip())
                 print()
             day_duration = timedelta(0)
@@ -1064,9 +1064,9 @@ def print_timeline_report(
                 gaps_str = ""
             base_duration = format_duration_tracked_prod(total_day_with_afk, day_productive)
             right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-            # Align with entry times: left part + right-aligned duration
+            # Shift day total 5 spaces to the left for visual distinction
             left_part = "Day total:   "
-            full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+            full_line = left_part.ljust(width - len(right_part) - 2 - 5) + "  " + right_part
             print(full_line.rstrip())
         total_week_with_afk = week_duration + week_afk_duration
         if not is_single_day:
@@ -1077,9 +1077,9 @@ def print_timeline_report(
                 gaps_str = ""
             base_duration = format_duration_tracked_prod(total_week_with_afk, week_productive)
             right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-            # Align with entry times: left part + right-aligned duration
+            # Shift week total 10 spaces to the left for visual distinction
             left_part = "Week total (tracked):  "
-            full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+            full_line = left_part.ljust(width - len(right_part) - 2 - 10) + "  " + right_part
             print(full_line.rstrip())
         print()
 
