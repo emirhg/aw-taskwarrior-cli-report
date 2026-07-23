@@ -395,7 +395,7 @@ def format_timeline_columns(
     # Build the line with fixed-width columns
     # Format: "time  ▶project_col   ▶▶task_col  gaps [padded to terminal width] duration"
 
-    time_part = f"    {time_range}"  # Indent + time (4 spaces to align with date lines)
+    time_part = f"       {time_range}"  # Indent + time (7 spaces to align with date lines)
 
     # Project column: "▶ project_name" padded to fixed width
     project_part = f"▶ {project}".ljust(project_width + 2)  # +2 for "▶ "
