@@ -28,7 +28,7 @@ from tw_report.utils.formatting import normalize_title, sanitize_title
 
 # Minimum duration threshold for including window events in timeline
 # Events shorter than this are considered ActivityWatch tracking noise
-MIN_EVENT_DURATION = timedelta(seconds=30)
+MIN_EVENT_DURATION = timedelta(seconds=60)
 
 
 def _merge_overlapping_events(events: List[Event]) -> List[Event]:
