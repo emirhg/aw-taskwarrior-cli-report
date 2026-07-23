@@ -515,10 +515,6 @@ class OfflineTaskProcessor:
             # If no duration on last event, extend slightly for AFK detection
             wall_clock_end = wall_clock_start + timedelta(seconds=1)
 
-        # Calculate offline vs online time using AFK bucket
-        # This determines what portion of wall_clock_duration was recorded as AFK
-        online_time = self._calculate_online_time_from_afk(wall_clock_start, wall_clock_end)
-
         # Calculate window event coverage and reconcile with OFFLINE task duration
         # This replaces the flat "Offline" bucket with real category/app/title detail
         # where window events were actually tracked during the OFFLINE period
@@ -539,7 +535,7 @@ class OfflineTaskProcessor:
 
         # Store results
         self.offline_durations[group_key] = wall_clock_duration
-        self.offline_event_durations[group_key] = online_time
+        self.offline_event_durations[group_key] = window_covered_duration  # Tracked activity, not AFK time
         self.event_groups[group_key] = sorted_events  # Store events for this group
         self.offline_categories[group_key] = reconciled_categories
 
