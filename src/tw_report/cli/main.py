@@ -160,16 +160,22 @@ def main():
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
 
     # Determine if window bucket queries can be skipped
-    # Note: Do NOT skip windows for task_uuid filtering, as OFFLINE task reconciliation
-    # requires window events to determine tracked online time during offline work sessions.
-    # The optimization of skipping windows for single-task queries is not worth breaking OFFLINE reconciliation.
     skip_window = should_skip_window_bucket(args, args.detail_level)
 
+    # AFK-based optimization for detail_level <= 2:
+    # When we don't need category/app/title detail, skip expensive window bucket fetch
+    # and use AFK events for OFFLINE task reconciliation (much faster).
+    use_afk_optimization = not skip_window and args.detail_level <= 2 and args.timesheet
 
     # When filtering by task UUID or project, skip window and AFK buckets (no app-level data needed)
     if skip_window:
         window_events = []
         afk_events = []
+    elif use_afk_optimization:
+        # AFK optimization: skip windows, fetch AFK for OFFLINE reconciliation
+        window_events = []
+        afk_bucket = get_bucket_id("afk")
+        afk_events = get_events(client, afk_bucket, start_time, end_time)
     else:
         window_bucket = get_bucket_id("window")
         window_events = get_events(client, window_bucket, start_time, end_time)
@@ -323,6 +329,7 @@ def main():
     offline_event_durations: Dict = {}
     offline_event_groups: Dict = {}
     offline_processor = None
+
     if task_events:
         offline_processor = OfflineTaskProcessor(
             task_events=task_events,
@@ -330,6 +337,7 @@ def main():
             afk_events=afk_events,
             event_filter=event_filter,
             end_time=end_time,
+            use_afk_for_reconciliation=use_afk_optimization,
         )
         offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
 

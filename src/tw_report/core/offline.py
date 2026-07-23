@@ -108,6 +108,7 @@ class OfflineTaskProcessor:
         afk_events: Optional[List[Event]],
         event_filter: "EventFilter",
         end_time: Optional[datetime] = None,
+        use_afk_for_reconciliation: bool = False,
     ):
         """
         Initialize processor.
@@ -118,12 +119,15 @@ class OfflineTaskProcessor:
             afk_events: List of AFK bucket events (used to determine online/offline time)
             event_filter: EventFilter instance for filtering results
             end_time: End time for the report period (used for incomplete/running tasks)
+            use_afk_for_reconciliation: If True, use AFK events to calculate online time
+                                       instead of window events (faster for detail_level <= 2)
         """
         self.task_events = task_events or []
         self.window_events = window_events
         self.afk_events = afk_events or []
         self.event_filter = event_filter
         self.end_time = end_time
+        self.use_afk_for_reconciliation = use_afk_for_reconciliation
         self.offline_durations: Dict[Tuple, timedelta] = {}
         self.offline_event_durations: Dict[Tuple, timedelta] = {}
         self.event_groups: Dict[Tuple, List[Event]] = {}
@@ -472,27 +476,53 @@ class OfflineTaskProcessor:
             # If no duration on last event, extend slightly for AFK detection
             wall_clock_end = wall_clock_start + timedelta(seconds=1)
 
-        # Calculate window event coverage and reconcile with OFFLINE task duration
-        # This replaces the flat "Offline" bucket with real category/app/title detail
-        # where window events were actually tracked during the OFFLINE period
-        window_covered_duration, window_categories = self._calculate_window_coverage(
-            wall_clock_start, wall_clock_end
-        )
+        # Reconcile with activity data
+        if self.use_afk_for_reconciliation:
+            # AFK-based optimization (detail_level <= 2): no category detail needed
+            # Just calculate online time from AFK events
+            online_time = self._calculate_online_time_from_afk(wall_clock_start, wall_clock_end)
+            offline_remainder = wall_clock_duration - online_time
 
-        # Build reconciled categories: window categories + remainder as "Offline"
-        offline_remainder = wall_clock_duration - window_covered_duration
-        reconciled_categories = window_categories.copy()
-        if offline_remainder > timedelta(0):
-            reconciled_categories.append({
-                "category": "Offline",
-                "duration": offline_remainder,
-                "start": wall_clock_start,
-                "end": wall_clock_end,
-            })
+            # Build simple categories (no detail breakdown)
+            reconciled_categories = []
+            if online_time > timedelta(0):
+                reconciled_categories.append({
+                    "category": "Online",
+                    "duration": online_time,
+                    "start": wall_clock_start,
+                    "end": wall_clock_end,
+                })
+            if offline_remainder > timedelta(0):
+                reconciled_categories.append({
+                    "category": "Offline",
+                    "duration": offline_remainder,
+                    "start": wall_clock_start,
+                    "end": wall_clock_end,
+                })
+            tracked_duration = online_time
+        else:
+            # Window-based reconciliation (detail_level >= 3): full category detail
+            # This replaces the flat "Offline" bucket with real category/app/title detail
+            # where window events were actually tracked during the OFFLINE period
+            window_covered_duration, window_categories = self._calculate_window_coverage(
+                wall_clock_start, wall_clock_end
+            )
+
+            # Build reconciled categories: window categories + remainder as "Offline"
+            offline_remainder = wall_clock_duration - window_covered_duration
+            reconciled_categories = window_categories.copy()
+            if offline_remainder > timedelta(0):
+                reconciled_categories.append({
+                    "category": "Offline",
+                    "duration": offline_remainder,
+                    "start": wall_clock_start,
+                    "end": wall_clock_end,
+                })
+            tracked_duration = window_covered_duration
 
         # Store results
         self.offline_durations[group_key] = wall_clock_duration
-        self.offline_event_durations[group_key] = window_covered_duration  # Tracked activity, not AFK time
+        self.offline_event_durations[group_key] = tracked_duration  # Online/tracked time
         self.event_groups[group_key] = sorted_events  # Store events for this group
         self.offline_categories[group_key] = reconciled_categories
 
