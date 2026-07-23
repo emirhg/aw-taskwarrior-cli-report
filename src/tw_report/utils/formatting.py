@@ -187,36 +187,45 @@ def split_gaps_and_duration(
 
 
 def format_offline_task_duration(
-    wall_clock_duration: timedelta, event_duration: timedelta
+    wall_clock_duration: timedelta, event_duration: timedelta, productive_duration: timedelta = None
 ) -> str:
     """Format duration for offline tasks showing offline/online time split.
 
     For tasks tagged as offline: shows time system was off (untracked) and time
-    that was tracked while system was running. All offline time is assumed
-    productive (system was powered off, no distractions).
+    that was tracked while system was running, plus actual productivity data if available.
 
-    Productivity % = offline_duration / wall_clock_duration × 100
+    Productivity % = productive_duration / event_duration × 100
+    (Productivity is based on measured activity scores, NOT on offline time heuristics)
 
     Args:
         wall_clock_duration: Total time period (system on + off)
         event_duration: Time tracked while system was on (TaskWarrior activity)
+        productive_duration: Time on productive activities (if None, no prod % shown)
 
     Returns:
         String formatted as "(HH:MM:SS OFF)  HH:MM:SS  [prod XX%]"
-        where first time is offline period, second is online/tracked time
+        where first time is offline period, second is online/tracked time,
+        and productivity is based on actual measured data (not offline heuristic)
     """
     offline_duration = wall_clock_duration - event_duration
     offline_str = format_duration(offline_duration)
     online_str = format_duration(event_duration)
-    if wall_clock_duration.total_seconds() > 0:
+
+    # Only show productivity if we have actual measured productive_duration > 0
+    # (productive_duration = 0 means no productivity measured, show placeholder instead)
+    if (productive_duration is not None and
+        productive_duration.total_seconds() > 0 and
+        event_duration.total_seconds() > 0):
         pct = (
-            offline_duration.total_seconds()
-            / wall_clock_duration.total_seconds()
+            productive_duration.total_seconds()
+            / event_duration.total_seconds()
             * 100
         )
         label = f"[prod {pct:>3.0f}%]"
     else:
-        label = "[prod   0%]"
+        # No measured productivity data available - show empty placeholder
+        label = "[   ---   ]"
+
     return f"({offline_str} OFF)  {online_str}  {label:>11}"
 
 

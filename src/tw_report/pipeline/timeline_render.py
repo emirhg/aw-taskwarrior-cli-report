@@ -773,7 +773,9 @@ def print_timeline_report(
 
             # Format OFFLINE task entries with same style as regular entries
             abbrev_project = abbreviate_project_path(project_name, task_name)
-            duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration)
+            # Pass productive_duration from the offline_task slot for consistent productivity measurement
+            productive_dur = slot.get("productive_duration", timedelta(0))
+            duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration, productive_dur)
 
             # Parse the duration_formatted to extract gaps and duration
             # Format is like "(HH:MM:SS OFF)  HH:MM:SS  [prod XX%]"

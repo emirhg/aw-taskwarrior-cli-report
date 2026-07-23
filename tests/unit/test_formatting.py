@@ -211,38 +211,43 @@ class TestFormatDurationWithGaps:
 
 
 class TestFormatOfflineTaskDuration:
-    """Test offline task duration formatting."""
+    """Test offline task duration formatting.
 
-    def test_full_offline_time(self):
-        """When all time was offline, shows high productivity."""
+    Tests now validate unified productivity calculation: productivity is based on
+    measured activity scores (productive_duration), not on offline time heuristics.
+    """
+
+    def test_full_offline_time_no_productivity_data(self):
+        """When all time was offline with no productivity data, shows placeholder."""
         result = format_offline_task_duration(
             timedelta(hours=2), timedelta(0)
         )
-        assert "(2:00:00 OFF)" in result
-        assert "[prod 100%]" in result
+        assert "(02:00:00 OFF)" in result
+        assert "[   ---   ]" in result  # No measured productivity data
 
-    def test_half_offline_time(self):
-        """When half the time was offline."""
+    def test_half_offline_time_no_productivity_data(self):
+        """When half the time was offline with no productivity data."""
         result = format_offline_task_duration(
             timedelta(hours=2), timedelta(hours=1)
         )
-        assert "(1:00:00 OFF)" in result
-        assert "[prod  50%]" in result
+        assert "(01:00:00 OFF)" in result
+        assert "[   ---   ]" in result  # No measured productivity data
 
-    def test_no_offline_time(self):
-        """When no time was offline (system was running)."""
+    def test_online_with_productivity_data(self):
+        """When showing productivity based on measured data."""
         result = format_offline_task_duration(
-            timedelta(hours=2), timedelta(hours=2)
+            timedelta(hours=2), timedelta(hours=2),
+            productive_duration=timedelta(hours=1)  # 50% productive
         )
-        assert "(0:00:00 OFF)" in result
-        assert "[prod   0%]" in result
+        assert "(00:00:00 OFF)" in result
+        assert "[prod  50%]" in result
 
     def test_zero_wall_clock_duration(self):
         """Zero duration should handle gracefully."""
         result = format_offline_task_duration(
             timedelta(0), timedelta(0)
         )
-        assert "[prod   0%]" in result
+        assert "[   ---   ]" in result  # No productive data available
 
 
 class TestGetTerminalWidth:
