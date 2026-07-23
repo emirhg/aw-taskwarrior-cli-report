@@ -379,10 +379,16 @@ def print_timeline_report(
             timedelta(0),
         )
 
-    # Calculate total OFFLINE time (system powered off: duration - event_duration for offline_task slots)
+    # Calculate total OFFLINE time (system powered off during task work)
+    # This includes both offline_task gap time and offline_extension_duration from regular slots
     total_offline_time = sum(
+        (s.get("offline_extension_duration", timedelta(0)) for s in slots),
+        timedelta(0),
+    )
+    # Add any offline_task type slots (system powered off gaps)
+    total_offline_time += sum(
         (s.get("duration", timedelta(0)) - s.get("event_duration", timedelta(0))
-         for s in slots if s.get("type") == "offline_task"),
+         for s in slots if s.get("type") == "offline_task" and not s.get("offline_extension_duration")),
         timedelta(0),
     )
 
@@ -407,6 +413,7 @@ def print_timeline_report(
         last_break_start=last_break_start,
         last_break_end=last_break_end,
         last_break_duration=last_break_duration,
+        total_offline_time=total_offline_time,
     )
 
     if not slots:
@@ -1133,6 +1140,7 @@ def print_period_consolidated_report(
         last_break_start=kwargs.get("last_break_start"),
         last_break_end=kwargs.get("last_break_end"),
         last_break_duration=kwargs.get("last_break_duration"),
+        total_offline_time=total_offline,
     )
 
     if not slots:

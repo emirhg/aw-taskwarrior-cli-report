@@ -40,6 +40,7 @@ def print_report_summary(
     last_break_start: Optional[datetime] = None,
     last_break_end: Optional[datetime] = None,
     last_break_duration: Optional[timedelta] = None,
+    total_offline_time: Optional[timedelta] = None,
 ) -> None:
     """Print report header with SUMMARY section at the top.
 
@@ -53,7 +54,7 @@ def print_report_summary(
         end_time: End of report period
         total_duration: Total project-tracked time
         task_based: If True, show task-based metrics; if False, show category-based
-        non_afk_time: Total non-AFK time (must be present for metric display)
+        non_afk_time: Total non-AFK time (online time only, must be present for metric display)
         productive_time: Total productive time
         productive_task_time: Productive time on tracked projects (task-based only)
         first_event_time: Time of first activity
@@ -67,20 +68,34 @@ def print_report_summary(
         last_break_start: Start of last break
         last_break_end: End of last break
         last_break_duration: Duration of last break
+        total_offline_time: Total time system was offline (from OFFLINE-tagged tasks)
     """
     width = get_terminal_width()
 
     print(title.center(width, "="))
 
-    # SUMMARY section: period, active time, and metrics (NO AFK time)
+    # SUMMARY section: period, online tracking time, and metrics (NO AFK time)
     print("SUMMARY")
     print("─" * width)
 
     print(f"Period{' ' * (32 - 6)}{period} ({start_time.date()} to {end_time.date()})")
 
     if non_afk_time and first_event_time and last_event_time:
-        # Calculate total active time (non-AFK only, AFK is in TOTALS section)
-        active_time_str = format_duration(non_afk_time)
+        # Calculate total tracking time: span from first to last activity
+        # This includes all online time, AFK time, and offline time for accurate percentage calculation
+        # For tasks with actual_duration > (online + offline), use the actual span as the denominator
+        total_offline_duration = total_offline_time if total_offline_time else timedelta(0)
+        total_tracking_time = non_afk_time + total_offline_duration
+
+        # If percentages would exceed 100% with the calculated total, use the span from first to last event
+        # This handles cases where TaskWarrior task durations exceed window event coverage
+        if last_event_time > first_event_time:
+            time_span = last_event_time - first_event_time
+            if time_span > total_tracking_time:
+                total_tracking_time = time_span
+
+        # Display online time only (clarify it's not total)
+        online_time_str = format_duration(non_afk_time)
 
         # Format time window from actual non-afk events
         first_date = first_event_time.date()
@@ -90,13 +105,14 @@ def print_report_summary(
 
         time_window = f"{first_date} {first_time_str} to {last_date} {last_time_str}"
 
-        summary_line = f"Active Time{' ' * (32 - 11)}{active_time_str} ({time_window})"
+        summary_line = f"Online tracking{' ' * (32 - 14)}{online_time_str} ({time_window})"
         print(summary_line)
 
         if task_based:
+            # Calculate percentage against total tracking time (online + offline)
             task_time_pct = (
-                (total_duration.total_seconds() / non_afk_time.total_seconds() * 100)
-                if non_afk_time.total_seconds() > 0
+                (total_duration.total_seconds() / total_tracking_time.total_seconds() * 100)
+                if total_tracking_time.total_seconds() > 0
                 else 0
             )
             proj_track_str = f"{task_time_pct:.1f}% ({format_duration(total_duration)})"
@@ -116,8 +132,8 @@ def print_report_summary(
             if productive_time and productive_task_time:
                 untracked_productive_time = productive_time - productive_task_time
                 untracked_productive_pct = (
-                    (untracked_productive_time / non_afk_time * 100)
-                    if non_afk_time
+                    (untracked_productive_time / total_tracking_time * 100)
+                    if total_tracking_time
                     else 0
                 )
                 untracked_str = f"{untracked_productive_pct:.1f}% ({format_duration(untracked_productive_time)})"
@@ -125,9 +141,9 @@ def print_report_summary(
 
         # Calculate productivity percentage of total time
         total_productive_pct = 0
-        if productive_time and non_afk_time.total_seconds() > 0:
+        if productive_time and total_tracking_time.total_seconds() > 0:
             total_productive_pct = (
-                productive_time.total_seconds() / non_afk_time.total_seconds() * 100
+                productive_time.total_seconds() / total_tracking_time.total_seconds() * 100
             )
 
         if productive_time:
@@ -137,13 +153,13 @@ def print_report_summary(
         # Print distracting and unscored time (common to both modes)
         if distracting_time:
             distracting_pct = (
-                (distracting_time / non_afk_time * 100) if non_afk_time else 0
+                (distracting_time / total_tracking_time * 100) if total_tracking_time else 0
             )
             distracting_str = f"{distracting_pct:.1f}% ({format_duration(distracting_time)})"
             print(f"Overall distracting time{' ' * (32 - 23)}{distracting_str}")
 
         if unscored_time:
-            unscored_pct = (unscored_time / non_afk_time * 100) if non_afk_time else 0
+            unscored_pct = (unscored_time / total_tracking_time * 100) if total_tracking_time else 0
             unscored_str = f"{unscored_pct:.1f}% ({format_duration(unscored_time)})"
             print(f"Unscored time{' ' * (32 - 12)}{unscored_str}")
 
@@ -154,11 +170,19 @@ def print_report_summary(
             session_str = f"{format_duration(current_session_duration)} ({session_start_str} to {session_end_str})"
             print(f"Current Session{' ' * (32 - 14)}{session_str}")
 
+        # Only show Last Break if it's not due to offline time
         if last_break_duration and last_break_start and last_break_end:
-            break_start_str = last_break_start.strftime("%H:%M")
-            break_end_str = last_break_end.strftime("%H:%M")
-            break_str = f"{format_duration(last_break_duration)} ({break_start_str} to {break_end_str})"
-            print(f"Last Break{' ' * (32 - 10)}{break_str}")
+            # Check if the break gap is primarily due to offline time
+            break_is_offline_gap = (
+                total_offline_time and
+                last_break_duration > timedelta(hours=1) and
+                total_offline_time > timedelta(0)
+            )
+            if not break_is_offline_gap:
+                break_start_str = last_break_start.strftime("%H:%M")
+                break_end_str = last_break_end.strftime("%H:%M")
+                break_str = f"{format_duration(last_break_duration)} ({break_start_str} to {break_end_str})"
+                print(f"Last Break{' ' * (32 - 10)}{break_str}")
 
     print("-" * width)
 
