@@ -242,8 +242,9 @@ def generate_timeline_data(
 
         for report_event in window_in_slot:
             event = report_event["event"]
-            # Skip zero-duration events (noise)
-            if event.duration == timedelta(0):
+            # Skip zero-duration and very brief events (< 1 second - likely noise from AW tracking)
+            # These create visual clutter in the timeline without meaningful activity information
+            if event.duration < timedelta(seconds=1):
                 continue
 
             task_name = report_event["task"]
