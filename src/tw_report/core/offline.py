@@ -108,6 +108,7 @@ class OfflineTaskProcessor:
         afk_events: Optional[List[Event]],
         event_filter: "EventFilter",
         end_time: Optional[datetime] = None,
+        use_afk_for_reconciliation: bool = False,
     ):
         """
         Initialize processor.
@@ -118,12 +119,15 @@ class OfflineTaskProcessor:
             afk_events: List of AFK bucket events (used to determine online/offline time)
             event_filter: EventFilter instance for filtering results
             end_time: End time for the report period (used for incomplete/running tasks)
+            use_afk_for_reconciliation: If True, calculate online time from AFK events instead of
+                                       window events (faster, for detail_level <= 2)
         """
         self.task_events = task_events or []
         self.window_events = window_events
         self.afk_events = afk_events or []
         self.event_filter = event_filter
         self.end_time = end_time
+        self.use_afk_for_reconciliation = use_afk_for_reconciliation
         self.offline_durations: Dict[Tuple, timedelta] = {}
         self.offline_event_durations: Dict[Tuple, timedelta] = {}
         self.event_groups: Dict[Tuple, List[Event]] = {}
@@ -475,9 +479,18 @@ class OfflineTaskProcessor:
         # Calculate window event coverage and reconcile with OFFLINE task duration
         # This replaces the flat "Offline" bucket with real category/app/title detail
         # where window events were actually tracked during the OFFLINE period
-        window_covered_duration, window_categories = self._calculate_window_coverage(
-            wall_clock_start, wall_clock_end
-        )
+        # OR use AFK-based calculation for faster reconciliation (when categories not needed)
+        if self.use_afk_for_reconciliation:
+            # Fast path: use AFK events to determine online time (no window categorization)
+            window_covered_duration = self._calculate_online_time_from_afk(
+                wall_clock_start, wall_clock_end
+            )
+            window_categories = []  # No categorization in AFK-based mode
+        else:
+            # Full path: use window events for detailed category breakdown
+            window_covered_duration, window_categories = self._calculate_window_coverage(
+                wall_clock_start, wall_clock_end
+            )
 
         # Build reconciled categories: window categories + remainder as "Offline"
         offline_remainder = wall_clock_duration - window_covered_duration
