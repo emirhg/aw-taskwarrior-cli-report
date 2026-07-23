@@ -66,6 +66,7 @@ from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 from tw_report.core.consolidation import collapse_tasks_to_project
+from tw_report.pipeline.generation import MIN_EVENT_DURATION
 from tw_report.pipeline.report_render import print_report_summary, print_report_totals
 from tw_report.utils.formatting import (
     format_duration,
@@ -170,6 +171,24 @@ def split_slots_spanning_days(slots: List[Dict[str, Any]]) -> List[Dict[str, Any
             current_dt = day_end
 
     return split_slots
+
+
+def filter_short_slots(slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Filter out slots shorter than MIN_EVENT_DURATION.
+
+    After split_slots_spanning_days(), very small fragments can remain.
+    This filter removes them to avoid cluttering the timeline display.
+
+    Args:
+        slots: List of timeline slots
+
+    Returns:
+        Filtered list with slots < MIN_EVENT_DURATION removed
+    """
+    return [
+        slot for slot in slots
+        if slot.get("duration", timedelta(0)) >= MIN_EVENT_DURATION
+    ]
 
 
 def _render_slot_detail(slot: Dict, detail_level: int, width: int) -> None:
@@ -479,6 +498,9 @@ def print_timeline_report(
 
     # Split slots spanning multiple days
     slots = split_slots_spanning_days(slots)
+
+    # Filter out slots shorter than MIN_EVENT_DURATION (tracking noise)
+    slots = filter_short_slots(slots)
 
     # Filter to only include slots within the requested date range
     # After splitting, we should only show portions that fall within [start_time, end_time)
