@@ -479,8 +479,22 @@ class OfflineTaskProcessor:
         # Reconcile with activity data
         if self.use_afk_for_reconciliation:
             # AFK-based optimization (detail_level <= 2): no category detail needed
-            # Just calculate online time from AFK events
-            online_time = self._calculate_online_time_from_afk(wall_clock_start, wall_clock_end)
+            # Calculate online time by summing AFK overlaps with EACH TASK EVENT (not the span)
+            # This avoids overcounting when task events have gaps between them
+            online_time = timedelta(0)
+            for event in sorted_events:
+                event_start = event.timestamp
+                event_end = event_start + (event.duration or timedelta(0))
+                # Sum AFK overlaps for this specific event
+                for afk_event in self.afk_events:
+                    afk_start = afk_event.timestamp
+                    afk_end = afk_start + afk_event.duration
+                    if afk_start < event_end and afk_end > event_start:
+                        overlap_start = max(afk_start, event_start)
+                        overlap_end = min(afk_end, event_end)
+                        overlap = overlap_end - overlap_start
+                        online_time += overlap
+
             offline_remainder = wall_clock_duration - online_time
 
             # Build simple categories (no detail breakdown)

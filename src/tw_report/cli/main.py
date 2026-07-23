@@ -236,8 +236,10 @@ def main():
         afk_events = []
     elif use_afk_optimization:
         # AFK optimization: skip windows, fetch AFK for OFFLINE reconciliation
-        # NOTE: Don't use time range optimization with AFK fetch, as incomplete AFK data
-        # breaks online/offline calculation. Always fetch complete AFK for the period.
+        # Must fetch complete AFK data for entire period to avoid breaking overlap calculation.
+        # The issue: time-range optimization assumes AFK events are contained within task
+        # event windows, but AFK events can extend across task boundaries, causing
+        # negative offline time when overlap calculation uses incomplete AFK data.
         window_events = []
         afk_bucket = get_bucket_id("afk")
         afk_events = get_events(client, afk_bucket, start_time, end_time)
