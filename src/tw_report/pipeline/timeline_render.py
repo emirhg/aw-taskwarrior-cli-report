@@ -503,6 +503,51 @@ def print_timeline_report(
     # Sort slots by start time
     slots = sorted(slots, key=lambda s: s["start"])
 
+    # Filter out slots where display time range equals zero (confusing display like "11:19 - 11:19")
+    # These occur when slot["duration"] represents wall-clock time but is zero
+    slots = [
+        s for s in slots
+        if s.get("duration", timedelta(0)) > timedelta(milliseconds=100)  # > 100ms to handle rounding
+    ]
+
+    # Remove regular slots that overlap/fall within OFFLINE periods for the same task
+    # OFFLINE slots represent untracked periods; showing both OFFLINE + regular slots creates
+    # visual duplication and confusion.
+    offline_slots_by_task = {}
+    for slot in slots:
+        if slot.get("type") == "offline_task":
+            key = (slot.get("project"), slot.get("task"))
+            if key not in offline_slots_by_task:
+                offline_slots_by_task[key] = []
+            offline_slots_by_task[key].append(slot)
+
+    # Remove regular slots that occur within OFFLINE periods for the same task
+    filtered_slots = []
+    for slot in slots:
+        if slot.get("type") == "offline_task":
+            filtered_slots.append(slot)
+        else:
+            # Check if this regular slot overlaps with any OFFLINE period for the same task
+            key = (slot.get("project"), slot.get("task"))
+            slot_start = slot["start"]
+            slot_end = slot["start"] + slot.get("duration", timedelta(0))
+
+            overlaps_offline = False
+            if key in offline_slots_by_task:
+                for offline_slot in offline_slots_by_task[key]:
+                    offline_start = offline_slot["start"]
+                    offline_end = offline_start + offline_slot["duration"]
+
+                    # Check if regular slot overlaps with or falls within OFFLINE period
+                    if slot_start < offline_end and slot_end > offline_start:
+                        overlaps_offline = True
+                        break
+
+            if not overlaps_offline:
+                filtered_slots.append(slot)
+
+    slots = filtered_slots
+
     # Group by week, then by date within week
     current_week_key = None
     current_date = None
