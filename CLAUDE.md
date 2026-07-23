@@ -133,7 +133,13 @@ New period-based features use consistent bucketing functions:
 
 These match the period token definitions in `src/tw_report/core/period.py` (`:week`, `:month`, `:year` tokens).
 
-## Recent Major Features
+## Recent Major Features & Optimizations
+
+### Performance Optimization: OFFLINE Window Event Fetching (2026-07-22)
+- **10x speedup** for `--task <uuid> --timesheet :all` queries (95s → 10s)
+- Fixed bottleneck where OFFLINE task reconciliation fetched entire period windows (186K events)
+- Now uses time-range optimization to fetch only windows overlapping task events
+- Commit: 06075fb
 
 ### Phase 5: Timeline Rendering Restoration (2026-07-02)
 - Restored broken Phase 5 timeline rendering from commit 69aeca3
@@ -210,6 +216,6 @@ Run with: `python debug_*.py`
 
 ---
 
-**Last Updated**: 2026-07-07 (Phase: Period consolidation detail-level support)
+**Last Updated**: 2026-07-22 (Performance: 10x speedup for OFFLINE window event fetching)
 
 **Maintainers**: Emir Herrera González (user) + Claude Haiku 4.5 (AI assistant)

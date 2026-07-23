@@ -378,6 +378,39 @@ tw-report :today --debug            # DEBUG level logging
 tw-report :today                    # WARNING level (default)
 ```
 
+## Performance Optimizations
+
+The project includes several key optimizations to handle large time periods efficiently:
+
+### AFK-Based Optimization (detail_level ≤ 2)
+- **Location:** `src/tw_report/cli/main.py:237`, `src/tw_report/core/offline.py`
+- **Impact:** 6-5x faster for default detail level
+- **How it works:** Skips expensive window bucket fetch entirely; uses AFK events for OFFLINE task reconciliation instead
+
+### Window Event Time-Range Filtering
+- **Location:** `src/tw_report/cli/main.py:80-126` (_fetch_events_for_ranges, _get_time_ranges_from_events)
+- **Impact:** 5-10x faster for sparse task data over large periods
+- **How it works:** Extracts time windows from task events; fetches window/AFK events only for those windows, not entire period
+
+### OFFLINE Task Window Reconciliation (2026-07-22)
+- **Location:** `src/tw_report/cli/main.py:407-420`
+- **Impact:** 10x faster for `--task <uuid> --timesheet :all` queries
+- **How it works:** Reuses time-range optimization when re-fetching windows for OFFLINE task reconciliation
+- **Example:** 186K events → 1.9K events; 2.8s → 0.023s for gap generation
+
+### Benchmark Results
+
+```
+Example: tw-report --task e7e9d2b1-9f68-484c-ad44-29c9e5889027 --timesheet :all
+
+Before optimization:  95+ seconds (1m 35s)
+After optimization:   ~10 seconds
+
+Data reduction:
+  Window events fetched: 186,279 → 1,903 (99% reduction)
+  generate_gap_entries: 2.8s → 0.023s (121x speedup)
+```
+
 ## Design Principles
 
 1. **Single Responsibility**: Each module has one clear purpose

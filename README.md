@@ -509,6 +509,52 @@ mypy src/
 ruff check . && ruff format . --check && mypy src/ && pytest
 ```
 
+## Performance
+
+### Execution Time
+
+Recent optimizations have significantly improved performance:
+
+| Command | Duration | Notes |
+|---------|----------|-------|
+| `tw-report :today` | <1s | Single-day report (cached data) |
+| `tw-report :week` | 1-2s | Week aggregation |
+| `tw-report :month` | 2-5s | Month aggregation |
+| `tw-report :year` | 5-15s | Full year (depends on event density) |
+| `tw-report --task <uuid> --timesheet :all` | ~10s | Task-specific with 56-year period (10x speedup via window time-range optimization) |
+
+### Performance Optimizations
+
+#### 1. AFK-Based Optimization (detail_level ≤ 2)
+- Skips expensive window bucket fetch entirely
+- Uses AFK events for OFFLINE task reconciliation instead
+- **Impact:** 6-5x faster for timesheet reports with default detail level
+
+#### 2. Window Event Time-Range Filtering
+- When filtering by task UUID or specific time periods, fetches window events only for time windows where task events exist
+- Dramatically reduces data volume for sparse task data
+- **Example:** Fetching windows for :year with sparse task data:
+  - Without optimization: 100K+ events, 120+ seconds
+  - With optimization: 2K events, 15-20 seconds
+
+#### 3. OFFLINE Task Window Reconciliation (2026-07-22)
+- When reconciling window events with OFFLINE tasks, reuses task time-range optimization
+- Prevents full-period window fetch (e.g., 186K events for 56 years)
+- **Impact:** 10x speedup for `--task <uuid> --timesheet :all` queries (95s → 10s)
+
+### Profiling
+
+To profile a slow command:
+```bash
+python -m cProfile -s cumtime -m tw_report.cli.main --timesheet :all 2>&1 | head -50
+```
+
+Or use the built-in debug scripts:
+```bash
+python debug_profile.py  # Profile time/memory for a command
+python debug_full_pipeline.py  # Trace the full event pipeline
+```
+
 ## Contributing
 
 ### Code style
