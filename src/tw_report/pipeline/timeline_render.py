@@ -253,6 +253,7 @@ def print_timeline_report(
     last_break_end: datetime = None,
     last_break_duration: timedelta = None,
     afk_events: List[Event] = None,
+    exclude_online: bool = False,
 ):
     """Print a timeline report showing activity as continuous time slots with date/week headers and cumulative totals.
 
@@ -935,7 +936,11 @@ def print_timeline_report(
                     elif slot.get("type") == "offline_task":
                         # For OFFLINE slots, display the actual_duration (online/tracked time)
                         # The duration field is the wall-clock span (offline+online)
-                        display_duration = slot.get("actual_duration", timedelta(0))
+                        # If --exclude-online is set, show 00:00:00 (omit online time reporting)
+                        if exclude_online:
+                            display_duration = timedelta(0)
+                        else:
+                            display_duration = slot.get("actual_duration", timedelta(0))
                         gaps_str, base_duration = split_gaps_and_duration(
                             display_duration,
                             slot.get("productive_duration", timedelta(0)),

@@ -245,6 +245,11 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Collapse repeated categories within a slot (old behaviour). Default: show categories in timeline order.",
     )
+    parser.add_argument(
+        "--exclude-online",
+        action="store_true",
+        help="Exclude online time reporting for OFFLINE tasks (omits window event queries as optimization).",
+    )
     return parser.parse_args(reordered_argv)
 
 

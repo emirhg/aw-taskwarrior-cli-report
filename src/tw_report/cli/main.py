@@ -303,7 +303,9 @@ def main():
     # OFFLINE task reconciliation requires window events to determine tracked online time.
     # If window events were skipped (e.g., when filtering by task UUID), check if we have
     # OFFLINE-tagged tasks and re-fetch windows if needed.
-    if skip_window and task_events and not window_events:
+    # Unless --exclude-online is set, in which case we intentionally skip online time reporting.
+    exclude_online = getattr(args, "exclude_online", False)
+    if skip_window and task_events and not window_events and not exclude_online:
         has_offline_tasks = any(
             any('offline' in t.lower() for t in e.data.get('tags', []))
             for e in task_events
@@ -678,6 +680,7 @@ def main():
                 last_break_end=context.metrics.last_break_end,
                 last_break_duration=context.metrics.last_break_duration,
                 afk_events=afk_events,
+                exclude_online=exclude_online,
             )
     else:
         # If no task_events, treat as non-task-based report regardless of is_task_based_report
