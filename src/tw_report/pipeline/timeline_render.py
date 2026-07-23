@@ -709,7 +709,7 @@ def print_timeline_report(
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
                     # Align day total with day date (4 spaces indentation)
                     left_part = "    Day total:   "
-                    full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+                    full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
                     print(full_line.rstrip())
                 if not is_single_day:
                     total_week_with_afk = week_duration + week_afk_duration
@@ -722,7 +722,7 @@ def print_timeline_report(
                     right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
                     # Align week total with week date (4 spaces indentation to match date column)
                     left_part = "    Week total (tracked):  "
-                    full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+                    full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
                     print(full_line.rstrip())
                 print()
             current_week_key = slot_week
@@ -755,7 +755,7 @@ def print_timeline_report(
                 right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
                 # Align day total with day date (4 spaces indentation)
                 left_part = "    Day total:   "
-                full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+                full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
                 print(full_line.rstrip())
                 print()
             day_duration = timedelta(0)
@@ -1066,7 +1066,7 @@ def print_timeline_report(
             right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
             # Align day total with day date (4 spaces indentation to match date column)
             left_part = "    Day total:   "
-            full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+            full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
             print(full_line.rstrip())
         total_week_with_afk = week_duration + week_afk_duration
         if not is_single_day:
@@ -1079,7 +1079,7 @@ def print_timeline_report(
             right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
             # Align week total with week date (4 spaces indentation to match date column)
             left_part = "    Week total (tracked):  "
-            full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+            full_line = left_part.ljust(width - len(right_part) - 6) + "  " + right_part
             print(full_line.rstrip())
         print()
 
