@@ -597,6 +597,8 @@ class ReportTimeline:
                     merged_duration = merged_end - current.start
 
                     # Create merged slot by building new data
+                    # When merging overlapping slots, use the union of times, not sum
+                    # The merged slot represents the entire time span covered by both overlapping slots
                     merged_data = {
                         "type": current.slot.type,
                         "start": current.start,
@@ -610,13 +612,23 @@ class ReportTimeline:
                         "tags": current.slot.tags,
                     }
 
-                    # Preserve optional fields
-                    if current.slot.afk_duration:
-                        merged_data["afk_duration"] = current.slot.afk_duration + (rs.slot.afk_duration or timedelta(0))
-                    if current.slot.offline_extension_duration:
-                        merged_data["offline_extension_duration"] = current.slot.offline_extension_duration + (rs.slot.offline_extension_duration or timedelta(0))
-                    if current.slot.event_duration:
-                        merged_data["event_duration"] = current.slot.event_duration + (rs.slot.event_duration or timedelta(0))
+                    # Preserve optional fields by taking the max (union of overlapping time markers)
+                    # not the sum (which would double-count overlapping portions)
+                    if current.slot.afk_duration or rs.slot.afk_duration:
+                        # Take max of the two AFK durations (they overlap, so max is the union)
+                        curr_afk = current.slot.afk_duration or timedelta(0)
+                        rs_afk = rs.slot.afk_duration or timedelta(0)
+                        merged_data["afk_duration"] = max(curr_afk, rs_afk)
+                    if current.slot.offline_extension_duration or rs.slot.offline_extension_duration:
+                        # Take max of offline_extension_duration (overlapping window activity)
+                        curr_off = current.slot.offline_extension_duration or timedelta(0)
+                        rs_off = rs.slot.offline_extension_duration or timedelta(0)
+                        merged_data["offline_extension_duration"] = max(curr_off, rs_off)
+                    if current.slot.event_duration or rs.slot.event_duration:
+                        # For event_duration (online time), take sum since they represent disjoint time
+                        curr_event = current.slot.event_duration or timedelta(0)
+                        rs_event = rs.slot.event_duration or timedelta(0)
+                        merged_data["event_duration"] = curr_event + rs_event
 
                     # Create merged TimelineSlot
                     merged_slot = TimelineSlot(**merged_data)
