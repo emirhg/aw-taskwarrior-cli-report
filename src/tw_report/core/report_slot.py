@@ -413,12 +413,17 @@ class ReportTimelineSlot:
         Returns:
             ReportTimelineSlot with work_slot as the primary slot and afk_slots nested
         """
-        # Compute total AFK time from embedded slots for per-entry display
-        # Each AFK slot's duration IS the AFK time
-        total_embedded_afk = sum(
-            (afk.actual_duration for afk in afk_slots),
-            timedelta(0),
-        )
+        # Compute total AFK time that actually occurs DURING the work slot
+        # Only count the intersection of AFK and work time, not AFK that extends beyond
+        total_embedded_afk = timedelta(0)
+        for afk in afk_slots:
+            # Calculate the overlap between work and AFK
+            overlap_start = max(work_slot.start, afk.start)
+            overlap_end = min(work_slot.end, afk.end)
+            if overlap_start < overlap_end:
+                # There is overlap; add only the overlapping portion
+                overlap_duration = overlap_end - overlap_start
+                total_embedded_afk += overlap_duration
 
         # Update work slot's afk_duration to include embedded AFK
         if total_embedded_afk > timedelta(0):
