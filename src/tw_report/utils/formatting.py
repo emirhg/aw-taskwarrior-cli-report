@@ -9,10 +9,19 @@ import re
 import shutil
 import unicodedata
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Any
 
 if TYPE_CHECKING:
     from tw_report.pipeline.models import TimeslotDuration
+
+
+def _get_timeslot_duration_class() -> type:
+    """Lazy import TimeslotDuration to avoid circular dependencies.
+
+    Returns the TimeslotDuration class for runtime use in formatting functions.
+    """
+    from tw_report.pipeline.models import TimeslotDuration
+    return TimeslotDuration
 
 
 def format_duration(duration: timedelta) -> str:
@@ -102,8 +111,11 @@ def format_duration_with_afk(
     When afk_duration is present (consolidation with AFK breaks), includes
     AFK time notation. Otherwise, standard productivity format.
 
+    DEPRECATED: This function now delegates to format_timeslot_duration() for
+    new code. For backward compatibility, it still accepts raw timedelta parameters.
+
     Args:
-        tracked_duration: Total time tracked in this slot
+        tracked_duration: Total time tracked in this slot (online_duration)
         productive_within: Time spent on productive activities
         afk_duration: Optional time spent away from keyboard (if present, included in output)
 
@@ -112,13 +124,14 @@ def format_duration_with_afk(
         - With AFK: "(HH:MM:SS AFK)  HH:MM:SS  [prod XX%]"
         - Without AFK: "HH:MM:SS  [prod XX%]"
     """
-    base_format = format_duration_tracked_prod(tracked_duration, productive_within)
-
-    if afk_duration and afk_duration.total_seconds() > 0:
-        afk_str = format_duration(afk_duration)
-        return f"({afk_str} AFK)  {base_format}"
-
-    return base_format
+    # Delegate to new TimeslotDuration-based formatter
+    TimeslotDuration = _get_timeslot_duration_class()
+    slot_duration = TimeslotDuration(
+        online_duration=tracked_duration if tracked_duration.total_seconds() > 0 else None,
+        offline_gap=None,
+        afk_portion=afk_duration if (afk_duration and afk_duration.total_seconds() > 0) else None,
+    )
+    return format_timeslot_duration(slot_duration, productive_within)
 
 
 def format_duration_with_gaps(
@@ -132,8 +145,11 @@ def format_duration_with_gaps(
     For consolidation with multiple break types, shows all gap components in
     a single notation. Falls back to format_duration_with_afk if no gaps.
 
+    DEPRECATED: This function now delegates to format_timeslot_duration() for
+    new code. For backward compatibility, it still accepts raw timedelta parameters.
+
     Args:
-        tracked_duration: Total time tracked
+        tracked_duration: Total time tracked (online_duration)
         productive_within: Time spent on productive activities
         afk_duration: Optional time away from keyboard
         offline_extension_duration: Optional offline (system not running) time
@@ -143,6 +159,9 @@ def format_duration_with_gaps(
         - With gaps: "(HH:MM:SS AFK, HH:MM:SS OFFLINE)  HH:MM:SS  [prod XX%]"
         - Without gaps: "HH:MM:SS  [prod XX%]"
     """
+    # For now, keep original logic since format_timeslot_duration doesn't yet
+    # support combined AFK+OFFLINE notation in single gap string
+    # TODO: Enhance format_timeslot_duration to support combined gap notation
     base_format = format_duration_tracked_prod(tracked_duration, productive_within)
 
     gap_parts = []
@@ -196,7 +215,7 @@ def split_gaps_and_duration(
 
 
 def format_offline_task_duration(
-    wall_clock_duration: timedelta, event_duration: timedelta, productive_duration: timedelta = None
+    wall_clock_duration: timedelta, event_duration: timedelta, productive_duration: Optional[timedelta] = None
 ) -> str:
     """Format duration for offline tasks showing offline/online time split.
 
@@ -206,9 +225,12 @@ def format_offline_task_duration(
     Productivity % = productive_duration / event_duration × 100
     (Productivity is based on measured activity scores, NOT on offline time heuristics)
 
+    DEPRECATED: This function now delegates to format_timeslot_duration() for
+    new code. For backward compatibility, it still accepts raw timedelta parameters.
+
     Args:
         wall_clock_duration: Total time period (system on + off)
-        event_duration: Time tracked while system was on (TaskWarrior activity)
+        event_duration: Time tracked while system was on (online_duration)
         productive_duration: Time on productive activities (if None, no prod % shown)
 
     Returns:
@@ -216,24 +238,15 @@ def format_offline_task_duration(
         where first time is offline period, second is online/tracked time,
         and productivity is based on actual measured data (not offline heuristic)
     """
-    offline_duration = wall_clock_duration - event_duration
-    offline_str = format_duration(offline_duration)
-    online_str = format_duration(event_duration)
-
-    # Only show productivity if we have actual measured productive_duration > 0
-    if (productive_duration is not None and
-        productive_duration.total_seconds() > 0 and
-        event_duration.total_seconds() > 0):
-        pct = (
-            productive_duration.total_seconds()
-            / event_duration.total_seconds()
-            * 100
-        )
-        label = f"[prod {pct:>3.0f}%]"
-        return f"({offline_str} OFF)  {online_str}  {label:>11}"
-    else:
-        # No measured productivity data - don't show productivity at all
-        return f"({offline_str} OFF)  {online_str}"
+    # Delegate to new TimeslotDuration-based formatter
+    TimeslotDuration = _get_timeslot_duration_class()
+    offline_gap = wall_clock_duration - event_duration
+    slot_duration = TimeslotDuration(
+        online_duration=event_duration if event_duration.total_seconds() > 0 else None,
+        offline_gap=offline_gap if offline_gap.total_seconds() > 0 else None,
+        afk_portion=None,
+    )
+    return format_timeslot_duration(slot_duration, productive_duration)
 
 
 # TimeslotDuration-aware format functions (new API)
@@ -241,7 +254,7 @@ def format_offline_task_duration(
 
 
 def format_timeslot_duration(
-    slot_duration: "TimeslotDuration",
+    slot_duration: Any,  # TimeslotDuration (late import to avoid circular deps)
     productive_duration: Optional[timedelta] = None,
 ) -> str:
     """Format a TimeslotDuration for display, handling all duration types.
