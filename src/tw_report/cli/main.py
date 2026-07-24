@@ -374,8 +374,9 @@ def main():
                 canonical_events.append(rep)
 
         # Add untracked (NO_PROJECT) time gaps from uncovered not-afk periods
-        # Only for general unfiltered views (not skip_window = True means all-activity mode)
-        if not skip_window and not_afk_events:
+        # Only when window_events are skipped (using task-only path)
+        # This fills the visibility gap when window events can't be fetched due to optimization
+        if not window_events and not_afk_events:
             untracked_events = generate_untracked_gap_events(not_afk_events, task_events)
             canonical_events.extend(untracked_events)
             # Re-sort by timestamp to maintain chronological order
@@ -586,8 +587,11 @@ def main():
 
         # Task-only modes: taskwarrior events (no window events, no AFK correlation)
         # This includes: task UUID mode (--task-id) and project filter mode
-        if skip_window:
+        if skip_window or not window_events:
             # Build slots directly from taskwarrior events (simpler format)
+            # This path is used when:
+            # 1. skip_window is True (task/project/search filtered queries), OR
+            # 2. window_events is empty (AFK optimization skipped fetching, or no activity)
             initial_slots = []
             for rep in context.canonical_events:
                 event = rep.event
@@ -605,6 +609,7 @@ def main():
                 initial_slots.append(slot)
         else:
             # Normal mode: window events with AFK correlation
+            # Only when we have actual window event data to process
             initial_slots = generate_timeline_data(
                 timeline_events,
                 context.afk_events,

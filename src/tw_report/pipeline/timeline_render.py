@@ -997,12 +997,20 @@ def print_timeline_report(
         total_time_all + total_afk_time if not has_consolidated_afk else total_time_all
     )
 
+    # Calculate true non-AFK time for the breakdown
+    # When consolidated: AFK is embedded in work slots, so subtract from total
+    # When not consolidated: AFK is separate, so total_time_all is already just non-AFK
+    if has_consolidated_afk and total_afk_time:
+        true_non_afk = total_time_all - total_afk_time
+    else:
+        true_non_afk = total_time_all
+
     print_report_totals(
         total_time_all=total_time_final,
         total_productive_all=total_productive_all,
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
-        total_non_afk=total_time_all if total_time_all > timedelta(0) else None,
+        total_non_afk=true_non_afk if true_non_afk > timedelta(0) else None,
     )
 
 
