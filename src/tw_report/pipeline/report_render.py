@@ -55,7 +55,7 @@ def print_report_summary(
         end_time: End of report period
         total_duration: Total project-tracked time
         task_based: If True, show task-based metrics; if False, show category-based
-        non_afk_time: Total non-AFK time (online time only, must be present for metric display)
+        non_afk_time: Total Active Time (non-AFK only; focused work periods, must be present for metric display)
         productive_time: Total productive time
         productive_task_time: Productive time on tracked projects (task-based only)
         first_event_time: Time of first activity
@@ -83,7 +83,7 @@ def print_report_summary(
 
     if non_afk_time and first_event_time and last_event_time:
         # Calculate total tracking time for percentage denominator
-        # Prefer total_time_all (includes AFK, non-AFK, and offline) for accurate percentages
+        # Prefer total_time_all (online time: AFK + non-AFK combined) for accurate percentages
         # Fallback to non_afk_time + offline_time if total_time_all unavailable
         if total_time_all and total_time_all > timedelta(0):
             total_tracking_time = total_time_all
@@ -102,7 +102,7 @@ def print_report_summary(
 
         time_window = f"{first_date} {first_time_str} to {last_date} {last_time_str}"
 
-        summary_line = f"Online tracking{' ' * (32 - 14)}{online_time_str} ({time_window})"
+        summary_line = f"Active Time{' ' * (32 - 11)}{online_time_str} ({time_window})"
         print(summary_line)
 
         if task_based:
@@ -193,18 +193,18 @@ def print_report_totals(
 ) -> None:
     """Print TOTALS section with hierarchical breakdown of time composition.
 
-    Shows Total Time (grand total of all time) with nested breakdown:
-    - Total Online time (AFK + non-AFK)
-      - Non-AFK time
-      - AFK time
-    - Time Worked While System Offline
+    Shows Total Time (grand total of all system-recorded time) with nested breakdown:
+    - Online Time (AFK + non-AFK combined; time system was actively recording)
+      - Active Time (non-AFK only; focused work periods)
+      - AFK time (idle periods; system still recording)
+    - Time Worked While System Offline (work done when system powered off)
 
     Args:
-        total_time_all: Total online time (AFK + non-AFK combined)
+        total_time_all: Online Time (AFK + non-AFK combined from AFK bucket)
         total_productive_all: Grand total productive time
         total_afk: Total AFK time (for nested breakdown, shown only if non-zero)
         total_offline: Time Worked While System Offline (shown only if non-zero)
-        total_non_afk: Total non-AFK time (for nested breakdown, shown only if non-zero)
+        total_non_afk: Active Time — non-AFK time only (for nested breakdown, shown only if non-zero)
     """
     width = get_terminal_width()
     label_width = 48  # Fixed column position for all values (increased for proper indentation)
@@ -227,10 +227,10 @@ def print_report_totals(
     online_time_str = format_duration_tracked_prod(total_time_all, total_productive_all)
     print(f"{'  Total Online time'.ljust(label_width)}{' ' * 2}{online_time_str}")
 
-    # Breakdown of online: Non-AFK and AFK as further indented sub-lines (indented 4 spaces)
+    # Breakdown of online: Active (non-AFK) and AFK as further indented sub-lines (indented 4 spaces)
     if total_non_afk and total_non_afk > timedelta(0):
         non_afk_str = format_duration(total_non_afk)
-        print(f"{'    Non-AFK time'.ljust(label_width)}{' ' * 4}{non_afk_str}")
+        print(f"{'    Active Time'.ljust(label_width)}{' ' * 4}{non_afk_str}")
 
     if total_afk and total_afk > timedelta(0):
         afk_str = format_duration(total_afk)

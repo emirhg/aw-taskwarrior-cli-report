@@ -18,7 +18,7 @@ extracted. Missing logic included:
   - _render_slot_detail() helper for detail_level >= 3
 
 This caused the broken behavior reported on 2026-07-02:
-  - Active Time showed 8:27:21 instead of 8:50:56 (missing 0:23:34 AFK)
+  - Online Time showed 8:27:21 instead of 8:50:56 (missing 0:23:34 AFK)
   - Project Tracking showed 0.0% instead of 89.0%
   - AFK time metric not displayed
   - Focus time metric missing
@@ -251,17 +251,18 @@ def print_timeline_report(
     ===========================================================
 
     This function calculates and displays the following metrics:
-      - Active Time: Total time from first to last activity (includes AFK)
+      - Online Time: Total time from first to last activity (AFK + non-AFK combined)
+      - Active Time: Total focused work time (non-AFK only)
       - AFK time: Total time away from keyboard
-      - Project Tracking: % of active time on tracked (non-"No project") tasks
+      - Project Tracking: % of online time on tracked (non-"No project") tasks
       - Focus time: % time on high-priority tasks
       - Untracked productivity: % of untracked time on productive activities
-      - Overall productivity: Total productive time / active time
+      - Overall productivity: Total productive time / online time
       - Distracting time: Total time on distracting activities
       - Unscored time: Total time unscored
 
     The broken Phase 5 version (commit 12def2d) failed to:
-      - Calculate AFK time separately (showed as reduced Active Time)
+      - Calculate AFK time separately (showed as reduced Online Time)
       - Include AFK metrics in display
       - Calculate project tracking percentage (showed 0% instead of 89%)
       - Include focus time metric
@@ -333,7 +334,7 @@ def print_timeline_report(
       period: Human-readable period description (e.g., ":yesterday", "2026-07-01")
       detail_level: See above (1-5, typically 1-2 for most users)
       rollup: If True, collapse single-entry days to inline format
-      non_afk_time: Total non-AFK time from metrics (for % calculations)
+      non_afk_time: Total Active Time (non-AFK) from metrics (for % calculations)
       productive_time: Total productive time from metrics
       (other metric parameters used for header display)
     """
@@ -1063,15 +1064,16 @@ def print_timeline_report(
         print()
 
     # Print TOTALS at bottom
-    # Note: In consolidated mode, AFK time is already included in total_time_all,
-    # so we only add it in regular (non-consolidated) mode
+    # Calculate "Online Time" (AFK + non-AFK combined, from AFK bucket)
+    # In consolidated mode: AFK is already embedded in work slots (total_time_all = online time)
+    # In non-consolidated mode: AFK is stored separately, so we add it to get online time
     total_time_final = (
         total_time_all + total_afk_time if not has_consolidated_afk else total_time_all
     )
 
-    # Calculate true non-AFK time for the breakdown
-    # When consolidated: AFK is embedded in work slots, so subtract from total
-    # When not consolidated: AFK is separate, so total_time_all is already just non-AFK
+    # Calculate "Active Time" (non-AFK only, focused work periods)
+    # In consolidated mode: AFK is embedded in work slots, so subtract it from online time
+    # In non-consolidated mode: total_time_all is already just non-AFK (no AFK embedded)
     if has_consolidated_afk and total_afk_time:
         true_non_afk = total_time_all - total_afk_time
     else:

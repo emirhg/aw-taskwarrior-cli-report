@@ -54,6 +54,30 @@ These flags **imply `--timesheet`** and auto-default to matching period windows 
 
 See `docs/PERIOD_CONSOLIDATION.md` for complete feature documentation.
 
+### Time Metric Definitions
+
+The tool tracks three distinct time metrics with precise meanings:
+
+- **Online Time** — Total time system was actively recording (AFK + non-AFK combined; from AFK bucket)
+  - Includes: Keyboard/mouse idle periods (AFK) + focused work periods (non-AFK)
+  - Excludes: Time when system was powered off (offline periods)
+  - Formula: Sum of all AFK bucket events
+  - Use case: Accounting for total system uptime during work session
+  
+- **Active Time** — Time with keyboard/mouse focus (non-AFK periods only)
+  - Includes: Focused window activity, actual work time
+  - Excludes: Idle time (AFK), offline time, gaps
+  - Formula: Online time - AFK time
+  - Use case: Measuring actual focused work duration
+  
+- **Offline Time** — Time worked while system was powered off (for offline-tagged tasks only)
+  - Includes: TaskWarrior task duration when system was offline
+  - Measured as: Wall-clock duration - online time from AFK bucket
+  - Formula: `wall_clock_duration - event_duration` (where event_duration is from AFK bucket)
+  - Use case: Tracking work done without computer (e.g., meetings, writing, thinking)
+
+**Relationship**: `Total Day = Online Time + Offline Time`
+
 ## Development Workflows
 
 ### Adding a New Report Type or Mode
