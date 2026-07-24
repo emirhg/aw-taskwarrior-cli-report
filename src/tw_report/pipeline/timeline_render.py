@@ -67,7 +67,7 @@ from aw_core.models import Event
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 from tw_report.core.consolidation import collapse_tasks_to_project
 from tw_report.pipeline.generation import MIN_EVENT_DURATION
-from tw_report.pipeline.models import TimeslotDuration
+from tw_report.pipeline.models import TimeslotDuration, PeriodMetrics
 from tw_report.pipeline.report_render import print_report_summary, print_report_totals
 from tw_report.utils.formatting import (
     format_duration,
@@ -88,6 +88,48 @@ from tw_report.utils.formatting import (
 def _render_system_shutdown_separator() -> None:
     """Print a blank line to indicate a gap (system shutdown, break, etc.)."""
     print()
+
+
+def _create_period_metrics_from_dict(
+    online: Optional[timedelta] = None,
+    afk: Optional[timedelta] = None,
+    offline: Optional[timedelta] = None,
+    productive: Optional[timedelta] = None,
+) -> PeriodMetrics:
+    """Create a PeriodMetrics object from individual duration values.
+
+    Helper function that demonstrates how to migrate from manual variable
+    accumulation to PeriodMetrics pattern. This enables gradual adoption
+    of PeriodMetrics throughout the rendering pipeline.
+
+    Args:
+        online: Online time (AFK + non-AFK combined)
+        afk: AFK time (subset of online)
+        offline: Offline gap (system powered off)
+        productive: Productive time
+
+    Returns:
+        PeriodMetrics object with the given durations
+
+    Example migration:
+        Old way:
+            day_duration += online_time
+            day_afk_duration += afk_time
+            day_offline_duration += offline_time
+            day_productive += prod_time
+
+        New way:
+            daily_metrics = _create_period_metrics_from_dict(
+                online=online_time,
+                afk=afk_time,
+                offline=offline_time,
+                productive=prod_time
+            )
+    """
+    metrics = PeriodMetrics()
+    metrics.add(online=online, afk=afk, offline=offline, productive=productive)
+    return metrics
+
 
 def _render_embedded_afk_slots(afk_slots: List[Dict], width: int) -> None:
     """Render embedded AFK slots as indented sub-entries under a work slot.
@@ -536,6 +578,43 @@ def print_timeline_report(
                 filtered_slots.append(slot)
 
     slots = filtered_slots
+
+    # ============================================================================
+    # DAY/WEEK METRICS ACCUMULATION
+    # ============================================================================
+    # This section tracks metrics for each day and week as we render the timeline.
+    # The current implementation uses 8 separate variables (day_duration, day_afk_duration,
+    # day_offline_duration, day_productive, and their week_ equivalents).
+    #
+    # FUTURE REFACTORING (Phase 4+):
+    # These variables should be replaced with PeriodMetrics objects:
+    #
+    #   daily_metrics = PeriodMetrics()  # replaces: day_duration, day_afk_duration, etc.
+    #   weekly_metrics = PeriodMetrics() # replaces: week_duration, week_afk_duration, etc.
+    #
+    # Migration pattern for accumulation sites:
+    #
+    #   OLD:  day_duration += online; day_afk_duration += afk; ...
+    #   NEW:  daily_metrics.add(online=online, afk=afk, offline=offline, productive=prod)
+    #
+    # Or for TimeslotDuration objects:
+    #
+    #   NEW:  daily_metrics.add_timeslot(slot_duration, productive=prod)
+    #
+    # Benefits of refactoring:
+    #   - Single source of truth for metrics (PeriodMetrics object)
+    #   - Clearer intent: grouped metrics rather than scattered variables
+    #   - Type safety: invalid metric combinations prevented at construction
+    #   - Easier to extend: add new metrics without adding new variables
+    #   - Self-documenting: properties like .total_duration and .active_duration
+    #
+    # Call sites to refactor:
+    #   - Line 817-823: offline_task accumulation
+    #   - Line 1076-1082: regular_slot accumulation loop
+    #   - Line 1090-1100: day/week totals display and reset
+    #
+    # See _create_period_metrics_from_dict() for migration helper function.
+    # ============================================================================
 
     # Group by week, then by date within week
     current_week_key = None
