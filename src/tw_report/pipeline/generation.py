@@ -575,4 +575,30 @@ def generate_timeline_data(
 
     # Sort slots by start time
     slots = sorted(slots, key=lambda s: s["start"])
-    return slots
+
+    # Deduplicate regular slots created by overlapping window events across multiple not-afk periods.
+    # When a window event spans multiple not-afk periods (with micro-pauses between them),
+    # the same regular slot gets created multiple times. We keep only the first occurrence.
+    # This is safe because all duplicates have identical properties (except afk_period metadata).
+    # Note: We only deduplicate regular slots; gap entries (AFK slots) are handled separately.
+    seen_regular_slots = {}
+    deduped_slots = []
+    for slot in slots:
+        # Only deduplicate regular slots; gap entries (AFK, etc.) pass through
+        if slot.get("type") == "regular":
+            # Create dedup key for regular slots
+            key = (
+                slot["start"],
+                slot["end"],
+                slot["project"],
+                slot["task"],
+            )
+            if key not in seen_regular_slots:
+                seen_regular_slots[key] = True
+                deduped_slots.append(slot)
+            # Skip duplicate regular slots
+        else:
+            # Non-regular slots (shouldn't happen here, but preserve them)
+            deduped_slots.append(slot)
+
+    return deduped_slots
