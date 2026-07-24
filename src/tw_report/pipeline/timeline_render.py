@@ -175,8 +175,10 @@ def _format_project_task_columns(project_name: str, task_name: str) -> str:
 def _get_displayed_duration(slot: Dict[str, Any]) -> timedelta:
     """Return the duration that's actually displayed for this slot.
 
-    Regular and AFK slots use wall-clock duration (from window events).
-    OFFLINE task slots use actual_duration (online/tracked time).
+    Matches the exact logic used in rendering code to ensure totals are consistent:
+    - AFK slots: prefer actual_duration over duration
+    - OFFLINE tasks: prefer actual_duration over duration
+    - Regular slots: use wall-clock duration (slot["duration"])
 
     This ensures day/week/report totals sum to the displayed entries.
 
@@ -187,10 +189,14 @@ def _get_displayed_duration(slot: Dict[str, Any]) -> timedelta:
         The duration as displayed in the output
     """
     slot_type = slot.get("type")
-    if slot_type == "offline_task":
+    if slot_type == "afk":
+        # AFK slots: prefer actual_duration (line 1050 in rendering)
+        return slot.get("actual_duration", slot["duration"])
+    elif slot_type == "offline_task":
+        # OFFLINE tasks: prefer actual_duration (line 1061 in rendering)
         return slot.get("actual_duration", timedelta(0))
     else:
-        # Regular and AFK slots use wall-clock duration (matches display)
+        # Regular slots: use wall-clock duration (line 1071 in rendering)
         return slot["duration"]
 
 
