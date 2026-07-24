@@ -340,6 +340,12 @@ def generate_timeline_data(
     not_afk_events = filter_keyvals(afk_events, "status", ["not-afk"])
     not_afk_events = sorted(not_afk_events, key=lambda e: e.timestamp)
 
+    # CRITICAL FIX: Merge overlapping not-afk periods before processing
+    # When ActivityWatch records overlapping "not-afk" events (e.g., during window recovery),
+    # the loop below would create duplicate slots for each overlapping period.
+    # Example: task "Reporte" at 19:39-19:44 appearing 3x when 3 overlapping not-afk periods cover that time.
+    not_afk_events = _merge_overlapping_events(not_afk_events)
+
     slots = []
 
     # For each not-afk period (time slot boundary)
