@@ -349,12 +349,21 @@ def print_timeline_report(
             timedelta(0),
         )
     else:
-        # Regular slots: AFK time is in type="afk" slots
+        # Regular slots: AFK time is in type="afk" slots OR embedded_afk_slots
+        # (After combine_work_with_embedded_afk(), AFK slots are nested inside work slots)
         afk_slots = [s for s in slots if s.get("type") == "afk"]
         total_afk_time = sum(
             (slot.get("actual_duration", slot["duration"]) for slot in afk_slots),
             timedelta(0),
         )
+        # Add embedded AFK slots (nested within work slots after combining)
+        for slot in slots:
+            embedded_afk = slot.get("embedded_afk_slots", [])
+            if embedded_afk:
+                total_afk_time += sum(
+                    (afk.get("actual_duration", afk["duration"]) for afk in embedded_afk),
+                    timedelta(0),
+                )
 
     # Calculate total OFFLINE time (system powered off during task work)
     # This includes both offline_task gap time and offline_extension_duration from regular slots
