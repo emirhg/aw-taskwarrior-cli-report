@@ -1081,23 +1081,28 @@ def print_timeline_report(
 
             if slot_type == "afk":
                 # AFK slots: pure idle time (100% AFK, still counts as online)
+                # Display uses: actual_duration
                 afk_duration = s.get("actual_duration", s["duration"])
                 group_afk_duration += afk_duration
                 # AFK-only slots are online time! Add to regular_duration so online total is correct
                 group_regular_duration += afk_duration
-            elif slot_type not in ("offline",):
-                # Regular (work) slots: online time with optional AFK portion
-                online_duration = s.get("actual_duration", s["duration"])
+            elif slot_type == "offline_task":
+                # OFFLINE slots: display uses actual_duration
+                offline_duration = s.get("actual_duration", timedelta(0))
+                group_regular_duration += offline_duration
+                afk_portion = s.get("afk_duration")  # May be None
+                if afk_portion and afk_portion.total_seconds() > 0:
+                    group_afk_duration += afk_portion
+                productive_duration = s.get("productive_duration", timedelta(0))
+                group_regular_productive += productive_duration
+            else:
+                # Regular (work) slots: display uses slot["duration"] (wall-clock)
+                # Match what's displayed in rendering (line 983)
+                displayed_duration = s["duration"]
+                group_regular_duration += displayed_duration
                 afk_portion = s.get("afk_duration")  # May be None
                 productive_duration = s.get("productive_duration", timedelta(0))
 
-                # Create TimeslotDuration for this slot
-                slot_duration = TimeslotDuration(
-                    online_duration=online_duration if online_duration.total_seconds() > 0 else None,
-                    offline_gap=None,  # Regular slots don't have offline gaps
-                    afk_portion=afk_portion,
-                )
-                group_regular_duration += slot_duration.online_duration or timedelta(0)
                 # CRITICAL FIX: Accumulate embedded AFK periods from combined work+AFK slots
                 # When a work slot has embedded AFK (from combine_work_with_embedded_afk()),
                 # the afk_duration field contains the total AFK time during that work period.
