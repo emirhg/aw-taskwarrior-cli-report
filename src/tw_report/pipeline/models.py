@@ -235,6 +235,90 @@ class PeriodMetrics:
         return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
+@dataclass
+class ReportTotals:
+    """Aggregated metrics for entire report (all periods combined).
+
+    Groups the related duration and productivity fields that are passed to
+    print_report_totals() and other reporting functions. This replaces
+    scattered individual parameters with a coherent data structure.
+
+    Attributes:
+        online_time: Total time system was actively recording (AFK + non-AFK)
+        productive_time: Total productive time (across all online time)
+        afk_time: Total time away from keyboard (subset of online_time)
+        offline_time: Total time worked while system was powered off
+        active_time: Total time with keyboard/mouse focus (online - afk)
+
+    Usage (old way):
+        print_report_totals(
+            total_time_all=17:11:57,
+            total_productive_all=8:15:32,
+            total_afk=1:24:52,
+            total_offline=2:45:10,
+            total_non_afk=15:47:05
+        )
+
+    Usage (new way):
+        totals = ReportTotals(
+            online_time=timedelta(hours=17, minutes=11, seconds=57),
+            productive_time=timedelta(hours=8, minutes=15, seconds=32),
+            afk_time=timedelta(hours=1, minutes=24, seconds=52),
+            offline_time=timedelta(hours=2, minutes=45, seconds=10),
+        )
+        print_report_totals(totals)
+
+    Invariants:
+        - online_time >= afk_time (AFK is subset of online)
+        - online_time >= active_time (active = online - afk)
+        - offline_time >= 0
+        - productive_time >= 0
+    """
+
+    online_time: Optional[timedelta] = None
+    productive_time: Optional[timedelta] = None
+    afk_time: Optional[timedelta] = None
+    offline_time: Optional[timedelta] = None
+
+    @property
+    def active_time(self) -> Optional[timedelta]:
+        """Time with keyboard/mouse focus (online_time - afk_time)."""
+        if self.online_time is None:
+            return None
+        afk = self.afk_time or timedelta(0)
+        return self.online_time - afk
+
+    @property
+    def total_time(self) -> Optional[timedelta]:
+        """Total wall-clock time (online + offline)."""
+        online = self.online_time or timedelta(0)
+        offline = self.offline_time or timedelta(0)
+        return online + offline if (online or offline) else None
+
+    def __str__(self) -> str:
+        """Human-readable representation."""
+        parts = []
+        if self.online_time:
+            parts.append(f"online={self._format_td(self.online_time)}")
+        if self.afk_time:
+            parts.append(f"afk={self._format_td(self.afk_time)}")
+        if self.offline_time:
+            parts.append(f"offline={self._format_td(self.offline_time)}")
+        if self.productive_time:
+            parts.append(f"productive={self._format_td(self.productive_time)}")
+        return f"ReportTotals({', '.join(parts)})"
+
+    @staticmethod
+    def _format_td(td: Optional[timedelta]) -> str:
+        """Format timedelta as HH:MM:SS."""
+        if td is None:
+            return "00:00:00"
+        total_seconds = int(td.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 @dataclass(frozen=True)
 class ReportEvent:
     event: Event

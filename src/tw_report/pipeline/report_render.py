@@ -7,9 +7,10 @@ metrics, detail levels, and sorting options. Used by the --timesheet output mode
 
 import sys
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from tw_report.core.filtering import NO_PROJECT
+from tw_report.pipeline.models import ReportTotals
 from tw_report.utils.formatting import (
     format_duration,
     format_duration_tracked_prod,
@@ -185,8 +186,8 @@ def print_report_summary(
 
 
 def print_report_totals(
-    total_time_all: timedelta,
-    total_productive_all: timedelta,
+    total_time_all: Union[timedelta, ReportTotals],
+    total_productive_all: Optional[timedelta] = None,
     total_afk: Optional[timedelta] = None,
     total_offline: Optional[timedelta] = None,
     total_non_afk: Optional[timedelta] = None,
@@ -199,13 +200,50 @@ def print_report_totals(
       - AFK time (idle periods; system still recording)
     - Time Worked While System Offline (work done when system powered off)
 
+    Supports both old-style raw parameters and new ReportTotals object:
+
+    Old way (deprecated but still works):
+        print_report_totals(
+            total_time_all=timedelta(hours=17),
+            total_productive_all=timedelta(hours=8),
+            total_afk=timedelta(hours=1),
+            total_offline=timedelta(hours=2),
+            total_non_afk=timedelta(hours=15)
+        )
+
+    New way (recommended):
+        totals = ReportTotals(
+            online_time=timedelta(hours=17),
+            productive_time=timedelta(hours=8),
+            afk_time=timedelta(hours=1),
+            offline_time=timedelta(hours=2)
+        )
+        print_report_totals(totals)
+
     Args:
-        total_time_all: Online Time (AFK + non-AFK combined from AFK bucket)
-        total_productive_all: Grand total productive time
-        total_afk: Total AFK time (for nested breakdown, shown only if non-zero)
-        total_offline: Time Worked While System Offline (shown only if non-zero)
-        total_non_afk: Active Time — non-AFK time only (for nested breakdown, shown only if non-zero)
+        total_time_all: Either a ReportTotals object (new) or Online Time timedelta (old, deprecated)
+        total_productive_all: (Old API) Grand total productive time
+        total_afk: (Old API) Total AFK time (for nested breakdown, shown only if non-zero)
+        total_offline: (Old API) Time Worked While System Offline (shown only if non-zero)
+        total_non_afk: (Old API) Active Time — non-AFK time only (for nested breakdown, shown only if non-zero)
     """
+    # Handle both old-style parameters and new ReportTotals object
+    if isinstance(total_time_all, ReportTotals):
+        # New API: accept ReportTotals object
+        totals = total_time_all
+        online_time = totals.online_time or timedelta(0)
+        productive_time = totals.productive_time or timedelta(0)
+        afk_time = totals.afk_time
+        offline_time = totals.offline_time
+        active_time = totals.active_time
+    else:
+        # Old API: accept raw timedelta parameters
+        online_time = total_time_all
+        productive_time = total_productive_all or timedelta(0)
+        afk_time = total_afk
+        offline_time = total_offline
+        active_time = total_non_afk
+
     width = get_terminal_width()
     label_width = 48  # Fixed column position for all values (increased for proper indentation)
 
@@ -214,26 +252,26 @@ def print_report_totals(
     print("─" * width)
 
     # Calculate grand total (online + offline)
-    grand_total = total_time_all + (total_offline if total_offline else timedelta(0))
-    grand_total_str = format_duration_tracked_prod(grand_total, total_productive_all)
+    grand_total = online_time + (offline_time if offline_time else timedelta(0))
+    grand_total_str = format_duration_tracked_prod(grand_total, productive_time)
     print(f"{'Total Time'.ljust(label_width)}{grand_total_str}")
 
     # Time Worked While System Offline as first sub-level (indented 2 spaces) - only if present
-    if total_offline and total_offline > timedelta(0):
-        offline_str = format_duration(total_offline)
+    if offline_time and offline_time > timedelta(0):
+        offline_str = format_duration(offline_time)
         print(f"{'  Time Worked While System Offline'.ljust(label_width)}{' ' * 2}{offline_str}")
 
     # Total Online time as second sub-level (indented 2 spaces)
-    online_time_str = format_duration_tracked_prod(total_time_all, total_productive_all)
+    online_time_str = format_duration_tracked_prod(online_time, productive_time)
     print(f"{'  Total Online time'.ljust(label_width)}{' ' * 2}{online_time_str}")
 
     # Breakdown of online: Active (non-AFK) and AFK as further indented sub-lines (indented 4 spaces)
-    if total_non_afk and total_non_afk > timedelta(0):
-        non_afk_str = format_duration(total_non_afk)
-        print(f"{'    Active Time'.ljust(label_width)}{' ' * 4}{non_afk_str}")
+    if active_time and active_time > timedelta(0):
+        active_str = format_duration(active_time)
+        print(f"{'    Active Time'.ljust(label_width)}{' ' * 4}{active_str}")
 
-    if total_afk and total_afk > timedelta(0):
-        afk_str = format_duration(total_afk)
+    if afk_time and afk_time > timedelta(0):
+        afk_str = format_duration(afk_time)
         print(f"{'    AFK time'.ljust(label_width)}{' ' * 4}{afk_str}")
 
     print("=" * width)
