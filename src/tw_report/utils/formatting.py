@@ -327,7 +327,8 @@ def abbreviate_project_path(
     """Abbreviate hierarchical project path while preserving task description.
 
     For multi-level projects (e.g., "Platform > Web > Frontend"), keeps the
-    most specific level (leaf) and abbreviates the root to first 5 chars.
+    most specific level (leaf) and abbreviates the root only when necessary.
+    Abbreviation uses first 10 chars to be more readable than 5-char limit.
     Single-level projects are returned unchanged.
 
     Args:
@@ -336,7 +337,7 @@ def abbreviate_project_path(
         max_content_width: Maximum width before truncation (default 100)
 
     Returns:
-        Abbreviated project path (e.g., "Platf... > Frontend")
+        Abbreviated project path (e.g., "Ecosystem... > Frontend" or full path if short enough)
     """
     if " > " not in project:
         return project
@@ -346,8 +347,14 @@ def abbreviate_project_path(
 
     if len(parts) > 1:
         root = parts[0]
-        root_abbrev = root[:5] + "..." if len(root) > 5 else root
-        abbreviated = f"{root_abbrev} > {leaf}"
+        # Only abbreviate if the full project is longer than 20 chars
+        # This gives us better readability without abbreviating short projects
+        full_project = f"{root} > {leaf}"
+        if len(full_project) > 20:
+            root_abbrev = root[:10] + "..." if len(root) > 10 else root
+            abbreviated = f"{root_abbrev} > {leaf}"
+        else:
+            abbreviated = full_project
     else:
         abbreviated = leaf
 
@@ -365,8 +372,8 @@ def format_timeline_columns(
     task: str,
     gaps: str,
     duration: str,
-    project_width: int = 33,
-    task_width: int = 40,
+    project_width: int = 28,
+    task_width: int = 35,
     no_project_sentinel: str = "No project assigned",
     right_align: bool = True,
 ) -> str:
@@ -384,8 +391,8 @@ def format_timeline_columns(
         task: Task name (e.g., "Revisar semillero" or "" for no project entries)
         gaps: Gap notation like "(3:48:32 AFK)" or "" if no gaps
         duration: Duration with productivity like "10:48:56  [prod  7%]"
-        project_width: Fixed width for project column (default 33 chars)
-        task_width: Fixed width for task column (default 40 chars)
+        project_width: Fixed width for project column (default 28 chars, reduced from 33)
+        task_width: Fixed width for task column (default 35 chars, reduced from 40)
         no_project_sentinel: Value that indicates "no project" (default "No project assigned")
         right_align: Right-align duration to terminal width (default True)
 
