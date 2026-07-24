@@ -720,7 +720,8 @@ def print_timeline_report(
             if current_week_key is not None:
                 print(("-" * 22).rjust(width))
                 if not prev_date_was_rollup:
-                    total_day_with_afk = daily_metrics.total_duration
+                    # Use online_duration only (not total_duration) since offline_gap is displayed separately
+                    total_day_with_afk = daily_metrics.online_duration
                     # Format offline time in gap notation if present
                     if daily_metrics.offline_gap and daily_metrics.offline_gap > timedelta(0):
                         gaps_str = f"({format_duration(daily_metrics.offline_gap)} OFF)"
@@ -733,7 +734,8 @@ def print_timeline_report(
                     full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
                     print(full_line.rstrip())
                 if not is_single_day:
-                    total_week_with_afk = weekly_metrics.total_duration
+                    # Use online_duration only (not total_duration) since offline_gap is displayed separately
+                    total_week_with_afk = weekly_metrics.online_duration
                     # Format offline time in gap notation if present
                     if weekly_metrics.offline_gap and weekly_metrics.offline_gap > timedelta(0):
                         gaps_str = f"({format_duration(weekly_metrics.offline_gap)} OFF)"
@@ -760,7 +762,8 @@ def print_timeline_report(
             # Date changed within same week: close previous day
             if not prev_date_was_rollup:
                 print(("-" * 22).rjust(width))
-                total_day_with_afk = daily_metrics.total_duration
+                # Use online_duration only (not total_duration) since offline_gap is displayed separately
+                total_day_with_afk = daily_metrics.online_duration
                 # Format offline time in gap notation if present
                 if daily_metrics.offline_gap and daily_metrics.offline_gap > timedelta(0):
                     gaps_str = f"({format_duration(daily_metrics.offline_gap)} OFF)"
@@ -1077,9 +1080,11 @@ def print_timeline_report(
             slot_type = s.get("type")
 
             if slot_type == "afk":
-                # AFK slots: pure idle time
+                # AFK slots: pure idle time (100% AFK, still counts as online)
                 afk_duration = s.get("actual_duration", s["duration"])
                 group_afk_duration += afk_duration
+                # AFK-only slots are online time! Add to regular_duration so online total is correct
+                group_regular_duration += afk_duration
             elif slot_type not in ("offline",):
                 # Regular (work) slots: online time with optional AFK portion
                 online_duration = s.get("actual_duration", s["duration"])
@@ -1118,7 +1123,8 @@ def print_timeline_report(
     if slots:
         print(("-" * 22).rjust(width))
         if not prev_date_was_rollup:
-            total_day_with_afk = daily_metrics.total_duration
+            # Use online_duration only (not total_duration) since offline_gap is displayed separately
+            total_day_with_afk = daily_metrics.online_duration
             # Format offline time in gap notation if present
             if daily_metrics.offline_gap and daily_metrics.offline_gap > timedelta(0):
                 gaps_str = f"({format_duration(daily_metrics.offline_gap)} OFF)"
@@ -1130,7 +1136,8 @@ def print_timeline_report(
             left_part = "       Day total:   "
             full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
             print(full_line.rstrip())
-        total_week_with_afk = weekly_metrics.total_duration
+        # Use online_duration only (not total_duration) since offline_gap is displayed separately
+        total_week_with_afk = weekly_metrics.online_duration
         if not is_single_day:
             # Format offline time in gap notation if present
             if weekly_metrics.offline_gap and weekly_metrics.offline_gap > timedelta(0):
