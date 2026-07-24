@@ -574,6 +574,10 @@ def print_timeline_report(
     # Remove regular slots that overlap/fall within OFFLINE periods for the same task
     # OFFLINE slots represent untracked periods; showing both OFFLINE + regular slots creates
     # visual duplication and confusion.
+    #
+    # TODO: This should ideally be handled during slot generation (generation.py)
+    # rather than in rendering. The generation layer should not create overlapping
+    # window event slots for time periods covered by OFFLINE tasks.
     offline_slots_by_task = {}
     for slot in slots:
         if slot.get("type") == "offline_task":
