@@ -590,11 +590,8 @@ def main():
 
         # Task-only modes: taskwarrior events (no window events, no AFK correlation)
         # This includes: task UUID mode (--task-id) and project filter mode
-        if skip_window or not window_events:
+        if skip_window:
             # Build slots directly from taskwarrior events (simpler format)
-            # This path is used when:
-            # 1. skip_window is True (task/project/search filtered queries), OR
-            # 2. window_events is empty (AFK optimization skipped fetching, or no activity)
             initial_slots = []
             for rep in context.canonical_events:
                 event = rep.event
@@ -612,7 +609,6 @@ def main():
                 initial_slots.append(slot)
         else:
             # Normal mode: window events with AFK correlation
-            # Only when we have actual window event data to process
             initial_slots = generate_timeline_data(
                 timeline_events,
                 context.afk_events,
