@@ -83,6 +83,26 @@ from tw_report.utils.formatting import (
     split_gaps_and_duration,
 )
 
+def _render_embedded_afk_slots(afk_slots: List[Dict], width: int) -> None:
+    """Render embedded AFK slots as indented sub-entries under a work slot.
+
+    Args:
+        afk_slots: List of AFK slot dicts to render as nested entries
+        width: Terminal width for formatting
+    """
+    for afk_slot in afk_slots:
+        s_start = afk_slot["start"].strftime("%H:%M")
+        s_end = (afk_slot["start"] + afk_slot["duration"]).strftime("%H:%M")
+        slot_duration = afk_slot.get("actual_duration", afk_slot["duration"])
+        slot_dur_str = format_afk_label(slot_duration)
+
+        # Render as indented sub-entry with "└─" prefix to show hierarchy
+        time_range = f"{s_start} - {s_end}".ljust(15)
+        # Indent with 12 spaces (more than work slots) and add └─ prefix
+        left = f"           └─ {time_range}"
+        print(format_timeline_line(left, duration_str=slot_dur_str, max_left_width=95))
+
+
 def _format_project_task_columns(project_name: str, task_name: str) -> str:
     """Format project and task as aligned columns.
 
@@ -834,6 +854,11 @@ def print_timeline_report(
                     duration=base_duration,
                 ))
                 _render_slot_detail(slot, detail_level, width)
+
+                # Render embedded AFK slots as indented sub-entries
+                embedded_afk = slot.get("embedded_afk_slots", [])
+                if embedded_afk:
+                    _render_embedded_afk_slots(embedded_afk, width)
             else:
                 # Multiple slots for this project today — one row each
                 for slot in group_slots:
@@ -884,6 +909,11 @@ def print_timeline_report(
                     )
                     print(line)
                     _render_slot_detail(slot, detail_level, width)
+
+                    # Render embedded AFK slots as indented sub-entries
+                    embedded_afk = slot.get("embedded_afk_slots", [])
+                    if embedded_afk:
+                        _render_embedded_afk_slots(embedded_afk, width)
 
         # Accumulate totals for all slot types
         # Regular slots (non-AFK/OFFLINE)

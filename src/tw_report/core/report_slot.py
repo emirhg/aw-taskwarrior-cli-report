@@ -424,10 +424,14 @@ class ReportTimelineSlot:
         Convert to dict for backward-compat with code paths that haven't migrated yet.
 
         Includes period_start if bucket_start_date is set (for print_period_consolidated_report compat).
+        Includes embedded_afk_slots if present (for rendering nested AFK gaps).
         """
         d = self.slot.to_dict()
         if self.bucket_start_date is not None:
             d["period_start"] = self.bucket_start_date
+        if self.embedded_afk_slots:
+            # Store as list of dicts for renderer compatibility
+            d["embedded_afk_slots"] = [afk.to_dict() for afk in self.embedded_afk_slots]
         return d
 
     def to_timeline_slot(self) -> TimelineSlot:
