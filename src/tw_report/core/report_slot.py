@@ -555,15 +555,33 @@ class ReportTimeline:
         """
         Merge overlapping work slots for the same (project, task).
 
-        When ActivityWatch records overlapping "not-afk" events (e.g., during window recovery),
-        multiple work slots with identical (project, task) but different end times are created.
-        This method merges them into a single slot spanning the full range.
+        CRITICAL FIX FOR DUPLICATE SLOTS (2026-07-23):
+        ===============================================
+        When ActivityWatch records overlapping "not-afk" events (e.g., during window manager
+        recovery or clock adjustments), multiple work slots with identical (project, task)
+        but different end times are created. This causes confusing duplicate entries in the
+        timeline report (same task appearing 2-3 times with overlapping time ranges).
+
+        Example problem (before fix):
+          14:09 - 18:51  ▶ Anarcademi... > Mecanismo de Antikythera  04:41:57  [AFK]
+          14:09 - 19:35  ▶ Anarcademi... > Mecanismo de Antikythera  05:25:47  [AFK]  ← DUPLICATE!
+          18:51 - 19:39  ▶ Anarcademi... > Mecanismo de Antikythera  00:47:30  [AFK]
+
+        After fix:
+          14:09 - 19:35  ▶ Anarcademi... > Mecanismo de Antikythera  05:29:28  [AFK]  ← MERGED
+
+        This method solves the problem by merging overlapping slots into a single entry
+        spanning the full range. This is called early in combine_work_with_embedded_afk()
+        BEFORE AFK slots are embedded, ensuring clean output.
 
         Args:
             work_slots_raw: List of work ReportTimelineSlots (potentially overlapping)
 
         Returns:
             List of work slots with overlaps merged within each (project, task) group
+
+        Important: Do NOT disable this fix without addressing the upstream ActivityWatch
+        overlapping events problem. Users expect clean, non-duplicate timelines.
         """
         if not work_slots_raw:
             return []

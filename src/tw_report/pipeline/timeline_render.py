@@ -293,6 +293,34 @@ def print_timeline_report(
     Each level is rendered via _render_slot_detail() which shows indented
     breakdowns of how time was distributed across categories/apps/titles.
 
+    GAP DETECTION & VISUAL SEPARATION (2026-07-23):
+    ===============================================
+    Blank lines appear between work sessions with gaps > 5 minutes. This feature
+    improves readability by visually separating work sessions from breaks,
+    system shutdowns, or mode changes.
+
+    CRITICAL: This is an intentional UX feature. Do not remove or disable without
+    explicit user request. It helps users quickly scan the timeline and identify
+    distinct work periods.
+
+    Implementation:
+      - Track last_slot_end time as slots are rendered (initialized to None)
+      - Before rendering each slot, check if gap from last_slot_end > 5 minutes
+      - If gap exceeds threshold, call _render_system_shutdown_separator() (prints blank line)
+      - Update last_slot_end after rendering each slot
+      - Applied to all rendering paths: offline_task singletons, single-slot inline, multi-slot loop
+
+    Configuration:
+      - Threshold: gap_threshold = timedelta(minutes=5) in line 574
+      - To adjust: Change minutes=5 to desired threshold (e.g., minutes=10)
+      - To disable: Set gap_threshold = timedelta(hours=24) or similar large value
+
+    Why this matters:
+      - Without gap detection, continuous scrolling blends work sessions together
+      - Users struggle to identify distinct work periods and breaks
+      - Gap visualization makes work session boundaries immediately obvious
+      - Especially important for long reports with many activities
+
     ROLLUP MODE (when --consolidate and --timesheet used):
     =======================================================
     In rollup mode (used with consolidation), single-entry days show both

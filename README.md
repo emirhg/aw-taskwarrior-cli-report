@@ -95,6 +95,10 @@ W25 2026-06-18 Thu
 
 **Key features:**
 - Continuous time slots showing actual work sessions
+- **Visual gap separation**: Blank lines appear between work sessions with gaps > 5 minutes
+  - Helps distinguish work sessions from breaks, system shutdowns, or mode changes
+  - Improves readability and makes work session boundaries clear
+  - Threshold is configurable (default: 5 minutes)
 - `[prod XX%]` shows productivity percentage for that slot
 - `[AFK]` marks keyboard/mouse idle periods
 - Right-aligned summary total (same format as hierarchical)

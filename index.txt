@@ -5,14 +5,17 @@
 This file serves as a quick navigation guide to the tw-report project structure.
 Use Ctrl+F to search for keywords relevant to your task.
 
-Last Updated: 2026-07-22 (Performance: 10x OFFLINE window event optimization)
-Project Status: ✅ PRODUCTION READY (100% modularized, 373 tests passing, 6 xpasses)
+Last Updated: 2026-07-23 (Gap detection, duplicate slot deduplication, overlap merging)
+Project Status: ✅ PRODUCTION READY (100% modularized, 373+ tests passing)
 
 ================================================================================
                           QUICK SEARCH KEYWORDS
 ================================================================================
 
 Timeline Rendering    → see: RENDERING & OUTPUT MODULES
+Gap Detection         → timeline_render.py:570-575, 899, 693 (visual separation for gaps > 5min)
+Duplicate Slots       → report_slot.py:545-620 (_merge_overlapping_work_slots)
+Slot Merging          → report_slot.py:545-620 (handles overlapping work slots from ActivityWatch)
 Metrics Calculation   → see: CORE BUSINESS LOGIC
 Format/Alignment      → see: UTILS MODULES
 Testing              → see: TEST SUITE

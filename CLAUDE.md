@@ -135,6 +135,22 @@ These match the period token definitions in `src/tw_report/core/period.py` (`:we
 
 ## Recent Major Features & Optimizations
 
+### Timeline Gap Detection & Visual Separation (2026-07-23)
+- **Feature**: Blank lines appear between work sessions with gaps > 5 minutes
+- **Purpose**: Improve readability by visually separating work sessions from breaks, system shutdowns, or mode changes
+- **Implementation**: Gap detection in `print_timeline_report()` tracks `last_slot_end` and checks gap before rendering each slot
+- **Configuration**: Threshold is `gap_threshold = timedelta(minutes=5)` in `timeline_render.py:574` (configurable)
+- **Scope**: Works for all slot types (regular, AFK, OFFLINE tasks)
+- **Note**: This is an intentional UX feature—do not remove or disable without explicit user request
+
+### Timeline Duplicate Slot Deduplication (2026-07-23)
+- **Issue**: ActivityWatch sometimes records overlapping `not-afk` events (during window recovery)
+- **Symptom**: Same task appeared multiple times with overlapping/nested time ranges (e.g., 14:09-18:51 and 14:09-19:35)
+- **Fix**: Added `_merge_overlapping_work_slots()` to `ReportTimeline.combine_work_with_embedded_afk()`
+- **Details**: Merges overlapping work slots for same (project, task) before combining with AFK periods
+- **Side effect fix**: When merging, use max() for overlapping time markers (afk_duration, offline_extension_duration) to avoid double-counting
+- **Location**: `src/tw_report/core/report_slot.py:545-620` (ReportTimeline._merge_overlapping_work_slots)
+
 ### Performance Optimization: OFFLINE Window Event Fetching (2026-07-22)
 - **10x speedup** for `--task <uuid> --timesheet :all` queries (95s → 10s)
 - Fixed bottleneck where OFFLINE task reconciliation fetched entire period windows (186K events)
