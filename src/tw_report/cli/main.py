@@ -19,7 +19,6 @@ from tw_report.core.categories import (
     get_category_score,
     load_categories,
 )
-from tw_report.core.consolidation import TimelineSlotManager, consolidate_by_period
 from tw_report.core.events import get_bucket_id, get_events
 from tw_report.core.filtering import EventFilter, NO_PROJECT, NO_TASK
 from tw_report.core.offline import OfflineTaskProcessor
@@ -592,7 +591,7 @@ def main():
                     "project": rep.project,
                     "task": rep.task,
                     "category": "Task Activity",  # Placeholder category
-                    "type": "activity",
+                    "type": "regular",
                     "categories": [],
                 }
                 initial_slots.append(slot)
@@ -705,8 +704,8 @@ def main():
         # Add gap entries to timeline (auto-sorts on insertion)
         timeline.add_slots([TimelineSlot.from_dict(g) for g in gap_entries])
 
-        # Convert timeline to dicts for downstream processing
-        slots = timeline.get_slots_as_dicts()
+        # Convert timeline to ReportTimeline for unified consolidation/bucketing
+        report_timeline = timeline.to_report_timeline()
 
         # Determine which consolidation mode to use
         period_mode = None
@@ -721,15 +720,15 @@ def main():
 
         if period_mode:
             # Period-level consolidation (day/week/month/year)
-            consolidated = consolidate_by_period(slots, period_mode)
+            bucketed = report_timeline.bucket(period_mode)
             # Filter consolidated results based on EventFilter rules
             # (e.g., --exclude-non-project, --exclude-offline)
-            filtered_consolidated = [
-                slot for slot in consolidated
+            filtered_bucketed = [
+                slot for slot in bucketed.as_dicts()
                 if event_filter.should_include_entry(slot)
             ]
             TimelineReport(print_period_consolidated_report).present(
-                slots=filtered_consolidated,
+                slots=filtered_bucketed,
                 period=period,
                 start_time=start_time,
                 end_time=end_time,
@@ -753,12 +752,12 @@ def main():
         else:
             # Standard timeline report (optionally with fine-grain consolidation)
             if args.consolidate:
-                slot_manager = TimelineSlotManager(None, event_filter)
-                slot_manager.add_slots(slots)
-                slots = slot_manager.consolidate()
+                consolidated = report_timeline.consolidate_consecutive()
+            else:
+                consolidated = report_timeline
 
             TimelineReport(print_timeline_report).present(
-                slots=slots,
+                slots=consolidated.as_dicts(),
                 period=period,
                 start_time=start_time,
                 end_time=end_time,

@@ -303,6 +303,21 @@ class Timeline:
         """Get number of slots in timeline."""
         return len(self.slots)
 
+    def to_report_timeline(self):
+        """
+        Convert this Timeline to a ReportTimeline for reporting/consolidation operations.
+
+        Wraps every TimelineSlot as a singleton ReportTimelineSlot.
+        This is the bridge from the granular Timeline model to the report model.
+
+        Returns:
+            ReportTimeline with each slot wrapped
+        """
+        # Lazy import to avoid circular dependency
+        from tw_report.core.report_slot import ReportTimeline
+
+        return ReportTimeline.from_timeline(self)
+
     def _sort(self) -> None:
         """Sort slots by start time (internal method)."""
         self.slots.sort(key=lambda s: s.start)

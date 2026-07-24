@@ -64,49 +64,18 @@ class TimelineSlotManager:
         """
         Consolidate timeline slots by merging same (date, project, task).
 
-        Merges consecutive slots with the same (date, project, task) into a single
-        consolidated slot spanning from the earliest start to latest end, with durations
-        and productive values accumulated.
+        NOW DELEGATES TO ReportTimeline.consolidate_consecutive() for unified merge logic.
+        See core/report_slot.py for the actual implementation.
 
         Returns:
-            List of consolidated slots
+            List of consolidated slots as dicts (for backward compatibility)
         """
-        if not self.slots:
-            return self.slots
+        from tw_report.core.report_slot import ReportTimeline
 
-        consolidated = []
-        current_group: List[Dict] = []
-
-        for slot in self.slots:
-            # Regular slot - check if it continues the current group
-            if not current_group:
-                current_group.append(slot)
-                continue
-
-            # Check if same (project, task, date)
-            same_project_task_date = (
-                slot["project"] == current_group[0]["project"]
-                and slot["task"] == current_group[0]["task"]
-                and slot["start"].date() == current_group[0]["start"].date()
-            )
-
-            if same_project_task_date:
-                # Same task continues - add to group
-                current_group.append(slot)
-            else:
-                # Different task - flush current group and start new one
-                if current_group:
-                    merged = self._merge_slot_group(current_group)
-                    consolidated.append(merged)
-                    current_group.clear()
-                current_group.append(slot)
-
-        # Final flush
-        if current_group:
-            merged = self._merge_slot_group(current_group)
-            consolidated.append(merged)
-
-        return consolidated
+        # Convert to ReportTimeline, consolidate, and convert back to dicts
+        report_timeline = ReportTimeline.from_timeline(self.timeline)
+        consolidated_report = report_timeline.consolidate_consecutive()
+        return consolidated_report.as_dicts()
 
     def _merge_slot_group(self, group: List[Dict]) -> Dict:
         """
@@ -560,11 +529,8 @@ def collapse_tasks_to_project(rows: List[Dict]) -> List[Dict]:
 def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
     """Group slots into (period_bucket, project, task) totals with category data.
 
-    Groups at task granularity (finer than before) for all detail levels, then
-    print_period_consolidated_report() decides whether to collapse to project-only
-    or show task detail. This allows detail_level >= 2 to show task breakdown.
-
-    Each result row includes merged categories for detail_level >= 3.
+    NOW DELEGATES TO ReportTimeline.bucket() for unified bucketing and merging logic.
+    See core/report_slot.py for the actual implementation.
 
     Args:
         slots: List of slot dicts (from timeline or consolidation)
@@ -578,74 +544,20 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
     Raises:
         ValueError: If period is not one of the recognized values
     """
-    from datetime import date, timedelta
-    from typing import Dict, Tuple
+    from tw_report.core.report_slot import ReportTimeline
+    from tw_report.core.timeline import Timeline, TimelineSlot
 
-    def bucket_start(dt) -> date:
-        d = dt.date()
-        if period == "day":
-            return d
-        elif period == "week":
-            # Monday of the week containing dt, same as period.py :week/:lastweek
-            return d - timedelta(days=dt.weekday())
-        elif period == "month":
-            return d.replace(day=1)
-        elif period == "year":
-            return d.replace(month=1, day=1)
-        raise ValueError(f"Unknown period: {period}")
+    # Convert dicts back to TimelineSlots, build a Timeline
+    timeline = Timeline()
+    for slot_dict in slots:
+        try:
+            slot = TimelineSlot.from_dict(slot_dict)
+            timeline.add_slot(slot)
+        except Exception:
+            # Backward compatibility: skip malformed slots
+            continue
 
-    # Group-by (period, project, task): exclude offline gap markers, keep everything else
-    groups: Dict[Tuple[date, str, str], List[Dict]] = {}
-    for slot in slots:
-        if slot.get("type") == "offline":
-            continue  # gap markers only
-        key = (bucket_start(slot["start"]), slot["project"], slot["task"])
-        groups.setdefault(key, []).append(slot)
-
-    result = []
-    for (period_start, project, task), group_slots in groups.items():
-        actual_duration = sum(
-            (s.get("actual_duration", s["duration"]) for s in group_slots), timedelta(0)
-        )
-        productive_duration = sum(
-            (s.get("productive_duration", timedelta(0)) for s in group_slots), timedelta(0)
-        )
-        afk_duration = sum(
-            (s.get("actual_duration", s["duration"]) for s in group_slots if s.get("type") == "afk"),
-            timedelta(0),
-        )
-        # For offline_task slots: offline time = duration - event_duration (system was off)
-        # For other slots: no offline extension (they were tracked live)
-        offline_extension_duration = sum(
-            (s.get("duration", timedelta(0)) - s.get("event_duration", timedelta(0))
-             for s in group_slots if s.get("type") == "offline_task"),
-            timedelta(0),
-        )
-        result.append({
-            "period_start": period_start,
-            "project": project,
-            "task": task,
-            "duration": actual_duration,
-            "actual_duration": actual_duration,
-            "productive_duration": productive_duration,
-            "afk_duration": afk_duration,
-            "offline_extension_duration": offline_extension_duration,
-            "categories": merge_categories(group_slots),
-        })
-
-    # Sort by: period_start, then project's total duration (descending),
-    # then individual task duration (descending)
-    # To get project totals for sorting, group by (period, project)
-    project_totals = {}
-    for row in result:
-        key = (row["period_start"], row["project"])
-        project_totals[key] = project_totals.get(key, timedelta(0)) + row["actual_duration"]
-
-    result.sort(
-        key=lambda r: (
-            r["period_start"],
-            -project_totals[(r["period_start"], r["project"])].total_seconds(),
-            -r["actual_duration"].total_seconds(),
-        )
-    )
-    return result
+    # Convert to ReportTimeline, bucket, and convert back to dicts
+    report_timeline = timeline.to_report_timeline()
+    bucketed = report_timeline.bucket(period)
+    return bucketed.as_dicts()

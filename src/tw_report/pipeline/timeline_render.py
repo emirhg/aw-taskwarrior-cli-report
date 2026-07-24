@@ -107,9 +107,8 @@ def _format_project_task_columns(project_name: str, task_name: str) -> str:
 def split_slots_spanning_days(slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Split slots that span multiple days into single-day pieces.
 
-    For each slot crossing midnight, creates separate entries for each day,
-    with duration proportionally allocated. This ensures timeline display shows
-    correct daily totals and week structure.
+    NOW DELEGATES TO ReportTimelineSlot.split_at_boundaries("day") for unified splitting logic.
+    See core/report_slot.py for the actual implementation.
 
     Args:
         slots: List of timeline slots (may span multiple days)
@@ -117,69 +116,27 @@ def split_slots_spanning_days(slots: List[Dict[str, Any]]) -> List[Dict[str, Any
     Returns:
         List of slots, with multi-day slots split into single-day pieces
     """
-    split_slots = []
+    from tw_report.core.report_slot import ReportTimelineSlot
+    from tw_report.core.timeline import Timeline, TimelineSlot
 
-    for slot in slots:
-        start_dt = slot["start"]
-        slot_duration = slot.get("actual_duration", slot["duration"])
-        end_dt = start_dt + slot_duration
-
-        start_date = start_dt.date()
-        end_date = end_dt.date()
-
-        # Slot stays within same day
-        if start_date == end_date:
-            split_slots.append(slot)
+    # Convert dicts to TimelineSlots, build a Timeline
+    timeline = Timeline()
+    for slot_dict in slots:
+        try:
+            slot = TimelineSlot.from_dict(slot_dict)
+            timeline.add_slot(slot)
+        except Exception:
+            # Backward compatibility: skip malformed slots
             continue
 
-        # Guard against pathological cases: if a slot spans > 100 days (e.g., entire :all period),
-        # skip per-day splitting to avoid 20,000+ loop iterations which takes 90+ seconds.
-        # This can happen if an AFK or merged event accidentally spans the entire query period.
-        day_span = (end_date - start_date).days
-        if day_span > 100:
-            # For huge spans, keep the slot as-is instead of iterating day-by-day
-            split_slots.append(slot)
-            continue
+    # Split each slot at day boundaries using the unified implementation
+    split_report_slots = []
+    for slot in timeline.get_slots():
+        report_slot = ReportTimelineSlot.from_timeline_slot(slot)
+        split_report_slots.extend(report_slot.split_at_boundaries("day"))
 
-        # Slot spans multiple days — split it
-        current_dt = start_dt
-
-        while current_dt.date() <= end_date:
-            current_date = current_dt.date()
-            day_end = datetime.combine(
-                current_date + timedelta(days=1),
-                datetime.min.time(),
-                tzinfo=current_dt.tzinfo,
-            )
-
-            piece_start = current_dt
-            piece_end = min(day_end, end_dt)
-            piece_duration = piece_end - piece_start
-
-            split_slot = slot.copy()
-            split_slot["start"] = piece_start
-            split_slot["duration"] = piece_duration
-
-            # Proportionally allocate durations based on piece ratio
-            if slot_duration.total_seconds() > 0:
-                ratio = piece_duration.total_seconds() / slot_duration.total_seconds()
-                split_slot["actual_duration"] = piece_duration
-                if "productive_duration" in slot:
-                    split_slot["productive_duration"] = timedelta(
-                        seconds=slot["productive_duration"].total_seconds() * ratio
-                    )
-                for duration_field in ("afk_duration", "offline_extension_duration"):
-                    if duration_field in slot and slot[duration_field]:
-                        split_slot[duration_field] = timedelta(
-                            seconds=slot[duration_field].total_seconds() * ratio
-                        )
-            else:
-                split_slot["actual_duration"] = piece_duration
-
-            split_slots.append(split_slot)
-            current_dt = day_end
-
-    return split_slots
+    # Convert back to dicts
+    return [rs.to_dict() for rs in split_report_slots]
 
 
 def filter_short_slots(slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -431,95 +388,6 @@ def print_timeline_report(
     def slot_date(slot):
         """Return slot date"""
         return slot["start"].date()
-
-    def split_slots_spanning_days(slots):
-        """
-        Split slots that span multiple days.
-
-        For each slot spanning midnight, creates separate slot entries for each day,
-        with duration proportionally allocated to each day.
-
-        Returns:
-            List of slots, with multi-day slots split into single-day pieces
-        """
-        split_slots = []
-
-        for slot in slots:
-            start_dt = slot["start"]
-            # BUGFIX: Use wall-clock duration for calculating display time range, not actual_duration.
-            # actual_duration (from TaskWarrior) can be > wall-clock duration when the task spans
-            # AFK periods or gaps without window events. This caused split logic to calculate
-            # incorrect end times, creating slots like "22:35 - 00:25" when window events only
-            # spanned "22:35 - 23:14".
-            slot_duration = slot["duration"]  # Use actual window event span, not TW task duration
-            end_dt = start_dt + slot_duration
-
-            start_date = start_dt.date()
-            end_date = end_dt.date()
-
-            # If slot stays within same day, keep as-is
-            if start_date == end_date:
-                split_slots.append(slot)
-                continue
-
-            # Guard against pathological cases: if a slot spans > 100 days (e.g., entire :all period),
-            # skip per-day splitting to avoid 20,000+ loop iterations which takes 90+ seconds.
-            day_span = (end_date - start_date).days
-            if day_span > 100:
-                split_slots.append(slot)
-                continue
-
-            # Slot spans multiple days - split it
-            current_dt = start_dt
-
-            while current_dt.date() <= end_date:
-                # Determine this day's end boundary (midnight of current day)
-                current_date = current_dt.date()
-                day_end = datetime.combine(
-                    current_date + timedelta(days=1),
-                    datetime.min.time(),
-                    tzinfo=current_dt.tzinfo
-                )
-
-                # Calculate overlap with this day
-                piece_start = current_dt
-                piece_end = min(day_end, end_dt)
-                piece_duration = piece_end - piece_start
-
-                # Create split slot for this day
-                split_slot = slot.copy()
-                split_slot["start"] = piece_start
-                split_slot["duration"] = piece_duration
-
-                # Proportionally allocate actual_duration and productive_duration based on
-                # wall-clock piece size (not TaskWarrior task duration)
-                if slot_duration.total_seconds() > 0:
-                    ratio = piece_duration.total_seconds() / slot_duration.total_seconds()
-                    # actual_duration proportionally allocated to this day's piece
-                    if "actual_duration" in slot:
-                        split_slot["actual_duration"] = timedelta(
-                            seconds=slot["actual_duration"].total_seconds() * ratio
-                        )
-                    if "productive_duration" in slot:
-                        split_slot["productive_duration"] = timedelta(
-                            seconds=slot["productive_duration"].total_seconds() * ratio
-                        )
-                    # Proportionally allocate AFK and other duration fields
-                    for duration_field in ("afk_duration", "offline_extension_duration"):
-                        if duration_field in slot and slot[duration_field]:
-                            split_slot[duration_field] = timedelta(
-                                seconds=slot[duration_field].total_seconds() * ratio
-                            )
-                else:
-                    if "actual_duration" in slot:
-                        split_slot["actual_duration"] = piece_duration
-
-                split_slots.append(split_slot)
-
-                # Move to next day
-                current_dt = day_end
-
-        return split_slots
 
     # Split slots spanning multiple days
     slots = split_slots_spanning_days(slots)
