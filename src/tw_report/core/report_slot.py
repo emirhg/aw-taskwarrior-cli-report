@@ -471,8 +471,10 @@ class ReportTimeline:
             else:
                 # Different task — merge current group and start new one
                 if current_group:
+                    # Allow mixed types (regular + afk) within same (project, task, date) group
+                    # e.g., a work session interrupted by AFK gaps should be merged into one row
                     merged_report_slot = ReportTimelineSlot.from_timeline_slots(
-                        current_group
+                        current_group, allow_mixed_types=True
                     )
                     consolidated.append(merged_report_slot)
                     current_group.clear()
@@ -480,7 +482,10 @@ class ReportTimeline:
 
         # Final flush
         if current_group:
-            merged_report_slot = ReportTimelineSlot.from_timeline_slots(current_group)
+            # Allow mixed types (regular + afk) within same (project, task, date) group
+            merged_report_slot = ReportTimelineSlot.from_timeline_slots(
+                current_group, allow_mixed_types=True
+            )
             consolidated.append(merged_report_slot)
 
         return ReportTimeline(slots_list=consolidated)
