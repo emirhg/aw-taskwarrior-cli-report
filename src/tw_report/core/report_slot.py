@@ -35,6 +35,12 @@ class ReportTimelineSlot:
     - source_slots: constituent slots if merged/split, for traceability
     - is_consolidated: True if produced by merging >1 slot
     - bucket_mode / bucket_start_date: period assignment after split_at_boundaries()
+    - embedded_afk_slots: AFK periods nested within this slot (same task/project)
+
+    For combined work+AFK slots:
+    - slot: contains work data (TW task, project, duration)
+    - embedded_afk_slots: list of AFK TimelineSlots that occurred during this work period
+    - The wall-clock span encompasses both work and AFK time
 
     Properties delegate to self.slot for all data fields (start, duration, etc.),
     so call sites read rts.start instead of rts.slot.start or slot["start"].
@@ -45,6 +51,7 @@ class ReportTimelineSlot:
     is_consolidated: bool = False
     bucket_mode: Optional[Literal["day", "week", "month", "year"]] = None
     bucket_start_date: Optional[date] = None
+    embedded_afk_slots: List[TimelineSlot] = field(default_factory=list)  # AFK periods within this work slot
 
     # Delegate properties to self.slot for transparent access
     @property
@@ -387,6 +394,31 @@ class ReportTimelineSlot:
 
         return pieces
 
+    @classmethod
+    def from_work_slot_with_embedded_afk(
+        cls, work_slot: TimelineSlot, afk_slots: List[TimelineSlot]
+    ) -> "ReportTimelineSlot":
+        """
+        Create a combined work+AFK slot, with AFK periods nested within.
+
+        Used to represent a complete time period from both TaskWarrior (work data)
+        and ActivityWatch (AFK data). The work slot's span encompasses the full
+        time period, and embedded AFK slots show where the user was away.
+
+        Args:
+            work_slot: Work slot (type="regular") from TaskWarrior/window events
+            afk_slots: List of AFK slots (type="afk") that overlap with this work period
+
+        Returns:
+            ReportTimelineSlot with work_slot as the primary slot and afk_slots nested
+        """
+        return cls(
+            slot=work_slot,
+            source_slots=[work_slot] + afk_slots,  # Traceability: all contributors
+            is_consolidated=False,  # Not a merge (different data sources)
+            embedded_afk_slots=afk_slots,
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert to dict for backward-compat with code paths that haven't migrated yet.
@@ -429,6 +461,72 @@ class ReportTimeline:
             for slot in timeline.get_slots()
         ]
         return cls(slots_list=report_slots)
+
+    def combine_work_with_embedded_afk(self) -> "ReportTimeline":
+        """
+        Combine work slots with embedded AFK periods for the same (project, task).
+
+        Transforms separate work+AFK slots into combined slots where AFK periods
+        are nested within work slots. This provides a clearer picture: one work
+        period with AFK gaps clearly shown as components, not competing rows.
+
+        Algorithm:
+        1. Separate work slots (type="regular") from AFK slots (type="afk")
+        2. For each work slot, find overlapping AFK slots with same (project, task)
+        3. Create combined slot with embedded_afk_slots
+        4. Keep non-overlapping AFK slots as standalone
+
+        Returns:
+            ReportTimeline with combined work+AFK slots
+        """
+        work_slots = [rs for rs in self.slots_list if rs.slot.type == "regular"]
+        afk_slots = [rs for rs in self.slots_list if rs.slot.type == "afk"]
+        other_slots = [rs for rs in self.slots_list if rs.slot.type not in ("regular", "afk")]
+
+        result_report_slots = []
+
+        # For each work slot, find overlapping AFK slots with same task
+        for work_rs in work_slots:
+            work_slot = work_rs.slot
+            # Find AFK slots that overlap and are for the same task
+            embedded_afk_slots = [
+                afk_rs.slot
+                for afk_rs in afk_slots
+                if (
+                    afk_rs.slot.project == work_slot.project
+                    and afk_rs.slot.task == work_slot.task
+                    and afk_rs.slot.start < work_slot.end
+                    and work_slot.start < afk_rs.slot.end
+                )
+            ]
+
+            # Create combined ReportTimelineSlot with embedded AFK
+            combined_slot = ReportTimelineSlot.from_work_slot_with_embedded_afk(
+                work_slot, embedded_afk_slots
+            )
+            result_report_slots.append(combined_slot)
+
+        # Add AFK slots that were NOT embedded (standalone)
+        for afk_rs in afk_slots:
+            afk_slot = afk_rs.slot
+            # Keep only if NOT embedded in any work slot
+            is_embedded = any(
+                afk_slot.project == work_rs.slot.project
+                and afk_slot.task == work_rs.slot.task
+                and afk_slot.start < work_rs.slot.end
+                and work_rs.slot.start < afk_slot.end
+                for work_rs in work_slots
+            )
+            if not is_embedded:
+                result_report_slots.append(afk_rs)
+
+        # Add other slot types
+        result_report_slots.extend(other_slots)
+
+        # Sort by start time to preserve chronological order
+        result_report_slots.sort(key=lambda rs: rs.start)
+
+        return ReportTimeline(slots_list=result_report_slots)
 
     def consolidate_consecutive(self) -> "ReportTimeline":
         """

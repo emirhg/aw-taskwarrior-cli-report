@@ -750,13 +750,18 @@ def main():
                 last_break_duration=context.metrics.last_break_duration,
             )
         else:
-            # Standard timeline report: always consolidate same-task runs (including AFK gaps)
-            # This prevents overlapping AFK+work slots from the same task appearing as separate rows.
-            # --consolidate flag is now deprecated for timeline (it was the only consolidation mode before period modes were added).
-            consolidated = report_timeline.consolidate_consecutive()
+            # Standard timeline report
+            # First, combine work slots with embedded AFK periods for clearer visualization
+            combined = report_timeline.combine_work_with_embedded_afk()
+
+            # Then optionally consolidate if --consolidate flag is passed
+            if args.consolidate:
+                final = combined.consolidate_consecutive()
+            else:
+                final = combined
 
             TimelineReport(print_timeline_report).present(
-                slots=consolidated.as_dicts(),
+                slots=final.as_dicts(),
                 period=period,
                 start_time=start_time,
                 end_time=end_time,

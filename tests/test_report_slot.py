@@ -464,6 +464,123 @@ class TestReportTimelineSlotSerialization:
         assert report_slot.to_timeline_slot() is basic_slot
 
 
+class TestReportTimelineEmbeddedAFK:
+    """Test combining work slots with embedded AFK periods."""
+
+    def test_combine_work_with_embedded_afk_basic(self):
+        """Work slot with overlapping AFK slot should be combined."""
+        # Work slot: 14:09-18:51
+        work = TimelineSlot(
+            type="regular",
+            start=datetime(2026, 7, 23, 14, 9, tzinfo=UTC),
+            end=datetime(2026, 7, 23, 18, 51, tzinfo=UTC),
+            project="Anarcademia",
+            task="Mecanismo",
+            duration=timedelta(hours=4, minutes=42),
+            actual_duration=timedelta(hours=4, minutes=41, seconds=57),
+        )
+
+        # AFK slot: 14:55-14:59 (within work period)
+        afk1 = TimelineSlot(
+            type="afk",
+            start=datetime(2026, 7, 23, 14, 55, tzinfo=UTC),
+            end=datetime(2026, 7, 23, 14, 59, tzinfo=UTC),
+            project="Anarcademia",
+            task="Mecanismo",
+            duration=timedelta(minutes=4),
+            actual_duration=timedelta(minutes=4),
+        )
+
+        # AFK slot: 15:01-15:07 (within work period)
+        afk2 = TimelineSlot(
+            type="afk",
+            start=datetime(2026, 7, 23, 15, 1, tzinfo=UTC),
+            end=datetime(2026, 7, 23, 15, 7, tzinfo=UTC),
+            project="Anarcademia",
+            task="Mecanismo",
+            duration=timedelta(minutes=6),
+            actual_duration=timedelta(minutes=6),
+        )
+
+        # Create timeline with work + AFK slots
+        from tw_report.core.timeline import Timeline
+
+        timeline = Timeline()
+        timeline.add_slots([work, afk1, afk2])
+
+        # Convert to ReportTimeline and combine
+        report_timeline = ReportTimeline.from_timeline(timeline)
+        combined = report_timeline.combine_work_with_embedded_afk()
+
+        # Should have 1 slot (combined work + embedded AFK)
+        assert len(combined.slots()) == 1
+
+        combined_slot = combined.slots()[0]
+        assert combined_slot.type == "regular"
+        assert combined_slot.project == "Anarcademia"
+        assert combined_slot.task == "Mecanismo"
+        assert len(combined_slot.embedded_afk_slots) == 2
+        assert combined_slot.embedded_afk_slots[0].start == afk1.start
+        assert combined_slot.embedded_afk_slots[1].start == afk2.start
+
+    def test_combine_work_keeps_non_overlapping_afk(self):
+        """AFK slots not overlapping with work should remain standalone."""
+        # Work slot: 14:09-15:00
+        work = TimelineSlot(
+            type="regular",
+            start=datetime(2026, 7, 23, 14, 9, tzinfo=UTC),
+            end=datetime(2026, 7, 23, 15, 0, tzinfo=UTC),
+            project="Anarcademia",
+            task="Mecanismo",
+            duration=timedelta(minutes=51),
+            actual_duration=timedelta(minutes=51),
+        )
+
+        # AFK slot: 13:00-13:30 (before work)
+        afk_before = TimelineSlot(
+            type="afk",
+            start=datetime(2026, 7, 23, 13, 0, tzinfo=UTC),
+            end=datetime(2026, 7, 23, 13, 30, tzinfo=UTC),
+            project="Anarcademia",
+            task="Mecanismo",
+            duration=timedelta(minutes=30),
+            actual_duration=timedelta(minutes=30),
+        )
+
+        # AFK slot: 14:55-15:05 (overlaps)
+        afk_overlaps = TimelineSlot(
+            type="afk",
+            start=datetime(2026, 7, 23, 14, 55, tzinfo=UTC),
+            end=datetime(2026, 7, 23, 15, 5, tzinfo=UTC),
+            project="Anarcademia",
+            task="Mecanismo",
+            duration=timedelta(minutes=10),
+            actual_duration=timedelta(minutes=10),
+        )
+
+        from tw_report.core.timeline import Timeline
+
+        timeline = Timeline()
+        timeline.add_slots([work, afk_before, afk_overlaps])
+
+        report_timeline = ReportTimeline.from_timeline(timeline)
+        combined = report_timeline.combine_work_with_embedded_afk()
+
+        # Should have 2 slots: standalone AFK before + combined work
+        assert len(combined.slots()) == 2
+
+        # After sorting by start time: AFK before comes first
+        standalone_afk = combined.slots()[0]
+        assert standalone_afk.type == "afk"
+        assert standalone_afk.start == afk_before.start
+
+        # Then combined work with embedded AFK
+        work_slot = combined.slots()[1]
+        assert work_slot.type == "regular"
+        assert len(work_slot.embedded_afk_slots) == 1
+        assert work_slot.embedded_afk_slots[0].start == afk_overlaps.start
+
+
 class TestReportTimeline:
     """Test ReportTimeline collection operations."""
 
