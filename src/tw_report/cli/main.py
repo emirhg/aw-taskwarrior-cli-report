@@ -44,7 +44,7 @@ from tw_report.core.task_filtering import (
     resolve_task_filter_value,
 )
 from tw_report.core.timeline import Timeline, TimelineSlot
-from tw_report.pipeline.generation import generate_gap_entries, generate_timeline_data
+from tw_report.pipeline.generation import generate_gap_entries, generate_timeline_data, generate_untracked_gap_events
 from tw_report.pipeline.models import ReportContext
 from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
 from tw_report.pipeline.processors import (
@@ -372,6 +372,14 @@ def main():
             # Apply user filters to ensure correctness (e.g., when --task filtering is set)
             if matches_user_filters(rep, args, _matches_any, _excluded):
                 canonical_events.append(rep)
+
+        # Add untracked (NO_PROJECT) time gaps from uncovered not-afk periods
+        # Only for general unfiltered views (not skip_window = True means all-activity mode)
+        if not skip_window and not_afk_events:
+            untracked_events = generate_untracked_gap_events(not_afk_events, task_events)
+            canonical_events.extend(untracked_events)
+            # Re-sort by timestamp to maintain chronological order
+            canonical_events = sorted(canonical_events, key=lambda rep: rep.event.timestamp)
     else:
         # Normal mode: correlate window events to task events
         canonical_events = build_canonical_events(

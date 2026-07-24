@@ -22,6 +22,7 @@ from tw_report.core.task_matching import (
     find_active_task,
     get_task_info,
 )
+from tw_report.pipeline.models import ReportEvent
 from tw_report.pipeline.processors import window_event_productive_duration
 from tw_report.utils.formatting import normalize_title, sanitize_title
 
@@ -62,6 +63,110 @@ def _merge_overlapping_events(events: List[Event]) -> List[Event]:
 
     merged.append(current)
     return merged
+
+
+def generate_untracked_gap_events(
+    not_afk_events: List[Event],
+    task_events: Optional[List[Event]],
+) -> List[ReportEvent]:
+    """Generate synthetic NO_PROJECT/NO_TASK events for not-afk time uncovered by any task.
+
+    For each not-afk period, subtracts sub-ranges already covered by a TaskWarrior task event.
+    Remaining uncovered sub-ranges >= MIN_EVENT_DURATION become synthetic ReportEvent entries,
+    allowing untracked activity time to be represented in timesheets without fetching window events.
+
+    Args:
+        not_afk_events: List of not-afk events (periods when user was active)
+        task_events: List of TaskWarrior task events (may be None if no tasks)
+
+    Returns:
+        List of ReportEvent instances tagged NO_PROJECT/NO_TASK for uncovered gaps
+    """
+    result = []
+
+    if not not_afk_events or not task_events:
+        return result
+
+    # Process each not-afk period
+    for not_afk_event in not_afk_events:
+        not_afk_start = not_afk_event.timestamp
+        not_afk_end = not_afk_start + not_afk_event.duration
+
+        # Find all task events that overlap this not-afk period
+        overlapping_tasks = [
+            t for t in task_events
+            if t.timestamp < not_afk_end and (t.timestamp + t.duration) > not_afk_start
+        ]
+
+        if not overlapping_tasks:
+            # Entire not-afk period is uncovered by any task
+            if not_afk_event.duration >= MIN_EVENT_DURATION:
+                synthetic_event = Event(
+                    timestamp=not_afk_start,
+                    duration=not_afk_event.duration,
+                    data={},
+                )
+                result.append(ReportEvent(
+                    event=synthetic_event,
+                    project=NO_PROJECT,
+                    task=NO_TASK,
+                    active_task=None,
+                ))
+            continue
+
+        # Sort task events by start time
+        overlapping_tasks = sorted(overlapping_tasks, key=lambda t: t.timestamp)
+
+        # Merge overlapping task intervals to find covered sub-ranges
+        merged_tasks = []
+        for task in overlapping_tasks:
+            task_start = max(task.timestamp, not_afk_start)
+            task_end = min(task.timestamp + task.duration, not_afk_end)
+
+            if merged_tasks and task_start <= merged_tasks[-1][1]:
+                # Overlaps with previous merged interval: extend
+                merged_tasks[-1] = (merged_tasks[-1][0], max(merged_tasks[-1][1], task_end))
+            else:
+                # Non-overlapping: add new interval
+                merged_tasks.append((task_start, task_end))
+
+        # Compute gaps (uncovered intervals) as complement of covered intervals
+        current_pos = not_afk_start
+        for covered_start, covered_end in merged_tasks:
+            # Gap before this covered interval
+            if current_pos < covered_start:
+                gap_duration = covered_start - current_pos
+                if gap_duration >= MIN_EVENT_DURATION:
+                    synthetic_event = Event(
+                        timestamp=current_pos,
+                        duration=gap_duration,
+                        data={},
+                    )
+                    result.append(ReportEvent(
+                        event=synthetic_event,
+                        project=NO_PROJECT,
+                        task=NO_TASK,
+                        active_task=None,
+                    ))
+            current_pos = max(current_pos, covered_end)
+
+        # Gap after all covered intervals
+        if current_pos < not_afk_end:
+            gap_duration = not_afk_end - current_pos
+            if gap_duration >= MIN_EVENT_DURATION:
+                synthetic_event = Event(
+                    timestamp=current_pos,
+                    duration=gap_duration,
+                    data={},
+                )
+                result.append(ReportEvent(
+                    event=synthetic_event,
+                    project=NO_PROJECT,
+                    task=NO_TASK,
+                    active_task=None,
+                ))
+
+    return result
 
 
 def generate_gap_entries(
