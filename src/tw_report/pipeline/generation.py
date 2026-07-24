@@ -586,13 +586,20 @@ def generate_timeline_data(
             # - actual_duration: TaskWarrior task duration (ground truth)
             slot_duration = slot_end - slot_start
 
-            # Use TaskWarrior task duration as the source of truth
-            active_task_event = events[0]["active_task"] if events else None
-            if active_task_event and active_task_event.duration:
-                actual_duration = active_task_event.duration
+            # Prioritize window event durations (actual observed activity) over TaskWarrior durations
+            # (which can be inflated if tasks stay open during breaks/inactivity)
+            window_event_duration = sum((e["event"].duration for e in events), timedelta(0))
+            if window_event_duration > timedelta(0):
+                # Use observed window activity as the ground truth
+                actual_duration = window_event_duration
             else:
-                # Fallback for --no-taskwarrior mode: sum window event durations
-                actual_duration = sum((e["event"].duration for e in events), timedelta(0))
+                # Fallback: use TaskWarrior task duration if no window events
+                active_task_event = events[0]["active_task"] if events else None
+                if active_task_event and active_task_event.duration:
+                    actual_duration = active_task_event.duration
+                else:
+                    # Final fallback: calculate from slot boundaries
+                    actual_duration = slot_duration
 
             # Build nested category structure: {category, duration, start, end, apps: [{app, duration, start, end, titles}]}
             if deduplicate_categories:
