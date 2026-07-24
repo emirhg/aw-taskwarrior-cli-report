@@ -8,6 +8,7 @@ Requires-Python: >=3.8
 Description-Content-Type: text/markdown
 Requires-Dist: aw-client>=0.5.15
 Requires-Dist: aw-core>=0.5.17
+Requires-Dist: tomli>=1.1.0; python_version < "3.11"
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.0; extra == "dev"
@@ -124,6 +125,8 @@ W25 2026-06-18 Thu
 - `:lastweek` — Previous week
 - `:month` — Current month (1st-today)
 - `:lastmonth` — Previous month
+- `:year` — Current year (Jan 1-today)
+- `:lastyear` — Previous calendar year
 - `:all` — All history
 - `2026-06-18` — Specific date
 - `2026-06-18 2026-06-25` — Date range
@@ -225,56 +228,103 @@ After:   Task A 10:00-14:00 (2:00 actual, 1:00 AFK break shown separately)
 - **4**: + App
 - **5**: + Window Title
 
+## Installation
+
+### From source (development)
+```bash
+git clone <repository>
+cd work_report
+pip install -e .
+```
+
+### After installation
+```bash
+# Console script (installed via pip install -e .)
+tw-report :today
+
+# Or use the development wrapper
+./bin/tw-report :today
+```
+
 ## Usage Examples
 
 ### Basic daily report
 ```bash
-tw-report.py :today
+tw-report :today
 ```
 
 ### This week with timeline view
 ```bash
-tw-report.py :week --timesheet
+tw-report :week --timesheet
 ```
 
 ### Specific project, consolidated sessions
 ```bash
-tw-report.py :today --project Ecosistema --timesheet --consolidate
+tw-report :today --project Ecosistema --timesheet --consolidate
 ```
 
 ### Exclude offline work from timeline
 ```bash
-tw-report.py :today --timesheet --exclude-offline
+tw-report :today --timesheet --exclude-offline
 ```
 
 ### Deep dive on a specific task
 ```bash
-tw-report.py :today --task "Control de plagas" --detail-level 5
+tw-report :today --task "Control de plagas" --detail-level 5
 ```
 
 ### All Coding activity this month
 ```bash
-tw-report.py :month --app kitty vim --sort-by-duration
+tw-report :month --app kitty vim --sort-by-duration
 ```
 
 ## Dependencies
 
-- **ActivityWatch** (`aw-client`, `aw-core`, `aw-transform`) — Event fetching and transformation
+- **Python 3.8+** — Type hints, f-strings, TOML support
+- **ActivityWatch** (`aw-client ≥0.5.15`, `aw-core ≥0.5.17`) — Event fetching and transformation
 - **Taskwarrior** (via aw-watcher-taskwarrior) — Task events in ActivityWatch
-- **Python 3.8+** — Type hints, f-strings
-
-Install:
-```bash
-pip install aw-client
-```
+- **tomli ≥1.1.0** (Python <3.11 only) — TOML config file parsing
 
 ## Configuration
+
+### Config File (TOML)
+
+User configuration files are loaded from (in order):
+1. `$XDG_CONFIG_HOME/tw-report/config.toml` (if XDG_CONFIG_HOME is set)
+2. `~/.config/tw-report/config.toml` (XDG Base Directory fallback)
+
+If the config file doesn't exist, all settings fall back to defaults or CLI arguments.
+
+**Example config file:**
+```toml
+# ~/.config/tw-report/config.toml
+detail_level = 3
+exclude_projects = ["Personal", "Test"]
+terminal_width = 120
+categories_file = "/custom/path/categories.json"
+```
+
+**Supported settings:**
+- `detail_level` (1-5, default: 4) — Report detail level
+- `exclude_projects` (list) — Projects to exclude from reports
+- `exclude_tasks` (list) — Tasks to exclude from reports
+- `exclude_apps` (list) — Apps to exclude from reports
+- `terminal_width` (int) — Force terminal width for formatting
+- `categories_file` (string) — Path to custom categories JSON file
+
+**Precedence:** CLI arguments > config file > built-in defaults
+- CLI arguments always override config file
+- Config file settings override defaults
+- Non-existent config file is silently ignored
 
 ### Categories File
 
 Default location: `~/.config/activitywatch/aw-server/settings.json`
 
-Override with `--categories /path/to/custom.json`
+Override with `--categories /path/to/custom.json` or via config file:
+```toml
+categories_file = "/path/to/custom.json"
+```
 
 ### Sorting Options
 
@@ -422,25 +472,143 @@ This consistency allows users to switch between report types without re-learning
 - Verify output is not piped/redirected (pipes affect width calculation)
 - Try wider terminal if summary line appears truncated
 
-## File Structure
+## Running Tests
 
+### Setup
+```bash
+# Install with dev dependencies
+pip install -e .[dev]
 ```
-work_report/
-├── tw-report.py              # Main script
-├── report_pipeline.py         # Event processing pipeline
-├── report_models.py           # Data classes
-├── report_presenters.py       # Report rendering
-└── README.md                  # This file
+
+### Run tests
+```bash
+# All tests (excludes live-server tests if no AW instance is running)
+pytest
+
+# Only unit tests (fast, no external dependencies)
+pytest tests/unit/ -v
+
+# With coverage report
+pytest --cov=tw_report --cov-report=term-missing
+
+# Specific test file
+pytest tests/unit/test_filtering.py -v
+
+# Specific test class/function
+pytest tests/unit/test_filtering.py::TestEventFilterBasics::test_basic_filtering -v
 ```
+
+### Test organization
+- **`tests/unit/`** — Fast, isolated unit tests (262+ tests)
+  - Core logic: filtering, consolidation, OFFLINE processing
+  - CLI argument parsing
+  - Config loading and settings resolution
+  - Formatting utilities
+  - Pipeline processors
+
+- **`tests/integration/`** — Full-pipeline tests (marked with `@pytest.mark.live_server`)
+  - Requires running ActivityWatch instance
+  - Run with: `pytest -m live_server` (or just `pytest` if AW is running)
+  - Skipped automatically if no AW server found
+
+### Pre-commit
+```bash
+# Check code style
+ruff check src/ tests/
+
+# Auto-format code
+ruff format src/ tests/
+
+# Type checking
+mypy src/
+
+# All at once
+ruff check . && ruff format . --check && mypy src/ && pytest
+```
+
+## Performance
+
+### Execution Time
+
+Recent optimizations have significantly improved performance:
+
+| Command | Duration | Notes |
+|---------|----------|-------|
+| `tw-report :today` | <1s | Single-day report (cached data) |
+| `tw-report :week` | 1-2s | Week aggregation |
+| `tw-report :month` | 2-5s | Month aggregation |
+| `tw-report :year` | 5-15s | Full year (depends on event density) |
+| `tw-report --task <uuid> --timesheet :all` | ~10s | Task-specific with 56-year period (10x speedup via window time-range optimization) |
+
+### Performance Optimizations
+
+#### 1. AFK-Based Optimization (detail_level ≤ 2)
+- Skips expensive window bucket fetch entirely
+- Uses AFK events for OFFLINE task reconciliation instead
+- **Impact:** 6-5x faster for timesheet reports with default detail level
+
+#### 2. Window Event Time-Range Filtering
+- When filtering by task UUID or specific time periods, fetches window events only for time windows where task events exist
+- Dramatically reduces data volume for sparse task data
+- **Example:** Fetching windows for :year with sparse task data:
+  - Without optimization: 100K+ events, 120+ seconds
+  - With optimization: 2K events, 15-20 seconds
+
+#### 3. OFFLINE Task Window Reconciliation (2026-07-22)
+- When reconciling window events with OFFLINE tasks, reuses task time-range optimization
+- Prevents full-period window fetch (e.g., 186K events for 56 years)
+- **Impact:** 10x speedup for `--task <uuid> --timesheet :all` queries (95s → 10s)
+
+### Profiling
+
+To profile a slow command:
+```bash
+python -m cProfile -s cumtime -m tw_report.cli.main --timesheet :all 2>&1 | head -50
+```
+
+Or use the built-in debug scripts:
+```bash
+python debug_profile.py  # Profile time/memory for a command
+python debug_full_pipeline.py  # Trace the full event pipeline
+```
+
+## Contributing
+
+### Code style
+- **Formatter:** `ruff format` (Black-compatible)
+- **Linter:** `ruff check` (E, F, I, UP, B, SIM rules)
+- **Type checker:** `mypy` (permissive to start, ratcheting up over time)
+- **Line length:** 100 characters (per `pyproject.toml`)
+
+### Adding features
+1. Create a feature branch
+2. Add tests first (TDD-style preferred)
+3. Implement the feature
+4. Run `ruff format .` and `ruff check .`
+5. Run `pytest` (all tests must pass)
+6. Update docs if user-facing
+7. Submit PR with clear description
+
+### Module boundaries
+- **`cli/`** — Argument parsing, entry point
+- **`core/`** — Business logic (filtering, consolidation, task matching)
+- **`pipeline/`** — Data transformation and aggregation
+- **`utils/`** — Pure helper functions (formatting, logging)
+- **`exceptions.py`** — Custom exception hierarchy
+- **`config.py`** — Configuration loading
 
 ## Future Enhancements
 
-- Multi-project filtering consolidation (merge results)
-- Export to CSV/JSON for external analysis
-- Comparison reports (week-over-week)
-- Activity trends (productivity over time)
-- Integration with other time trackers (Toggl, RescueTime)
-- Web UI for interactive exploration
+- [x] Modular package structure (Phases 0-12)
+- [x] Config file support (TOML, XDG paths) (Phase 11)
+- [x] Comprehensive test coverage (262+ unit tests) (Phases 4-9)
+- [x] CI/CD pipeline (GitHub Actions) (Phase 3)
+- [ ] Multi-project filtering consolidation (merge results)
+- [ ] Export to CSV/JSON for external analysis
+- [ ] Comparison reports (week-over-week)
+- [ ] Activity trends (productivity over time)
+- [ ] Integration with other time trackers (Toggl, RescueTime)
+- [ ] Web UI for interactive exploration
 
 ## License
 

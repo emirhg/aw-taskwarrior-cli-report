@@ -485,22 +485,30 @@ class ReportTimeline:
         are nested within work slots. This provides a clearer picture: one work
         period with AFK gaps clearly shown as components, not competing rows.
 
+        CRITICAL FIX: Merge overlapping work slots for the same (project, task)
+        BEFORE combining with AFK, to prevent duplicate entries from ActivityWatch
+        overlapping not-afk events (e.g., during window recovery).
+
         Algorithm:
-        1. Separate work slots (type="regular") from AFK slots (type="afk")
-        2. For each work slot, find overlapping AFK slots with same (project, task)
-        3. Create combined slot with embedded_afk_slots
-        4. Keep non-overlapping AFK slots as standalone
+        1. Deduplicate overlapping work slots for same (project, task)
+        2. Separate remaining work slots from AFK slots
+        3. For each work slot, find overlapping AFK slots with same (project, task)
+        4. Create combined slot with embedded_afk_slots
+        5. Keep non-overlapping AFK slots as standalone
 
         Returns:
             ReportTimeline with combined work+AFK slots
         """
-        work_slots = [rs for rs in self.slots_list if rs.slot.type == "regular"]
+        # First, merge overlapping work slots for the same (project, task)
+        work_slots_raw = [rs for rs in self.slots_list if rs.slot.type == "regular"]
+        work_slots = self._merge_overlapping_work_slots(work_slots_raw)
+
         afk_slots = [rs for rs in self.slots_list if rs.slot.type == "afk"]
         other_slots = [rs for rs in self.slots_list if rs.slot.type not in ("regular", "afk")]
 
         result_report_slots = []
 
-        # For each work slot, find overlapping AFK slots with same task
+        # For each (merged) work slot, find overlapping AFK slots with same task
         for work_rs in work_slots:
             work_slot = work_rs.slot
             # Find AFK slots that overlap and are for the same task
@@ -542,6 +550,91 @@ class ReportTimeline:
         result_report_slots.sort(key=lambda rs: rs.start)
 
         return ReportTimeline(slots_list=result_report_slots)
+
+    def _merge_overlapping_work_slots(self, work_slots_raw: List["ReportTimelineSlot"]) -> List["ReportTimelineSlot"]:
+        """
+        Merge overlapping work slots for the same (project, task).
+
+        When ActivityWatch records overlapping "not-afk" events (e.g., during window recovery),
+        multiple work slots with identical (project, task) but different end times are created.
+        This method merges them into a single slot spanning the full range.
+
+        Args:
+            work_slots_raw: List of work ReportTimelineSlots (potentially overlapping)
+
+        Returns:
+            List of work slots with overlaps merged within each (project, task) group
+        """
+        if not work_slots_raw:
+            return []
+
+        # Group by (project, task)
+        groups: Dict[Tuple[str, str], List[ReportTimelineSlot]] = {}
+        for rs in work_slots_raw:
+            key = (rs.project, rs.task)
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(rs)
+
+        result = []
+        for key, slot_group in groups.items():
+            # Within each (project, task) group, merge overlapping slots
+            if len(slot_group) <= 1:
+                result.extend(slot_group)
+                continue
+
+            # Sort by start time
+            sorted_group = sorted(slot_group, key=lambda rs: rs.start)
+            merged_list = []
+            current = sorted_group[0]
+
+            for rs in sorted_group[1:]:
+                current_end = current.start + current.duration
+                # Check if overlapping or adjacent (within 1 second)
+                if rs.start <= current_end + timedelta(seconds=1):
+                    # Merge: extend to cover both slots
+                    merged_end = max(current_end, rs.start + rs.duration)
+                    merged_duration = merged_end - current.start
+
+                    # Create merged slot by building new data
+                    merged_data = {
+                        "type": current.slot.type,
+                        "start": current.start,
+                        "end": merged_end,
+                        "duration": merged_duration,
+                        "actual_duration": current.slot.actual_duration + rs.slot.actual_duration,
+                        "productive_duration": current.slot.productive_duration + rs.slot.productive_duration,
+                        "project": current.slot.project,
+                        "task": current.slot.task,
+                        "categories": current.slot.categories,  # Use first slot's categories
+                        "tags": current.slot.tags,
+                    }
+
+                    # Preserve optional fields
+                    if current.slot.afk_duration:
+                        merged_data["afk_duration"] = current.slot.afk_duration + (rs.slot.afk_duration or timedelta(0))
+                    if current.slot.offline_extension_duration:
+                        merged_data["offline_extension_duration"] = current.slot.offline_extension_duration + (rs.slot.offline_extension_duration or timedelta(0))
+                    if current.slot.event_duration:
+                        merged_data["event_duration"] = current.slot.event_duration + (rs.slot.event_duration or timedelta(0))
+
+                    # Create merged TimelineSlot
+                    merged_slot = TimelineSlot(**merged_data)
+                    current = ReportTimelineSlot(
+                        slot=merged_slot,
+                        source_slots=[current.slot, rs.slot],
+                        is_consolidated=True,  # Mark as merged
+                        embedded_afk_slots=current.embedded_afk_slots + rs.embedded_afk_slots,
+                    )
+                else:
+                    # Non-overlapping: save current and start new
+                    merged_list.append(current)
+                    current = rs
+
+            merged_list.append(current)
+            result.extend(merged_list)
+
+        return result
 
     def consolidate_consecutive(self) -> "ReportTimeline":
         """

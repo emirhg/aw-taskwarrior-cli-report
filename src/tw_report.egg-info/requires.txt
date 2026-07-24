@@ -1,6 +1,9 @@
 aw-client>=0.5.15
 aw-core>=0.5.17
 
+[:python_version < "3.11"]
+tomli>=1.1.0
+
 [dev]
 pytest>=7.0
 pytest-cov>=4.0
