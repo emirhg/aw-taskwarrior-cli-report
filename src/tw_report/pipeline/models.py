@@ -14,11 +14,12 @@ class TimeslotDuration:
     and other ambiguous naming patterns.
 
     Attributes:
-        online_duration: Time when system was actively recording (AFK + non-AFK combined).
+        online_duration: (Optional) Time when system was actively recording (AFK + non-AFK combined).
             This is the primary duration shown in timeline output.
             Comes from AFK bucket events or TaskWarrior activity times.
+            Can be None in rare cases (e.g., task duration but no AFK/window recording).
 
-        offline_gap: Time when system was powered off (work done without computer).
+        offline_gap: (Optional) Time when system was powered off (work done without computer).
             Only applies to offline-tagged tasks. Always None for online tasks.
             Calculated as: wall_clock_duration - online_duration
 
@@ -26,6 +27,10 @@ class TimeslotDuration:
             When present, indicates AFK period was detected during online_duration.
             Used for notation display "(XX:XX AFK)" in consolidated output.
             None if no AFK detected in this slot.
+
+    Invariant:
+        At least one of online_duration or offline_gap must be present (not both None).
+        Raises ValueError if both are None.
 
     Relationships:
         wall_clock_duration = online_duration + offline_gap (for offline tasks)
@@ -42,11 +47,34 @@ class TimeslotDuration:
         Regular slot with AFK detected:
             TimeslotDuration(online_duration=1:03:00, offline_gap=None, afk_portion=0:15:30)
             Display: "(00:15:30 AFK)  01:03:00"
+
+        Offline task with no online recording (rare):
+            TimeslotDuration(online_duration=None, offline_gap=2:15:00, afk_portion=None)
+            Total wall-clock = 2:15:00
     """
 
-    online_duration: timedelta
+    online_duration: Optional[timedelta] = None
     offline_gap: Optional[timedelta] = None
     afk_portion: Optional[timedelta] = None
+
+    def __post_init__(self) -> None:
+        """Validate that at least one duration is present."""
+        if self.online_duration is None and self.offline_gap is None:
+            raise ValueError(
+                "TimeslotDuration requires at least one of: online_duration or offline_gap"
+            )
+
+        # afk_portion can only exist if online_duration exists
+        if self.afk_portion is not None and self.online_duration is None:
+            raise ValueError("afk_portion requires online_duration to be present")
+
+        # afk_portion cannot exceed online_duration
+        if (
+            self.afk_portion is not None
+            and self.online_duration is not None
+            and self.afk_portion > self.online_duration
+        ):
+            raise ValueError("afk_portion cannot exceed online_duration")
 
     @property
     def total_duration(self) -> timedelta:
@@ -54,19 +82,37 @@ class TimeslotDuration:
 
         For online tasks: same as online_duration
         For offline tasks: online_duration + offline_gap
+        For offline-only: same as offline_gap
         """
-        return self.online_duration + (self.offline_gap or timedelta(0))
+        online = self.online_duration or timedelta(0)
+        offline = self.offline_gap or timedelta(0)
+        return online + offline
 
     @property
     def non_afk_portion(self) -> timedelta:
-        """Time spent with keyboard/mouse focus (online_duration - afk_portion)."""
+        """Time spent with keyboard/mouse focus (online_duration - afk_portion).
+
+        Returns zero if online_duration is None.
+        """
+        if self.online_duration is None:
+            return timedelta(0)
         if self.afk_portion:
             return self.online_duration - self.afk_portion
         return self.online_duration
 
+    def has_online(self) -> bool:
+        """True if online_duration is present and non-zero."""
+        return self.online_duration is not None and self.online_duration.total_seconds() > 0
+
+    def has_offline(self) -> bool:
+        """True if offline_gap is present and non-zero."""
+        return self.offline_gap is not None and self.offline_gap.total_seconds() > 0
+
     def __str__(self) -> str:
         """Human-readable representation of duration breakdown."""
-        parts = [f"online={self._format_td(self.online_duration)}"]
+        parts = []
+        if self.online_duration is not None:
+            parts.append(f"online={self._format_td(self.online_duration)}")
         if self.afk_portion:
             parts.append(f"afk={self._format_td(self.afk_portion)}")
         if self.offline_gap:
@@ -76,6 +122,113 @@ class TimeslotDuration:
     @staticmethod
     def _format_td(td: timedelta) -> str:
         """Format timedelta as HH:MM:SS for __str__."""
+        total_seconds = int(td.total_seconds())
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+@dataclass
+class PeriodMetrics:
+    """Accumulates metrics for a single period (day, week, month, etc.).
+
+    Groups related duration fields that are commonly accumulated together
+    to make metrics collection clearer and less error-prone than tracking
+    separate day_duration, day_afk_duration, day_offline_duration variables.
+
+    Attributes:
+        online_duration: Total time system was actively recording (AFK + non-AFK)
+        afk_duration: Time away from keyboard (subset of online_duration)
+        offline_gap: Time when system was powered off
+        productive_duration: Time on productive activities
+
+    Usage:
+        Instead of:
+            day_duration += slot_duration.online_duration or timedelta(0)
+            day_afk_duration += afk_time
+            day_offline_duration += offline_time
+            day_productive += productive_time
+
+        Use:
+            daily_metrics.add(
+                online=slot_duration.online_duration,
+                afk=afk_time,
+                offline=offline_time,
+                productive=productive_time
+            )
+    """
+
+    online_duration: timedelta = timedelta(0)
+    afk_duration: timedelta = timedelta(0)
+    offline_gap: timedelta = timedelta(0)
+    productive_duration: timedelta = timedelta(0)
+
+    def add(
+        self,
+        online: Optional[timedelta] = None,
+        afk: Optional[timedelta] = None,
+        offline: Optional[timedelta] = None,
+        productive: Optional[timedelta] = None,
+    ) -> None:
+        """Add durations to this period's totals.
+
+        Args:
+            online: Online time to add (None or zero treated as no-op)
+            afk: AFK time to add (subset of online)
+            offline: Offline gap to add
+            productive: Productive time to add
+        """
+        if online and online.total_seconds() > 0:
+            self.online_duration += online
+        if afk and afk.total_seconds() > 0:
+            self.afk_duration += afk
+        if offline and offline.total_seconds() > 0:
+            self.offline_gap += offline
+        if productive and productive.total_seconds() > 0:
+            self.productive_duration += productive
+
+    def add_timeslot(
+        self,
+        slot_duration: "TimeslotDuration",
+        productive: Optional[timedelta] = None,
+    ) -> None:
+        """Add a TimeslotDuration to this period's totals.
+
+        Args:
+            slot_duration: The TimeslotDuration to accumulate
+            productive: Productive time in this slot
+        """
+        self.add(
+            online=slot_duration.online_duration,
+            afk=slot_duration.afk_portion,
+            offline=slot_duration.offline_gap,
+            productive=productive,
+        )
+
+    @property
+    def total_duration(self) -> timedelta:
+        """Total wall-clock time (online + offline)."""
+        return self.online_duration + self.offline_gap
+
+    @property
+    def active_duration(self) -> timedelta:
+        """Time with keyboard/mouse focus (online - afk)."""
+        return self.online_duration - self.afk_duration
+
+    def __str__(self) -> str:
+        """Human-readable representation."""
+        parts = [f"online={self._format_td(self.online_duration)}"]
+        if self.afk_duration.total_seconds() > 0:
+            parts.append(f"afk={self._format_td(self.afk_duration)}")
+        if self.offline_gap.total_seconds() > 0:
+            parts.append(f"offline={self._format_td(self.offline_gap)}")
+        if self.productive_duration.total_seconds() > 0:
+            parts.append(f"productive={self._format_td(self.productive_duration)}")
+        return f"PeriodMetrics({', '.join(parts)})"
+
+    @staticmethod
+    def _format_td(td: timedelta) -> str:
+        """Format timedelta as HH:MM:SS."""
         total_seconds = int(td.total_seconds())
         hours, remainder = divmod(total_seconds, 3600)
         minutes, seconds = divmod(remainder, 60)
