@@ -84,7 +84,24 @@ def generate_untracked_gap_events(
     """
     result = []
 
-    if not not_afk_events or not task_events:
+    if not not_afk_events:
+        return result
+
+    # If no task events, entire not-afk periods are uncovered
+    if not task_events:
+        for not_afk_event in not_afk_events:
+            if not_afk_event.duration >= MIN_EVENT_DURATION:
+                synthetic_event = Event(
+                    timestamp=not_afk_event.timestamp,
+                    duration=not_afk_event.duration,
+                    data={},
+                )
+                result.append(ReportEvent(
+                    event=synthetic_event,
+                    project=NO_PROJECT,
+                    task=NO_TASK,
+                    active_task=None,
+                ))
         return result
 
     # Process each not-afk period
