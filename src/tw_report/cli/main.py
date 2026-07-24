@@ -453,6 +453,57 @@ def main():
             if id(rep.event) not in offline_processor.consumed_window_event_ids
         ]
 
+    # Filter out zero-duration events (< 100ms tracking noise)
+    # This must happen before metrics calculation so unscored_time is accurate
+    from tw_report.pipeline.generation import MIN_EVENT_DURATION
+    canonical_events = [
+        rep
+        for rep in canonical_events
+        if rep.event.duration >= MIN_EVENT_DURATION
+    ]
+
+    # Remove regular events that overlap with OFFLINE task periods (avoid duplication)
+    # This must happen before metrics calculation for consistency
+    # Use offline_event_groups from processor which already has computed OFFLINE periods
+    if offline_processor and offline_event_groups:
+        # Build periods for each (project, task) from offline event groups
+        offline_periods = {}  # (project, task) -> [(start, end), ...]
+        for key, events in offline_event_groups.items():
+            project = key[0]
+            task = key[1]
+            pair_key = (project, task)
+            if pair_key not in offline_periods:
+                offline_periods[pair_key] = []
+            # Get time span for this group
+            if events:
+                sorted_events = sorted(events, key=lambda e: e.timestamp)
+                group_start = sorted_events[0].timestamp
+                group_end = sorted_events[-1].timestamp + (sorted_events[-1].duration or timedelta(0))
+                offline_periods[pair_key].append((group_start, group_end))
+
+        # Filter out canonical events that overlap OFFLINE periods for same task
+        filtered_canonical = []
+        for rep in canonical_events:
+            event = rep.event
+            project = rep.project
+            task = rep.task
+            pair_key = (project, task)
+
+            event_start = event.timestamp
+            event_end = event_start + event.duration
+
+            overlaps_offline = False
+            if pair_key in offline_periods:
+                for offline_start, offline_end in offline_periods[pair_key]:
+                    if event_start < offline_end and event_end > offline_start:
+                        overlaps_offline = True
+                        break
+
+            if not overlaps_offline:
+                filtered_canonical.append(rep)
+
+        canonical_events = filtered_canonical
+
     # Mark window events with offline_extension_duration to show OFFLINE time notation.
     # For each window event that overlaps with an OFFLINE task period, calculate the overlap
     # and store it as offline_extension_duration so timeline rendering can display "(HH:MM:SS OFFLINE)".
