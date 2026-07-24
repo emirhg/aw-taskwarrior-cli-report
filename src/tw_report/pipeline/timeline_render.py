@@ -1214,20 +1214,16 @@ def print_timeline_report(
         total_time_all + total_afk_time if not has_consolidated_afk else total_time_all
     )
 
-    # Calculate "Active Time" (non-AFK only, focused work periods)
-    # In consolidated mode: AFK is embedded in work slots, so subtract it from online time
-    # In non-consolidated mode: total_time_all is already just non-AFK (no AFK embedded)
-    if has_consolidated_afk and total_afk_time:
-        true_non_afk = total_time_all - total_afk_time
-    else:
-        true_non_afk = total_time_all
-
+    # CRITICAL: Use non_afk_time from AFK bucket (same as summary) for consistency
+    # Previously we calculated as (total_time_all - total_afk_time) which could differ
+    # due to different data sources. The non_afk_time parameter comes directly from AFK
+    # bucket not-afk events, so it's the authoritative source.
     print_report_totals(
         total_time_all=total_time_final,
         total_productive_all=total_productive_all,
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
-        total_non_afk=true_non_afk if true_non_afk > timedelta(0) else None,
+        total_non_afk=non_afk_time if non_afk_time and non_afk_time > timedelta(0) else None,
     )
 
 
