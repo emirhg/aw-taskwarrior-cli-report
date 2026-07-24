@@ -218,23 +218,23 @@ def print_report_totals(
     grand_total_str = format_duration_tracked_prod(grand_total, total_productive_all)
     print(f"{'Total Time'.ljust(label_width)}{grand_total_str}")
 
-    # Total Online time as first sub-level
-    online_time_str = format_duration_tracked_prod(total_time_all, total_productive_all)
-    print(f"{'  Total Online time'.ljust(label_width)}{online_time_str}")
+    # Total OFFLINE time as first sub-level (indented 2 spaces) - only if present
+    if total_offline and total_offline > timedelta(0):
+        offline_str = format_duration(total_offline)
+        print(f"{'  Total OFFLINE time'.ljust(label_width)}{' ' * 2}{offline_str}")
 
-    # Breakdown of online: Non-AFK and AFK as further indented sub-lines
+    # Total Online time as second sub-level (indented 2 spaces)
+    online_time_str = format_duration_tracked_prod(total_time_all, total_productive_all)
+    print(f"{'  Total Online time'.ljust(label_width)}{' ' * 2}{online_time_str}")
+
+    # Breakdown of online: Non-AFK and AFK as further indented sub-lines (indented 4 spaces)
     if total_non_afk and total_non_afk > timedelta(0):
         non_afk_str = format_duration(total_non_afk)
-        print(f"{'    Non-AFK time'.ljust(label_width)}{non_afk_str}")
+        print(f"{'    Non-AFK time'.ljust(label_width)}{' ' * 4}{non_afk_str}")
 
     if total_afk and total_afk > timedelta(0):
         afk_str = format_duration(total_afk)
-        print(f"{'    AFK time'.ljust(label_width)}{afk_str}")
-
-    # Total OFFLINE time as second sub-level
-    if total_offline and total_offline > timedelta(0):
-        offline_str = format_duration(total_offline)
-        print(f"{'  Total OFFLINE time'.ljust(label_width)}{offline_str}")
+        print(f"{'    AFK time'.ljust(label_width)}{' ' * 4}{afk_str}")
 
     print("=" * width)
 
