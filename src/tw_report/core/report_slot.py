@@ -368,7 +368,8 @@ class ReportTimelineSlot:
                 piece_slot_data["offline_extension_duration"] = timedelta(
                     seconds=self.slot.offline_extension_duration.total_seconds() * ratio
                 )
-            if self.slot.event_duration is not None and self.slot.event_duration.total_seconds() > 0:
+            # event_duration is required for offline_task slots (validation check in TimelineSlot.__post_init__)
+            if self.slot.event_duration is not None:
                 piece_slot_data["event_duration"] = timedelta(
                     seconds=self.slot.event_duration.total_seconds() * ratio
                 )
