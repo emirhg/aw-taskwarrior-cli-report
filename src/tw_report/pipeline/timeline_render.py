@@ -67,6 +67,7 @@ from aw_core.models import Event
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 from tw_report.core.consolidation import collapse_tasks_to_project
 from tw_report.pipeline.generation import MIN_EVENT_DURATION
+from tw_report.pipeline.models import TimeslotDuration
 from tw_report.pipeline.report_render import print_report_summary, print_report_totals
 from tw_report.utils.formatting import (
     format_duration,
@@ -767,16 +768,20 @@ def print_timeline_report(
                 duration=base_duration,
             ))
 
-            # Accumulate offline_task to day/week totals with actual tracked (online) time only
-            # (wall_clock_duration includes offline periods when system was powered off)
-            day_duration += event_duration
-            week_duration += event_duration
+            # Accumulate offline_task to day/week totals using TimeslotDuration
+            # for clear accounting of online vs offline time
+            offline_ext = wall_clock_duration - event_duration
+            slot_duration = TimeslotDuration(
+                online_duration=event_duration if event_duration.total_seconds() > 0 else None,
+                offline_gap=offline_ext if offline_ext.total_seconds() > 0 else None,
+                afk_portion=None,  # offline tasks don't have separate AFK tracking
+            )
+            day_duration += slot_duration.online_duration or timedelta(0)
+            week_duration += slot_duration.online_duration or timedelta(0)
             day_afk_duration += timedelta(0)  # offline tasks don't have AFK time
             week_afk_duration += timedelta(0)
-            # Accumulate offline duration (wall_clock - actual_tracked)
-            offline_ext = wall_clock_duration - event_duration
-            day_offline_duration += offline_ext
-            week_offline_duration += offline_ext
+            day_offline_duration += slot_duration.offline_gap or timedelta(0)
+            week_offline_duration += slot_duration.offline_gap or timedelta(0)
 
             # Update last_slot_end for gap detection
             last_slot_end = offline_task_slot["start"] + wall_clock_duration
@@ -997,33 +1002,33 @@ def print_timeline_report(
                     # Update last_slot_end for gap detection
                     last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
 
-        # Accumulate totals for all slot types
-        # Regular slots (non-AFK/OFFLINE)
-        group_regular_duration = sum(
-            (
-                s.get("actual_duration", s["duration"])
-                for s in group_slots
-                if s.get("type") not in ("afk", "offline")
-            ),
-            timedelta(0),
-        )
-        group_regular_productive = sum(
-            (
-                s.get("productive_duration", timedelta(0))
-                for s in group_slots
-                if s.get("type") not in ("afk", "offline")
-            ),
-            timedelta(0),
-        )
-        # AFK slots
-        group_afk_duration = sum(
-            (
-                s.get("actual_duration", s["duration"])
-                for s in group_slots
-                if s.get("type") == "afk"
-            ),
-            timedelta(0),
-        )
+        # Accumulate totals using TimeslotDuration for clear accounting
+        group_regular_duration = timedelta(0)
+        group_regular_productive = timedelta(0)
+        group_afk_duration = timedelta(0)
+
+        for s in group_slots:
+            slot_type = s.get("type")
+
+            if slot_type == "afk":
+                # AFK slots: pure idle time
+                afk_duration = s.get("actual_duration", s["duration"])
+                group_afk_duration += afk_duration
+            elif slot_type not in ("offline",):
+                # Regular (work) slots: online time with optional AFK portion
+                online_duration = s.get("actual_duration", s["duration"])
+                afk_portion = s.get("afk_duration")  # May be None
+                productive_duration = s.get("productive_duration", timedelta(0))
+
+                # Create TimeslotDuration for this slot
+                slot_duration = TimeslotDuration(
+                    online_duration=online_duration if online_duration.total_seconds() > 0 else None,
+                    offline_gap=None,  # Regular slots don't have offline gaps
+                    afk_portion=afk_portion,
+                )
+                group_regular_duration += slot_duration.online_duration or timedelta(0)
+                group_regular_productive += productive_duration
+
         day_duration += group_regular_duration
         week_duration += group_regular_duration
         day_productive += group_regular_productive
