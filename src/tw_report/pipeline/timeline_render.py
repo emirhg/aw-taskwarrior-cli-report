@@ -609,6 +609,21 @@ def print_timeline_report(
 
     slots = filtered_slots
 
+    # CRITICAL: Recalculate total_time_all after all filtering/deduplication
+    # The previous calculation (line 555) included slots that are now filtered out.
+    # This must happen AFTER zero-duration filtering and OFFLINE deduplication.
+    all_regular_slots_final = [
+        s for s in slots if s.get("type") != "offline"
+    ]
+    total_time_all = sum(
+        (_get_displayed_duration(slot) for slot in all_regular_slots_final),
+        timedelta(0),
+    )
+    total_productive_all = sum(
+        (slot.get("productive_duration", timedelta(0)) for slot in all_regular_slots_final),
+        timedelta(0),
+    )
+
     # ============================================================================
     # DAY/WEEK METRICS ACCUMULATION
     # ============================================================================
