@@ -83,6 +83,10 @@ from tw_report.utils.formatting import (
     split_gaps_and_duration,
 )
 
+def _render_system_shutdown_separator() -> None:
+    """Print a blank line to indicate a gap (system shutdown, break, etc.)."""
+    print()
+
 def _render_embedded_afk_slots(afk_slots: List[Dict], width: int) -> None:
     """Render embedded AFK slots as indented sub-entries under a work slot.
 
@@ -568,6 +572,8 @@ def print_timeline_report(
     # Rollup state: track whether prev day was rolled up to skip its day total
     prev_date_was_rollup = False
     pending_date_prefix = None  # Date header held until we know if we render inline
+    last_slot_end = None  # Track end time of last rendered slot (for gap detection)
+    gap_threshold = timedelta(minutes=5)  # Minimum gap to display separator
 
     # Now process each group
     for group_project, group_date, group_slots in slot_groups:
@@ -677,6 +683,12 @@ def print_timeline_report(
                 pending_date_prefix = None
 
             offline_task_slot = group_slots[0]
+
+            # Check for gap before rendering
+            if last_slot_end is not None:
+                gap = offline_task_slot["start"] - last_slot_end
+                if gap > gap_threshold:
+                    _render_system_shutdown_separator()
             project_name = offline_task_slot.get("project", NO_PROJECT).replace(
                 ".", " > "
             )
@@ -726,6 +738,9 @@ def print_timeline_report(
             offline_ext = wall_clock_duration - event_duration
             day_offline_duration += offline_ext
             week_offline_duration += offline_ext
+
+            # Update last_slot_end for gap detection
+            last_slot_end = offline_task_slot["start"] + wall_clock_duration
 
             # offline_task slots are handled above, skip the regular group handling below
             continue
@@ -823,6 +838,13 @@ def print_timeline_report(
             if len(group_slots) == 1:
                 # Single slot for this project today — show inline
                 slot = group_slots[0]
+
+                # Check for gap before rendering
+                if last_slot_end is not None:
+                    gap = slot["start"] - last_slot_end
+                    if gap > gap_threshold:
+                        _render_system_shutdown_separator()
+
                 task_name = slot["task"]
                 abbrev_project = abbreviate_project_path(project_name, task_name)
 
@@ -868,9 +890,18 @@ def print_timeline_report(
                 embedded_afk = slot.get("embedded_afk_slots", [])
                 if embedded_afk:
                     _render_embedded_afk_slots(embedded_afk, width)
+
+                # Update last_slot_end for gap detection
+                last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
             else:
                 # Multiple slots for this project today — one row each
                 for slot in group_slots:
+                    # Check for gap before rendering
+                    if last_slot_end is not None:
+                        gap = slot["start"] - last_slot_end
+                        if gap > gap_threshold:
+                            _render_system_shutdown_separator()
+
                     s_start = slot["start"].strftime("%H:%M")
                     s_end = (slot["start"] + slot["duration"]).strftime("%H:%M")
                     task_name = slot["task"]
@@ -923,6 +954,9 @@ def print_timeline_report(
                     embedded_afk = slot.get("embedded_afk_slots", [])
                     if embedded_afk:
                         _render_embedded_afk_slots(embedded_afk, width)
+
+                    # Update last_slot_end for gap detection
+                    last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
 
         # Accumulate totals for all slot types
         # Regular slots (non-AFK/OFFLINE)
