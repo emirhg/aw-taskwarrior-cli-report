@@ -172,6 +172,28 @@ def _format_project_task_columns(project_name: str, task_name: str) -> str:
         return f"▶ {project_name} ▶▶ {task_name}"
 
 
+def _get_displayed_duration(slot: Dict[str, Any]) -> timedelta:
+    """Return the duration that's actually displayed for this slot.
+
+    Regular and AFK slots use wall-clock duration (from window events).
+    OFFLINE task slots use actual_duration (online/tracked time).
+
+    This ensures day/week/report totals sum to the displayed entries.
+
+    Args:
+        slot: A timeline slot dict
+
+    Returns:
+        The duration as displayed in the output
+    """
+    slot_type = slot.get("type")
+    if slot_type == "offline_task":
+        return slot.get("actual_duration", timedelta(0))
+    else:
+        # Regular and AFK slots use wall-clock duration (matches display)
+        return slot["duration"]
+
+
 def split_slots_spanning_days(slots: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Split slots that span multiple days into single-day pieces.
 
@@ -386,6 +408,7 @@ def print_timeline_report(
 
     width = get_terminal_width()
     is_single_day = start_time.date() == end_time.date()
+
     # Use actual_duration for merged slots, duration for others
     # Exclude OFFLINE gap markers from totals (informational only)
     # Keep offline_task slots (actual work sessions) and AFK slots in totals
@@ -396,7 +419,7 @@ def print_timeline_report(
     tracked_slots = [s for s in all_regular_slots if s.get("project") != NO_PROJECT]
 
     total_duration = sum(
-        (slot.get("actual_duration", slot["duration"]) for slot in tracked_slots),
+        (_get_displayed_duration(slot) for slot in tracked_slots),
         timedelta(0),
     )
     total_productive_tracked = sum(
@@ -405,8 +428,9 @@ def print_timeline_report(
     )
 
     # Total time including untracked (for "Total Time" display)
+    # Use displayed durations: slot["duration"] for regular/AFK, actual_duration for OFFLINE
     total_time_all = sum(
-        (slot.get("actual_duration", slot["duration"]) for slot in all_regular_slots),
+        (_get_displayed_duration(slot) for slot in all_regular_slots),
         timedelta(0),
     )
     # Total productive time for all slots (including untracked)
@@ -523,7 +547,7 @@ def print_timeline_report(
         s for s in slots if s.get("type") != "offline"
     ]
     total_time_all = sum(
-        (slot.get("actual_duration", slot["duration"]) for slot in all_regular_slots_filtered),
+        (_get_displayed_duration(slot) for slot in all_regular_slots_filtered),
         timedelta(0),
     )
     total_productive_all = sum(
@@ -1220,13 +1244,13 @@ def print_period_consolidated_report(
     tracked = [s for s in all_regular if s.get("project") != NO_PROJECT]
 
     total_duration = sum(
-        (s.get("actual_duration", s["duration"]) for s in tracked), timedelta(0)
+        (_get_displayed_duration(s) for s in tracked), timedelta(0)
     )
     total_productive = sum(
         (s.get("productive_duration", timedelta(0)) for s in tracked), timedelta(0)
     )
     total_all = sum(
-        (s.get("actual_duration", s["duration"]) for s in all_regular), timedelta(0)
+        (_get_displayed_duration(s) for s in all_regular), timedelta(0)
     )
     total_productive_all = sum(
         (s.get("productive_duration", timedelta(0)) for s in all_regular), timedelta(0)
