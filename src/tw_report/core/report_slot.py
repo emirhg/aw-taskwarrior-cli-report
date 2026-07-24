@@ -412,6 +412,17 @@ class ReportTimelineSlot:
         Returns:
             ReportTimelineSlot with work_slot as the primary slot and afk_slots nested
         """
+        # Compute total AFK time from embedded slots for per-entry display
+        # Each AFK slot's duration IS the AFK time
+        total_embedded_afk = sum(
+            (afk.actual_duration for afk in afk_slots),
+            timedelta(0),
+        )
+
+        # Update work slot's afk_duration to include embedded AFK
+        if total_embedded_afk > timedelta(0):
+            work_slot.afk_duration = total_embedded_afk
+
         return cls(
             slot=work_slot,
             source_slots=[work_slot] + afk_slots,  # Traceability: all contributors
