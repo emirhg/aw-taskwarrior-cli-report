@@ -409,7 +409,6 @@ def generate_timeline_data(
                     "task": task_name,
                     "events": [report_event],
                     "categories": {} if deduplicate_categories else [],
-                    "afk_event_duration": afk_event.duration,  # Store not-afk period duration for accurate online_duration metrics
                 }
                 # For non-dedup mode: track current category/app/title to detect continuity breaks
                 if not deduplicate_categories:
@@ -587,20 +586,13 @@ def generate_timeline_data(
             # - actual_duration: TaskWarrior task duration (ground truth)
             slot_duration = slot_end - slot_start
 
-            # Use not-afk event duration as the authoritative online time source
-            # This is more reliable than TaskWarrior duration, which can be incomplete
-            # (AFK bucket events represent actual ActivityWatch recording periods)
-            not_afk_duration = slot_data.get("afk_event_duration")
-            if not_afk_duration:
-                actual_duration = not_afk_duration
+            # Use TaskWarrior task duration as the source of truth
+            active_task_event = events[0]["active_task"] if events else None
+            if active_task_event and active_task_event.duration:
+                actual_duration = active_task_event.duration
             else:
-                # Fallback: use TaskWarrior task duration if available
-                active_task_event = events[0]["active_task"] if events else None
-                if active_task_event and active_task_event.duration:
-                    actual_duration = active_task_event.duration
-                else:
-                    # Final fallback: sum window event durations
-                    actual_duration = sum((e["event"].duration for e in events), timedelta(0))
+                # Fallback for --no-taskwarrior mode: sum window event durations
+                actual_duration = sum((e["event"].duration for e in events), timedelta(0))
 
             # Build nested category structure: {category, duration, start, end, apps: [{app, duration, start, end, titles}]}
             if deduplicate_categories:
