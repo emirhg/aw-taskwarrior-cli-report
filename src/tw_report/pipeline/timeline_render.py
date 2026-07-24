@@ -1095,6 +1095,7 @@ def print_timeline_report(
         total_productive_all=total_productive_all,
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
+        total_non_afk=total_time_all if total_time_all > timedelta(0) else None,
     )
 
 
@@ -1306,11 +1307,14 @@ def print_period_consolidated_report(
         print_period_block(current_period, period_slots, period_mode)
 
     # Print TOTALS at bottom
+    # In consolidated mode, total_afk is embedded in total_all, so non-AFK = total_all - total_afk
+    total_non_afk_all = total_all - total_afk if total_afk > timedelta(0) else total_all
     print_report_totals(
         total_time_all=total_all,
         total_productive_all=total_productive_all,
         total_afk=total_afk if total_afk > timedelta(0) else None,
         total_offline=total_offline if total_offline > timedelta(0) else None,
+        total_non_afk=total_non_afk_all if total_non_afk_all > timedelta(0) else None,
     )
 
 
