@@ -495,6 +495,11 @@ def print_timeline_report(
         timedelta(0),
     )
 
+    # Calculate total_time_including_offline for Project Tracking percentage denominator
+    # Project Tracking should be calculated as % of total time (online + offline)
+    # This ensures the percentage matches the "Total Time" value displayed
+    total_time_including_offline = total_time_all + total_offline_time
+
     # Print SUMMARY at top
     print_report_summary(
         title=" Timeline Report ",
@@ -517,7 +522,7 @@ def print_timeline_report(
         last_break_end=last_break_end,
         last_break_duration=last_break_duration,
         total_offline_time=total_offline_time,
-        total_time_all=total_time_all,
+        total_time_all=total_time_including_offline,
     )
 
     if not slots:
