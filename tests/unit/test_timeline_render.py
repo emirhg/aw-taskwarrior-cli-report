@@ -139,6 +139,7 @@ class TestSplitSlotsSpanningDays:
         slot = {
             "start": base_time,
             "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=2),
             "type": "regular",
             "project": "Test",
             "task": "Work",
