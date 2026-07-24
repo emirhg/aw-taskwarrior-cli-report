@@ -1093,6 +1093,12 @@ def print_timeline_report(
                     afk_portion=afk_portion,
                 )
                 group_regular_duration += slot_duration.online_duration or timedelta(0)
+                # CRITICAL FIX: Accumulate embedded AFK periods from combined work+AFK slots
+                # When a work slot has embedded AFK (from combine_work_with_embedded_afk()),
+                # the afk_duration field contains the total AFK time during that work period.
+                # These must be accumulated separately to prevent undercounting AFK in metrics.
+                if afk_portion and afk_portion.total_seconds() > 0:
+                    group_afk_duration += afk_portion
                 group_regular_productive += productive_duration
 
         # Accumulate group totals to daily and weekly metrics
