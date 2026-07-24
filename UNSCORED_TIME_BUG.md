@@ -49,6 +49,24 @@ Metrics should only count events that are actually included in the rendered outp
    - Pro: Preserves current metric calculation location
    - Con: More complex, duplicates filtering logic
 
+## Investigation Notes (2026-07-24)
+
+- Confirmed that `consumed_window_event_ids` filtering exists (main.py:449-454)
+- OfflineTaskProcessor tracks consumed events but only in window-based path, not AFK path
+- Attempted to populate consumed_window_event_ids in AFK path but object identity matching was unreliable
+- The real issue: metrics calculated from ALL canonical_events, not just rendered ones
+- Zero-duration filtering (timeline_render.py:569-572) removes events from display but not from metrics
+
+## Proper Fix Strategy
+
+This requires architectural changes to the metric calculation flow:
+
+1. Move event filtering earlier (to event generation time, not rendering time)
+2. Calculate metrics from filtered events only
+3. Ensure all code paths use same event set for calculations
+
+This is part of a larger refactor to consolidate multiple filtering locations into one place.
+
 ## Related Issues
 
 - Day/week total calculations (now fixed)
