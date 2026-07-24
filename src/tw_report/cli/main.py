@@ -378,7 +378,10 @@ def main():
         # This fills the visibility gap when window events can't be fetched due to optimization
         if not window_events and not_afk_events:
             untracked_events = generate_untracked_gap_events(not_afk_events, task_events)
-            canonical_events.extend(untracked_events)
+            # Apply filters to synthetic NO_PROJECT events (same as for task events)
+            for untracked_rep in untracked_events:
+                if matches_user_filters(untracked_rep, args, _matches_any, _excluded):
+                    canonical_events.append(untracked_rep)
             # Re-sort by timestamp to maintain chronological order
             canonical_events = sorted(canonical_events, key=lambda rep: rep.event.timestamp)
     else:
