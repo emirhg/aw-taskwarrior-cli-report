@@ -389,12 +389,15 @@ def generate_timeline_data(
                 event.data.get("title", "No Title") if detail_level >= 5 else None
             )
 
-            # Include the active_task instance to distinguish between paused/resumed sessions
-            # In no-task mode, use a constant session key since there's no task tracking
+            # Use task UUID (not Python object ID) to distinguish paused/resumed sessions
+            # Using id(active_task) breaks continuity when same task is split by AFK gaps
+            # (different Event instances get different object IDs).
+            # UUID provides stable identity across all representations of the same task.
+            task_uuid = active_task.data.get("uuid") if active_task else None
             project_task_session = (
                 project,
                 task_name,
-                id(active_task) if active_task else 0,
+                task_uuid,
             )
 
             # Check if (project, task, task_event) changed (breaks slot continuity)
