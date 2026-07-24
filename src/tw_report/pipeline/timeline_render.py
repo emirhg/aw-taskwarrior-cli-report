@@ -398,15 +398,25 @@ def print_timeline_report(
                 )
 
     # Calculate total OFFLINE time (system powered off during task work)
-    # This includes both offline_task gap time and offline_extension_duration from regular slots
+    # IMPORTANT: Only count offline_task gaps, NOT offline_extension_duration from window events.
+    #
+    # Why not offline_extension_duration?
+    # =====================================
+    # offline_extension_duration marks WINDOW ACTIVITY during OFFLINE tasks.
+    # This activity is already accounted for in the offline_task's event_duration
+    # (which comes from AFK bucket overlaps during the OFFLINE period).
+    # Summing both would double-count the same time!
+    #
+    # Example: OFFLINE task 09:55-11:08 (73 min wall-clock)
+    #   - Window events during this time: 21:47 (marked with offline_extension_duration)
+    #   - AFK events during this time: 21:47 (becomes event_duration)
+    #   - Offline gap: 73 - 21:47 = 51:13
+    #
+    # Correct: Count only the gap (51:13)
+    # Wrong: Count window activity (21:47) + gap (51:13) = 72:60 (DOUBLE-COUNT!)
     total_offline_time = sum(
-        (s.get("offline_extension_duration", timedelta(0)) for s in slots),
-        timedelta(0),
-    )
-    # Add any offline_task type slots (system powered off gaps)
-    total_offline_time += sum(
         (s.get("duration", timedelta(0)) - s.get("event_duration", timedelta(0))
-         for s in slots if s.get("type") == "offline_task" and not s.get("offline_extension_duration")),
+         for s in slots if s.get("type") == "offline_task"),
         timedelta(0),
     )
 
