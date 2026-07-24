@@ -701,49 +701,6 @@ def main():
                 if g.get("type") != "afk" or (g.get("project"), g.get("task")) not in offline_tasks
             ]
 
-        # Filter out AFK slots that overlap with work slots (type="regular") for the same task.
-        # AFK gaps within a work period are already captured by actual_duration < duration
-        # in the work slot; showing them as separate AFK rows creates confusing overlaps.
-        # This matches the logic for OFFLINE tasks above (lines 688-702).
-        regular_slots = [s for s in initial_slots if s.get("type") == "regular"]
-        if regular_slots:
-            filtered_gap_entries = []
-            for gap in gap_entries:
-                # Skip AFK slots that overlap with a work slot for the same (project, task)
-                if gap.get("type") == "afk":
-                    gap_project = gap.get("project")
-                    gap_task = gap.get("task")
-                    gap_start = gap.get("start")
-                    gap_end = gap.get("end")
-
-                    # Check if any work slot overlaps this AFK period for the same task
-                    overlaps_work_slot = False
-                    for s in regular_slots:
-                        s_project = s.get("project")
-                        s_task = s.get("task")
-                        s_start = s.get("start")
-                        s_end = s.get("end")
-                        if (
-                            s_project == gap_project
-                            and s_task == gap_task
-                            and s_start is not None
-                            and s_end is not None
-                            and gap_start is not None
-                            and gap_end is not None
-                            and s_start < gap_end
-                            and gap_start < s_end
-                        ):
-                            overlaps_work_slot = True
-                            break
-
-                    if overlaps_work_slot:
-                        # Skip this AFK slot (overlap is already captured in work slot's actual_duration)
-                        continue
-
-                filtered_gap_entries.append(gap)
-
-            gap_entries = filtered_gap_entries
-
         # Add gap entries to timeline (auto-sorts on insertion)
         timeline.add_slots([TimelineSlot.from_dict(g) for g in gap_entries])
 
@@ -793,11 +750,10 @@ def main():
                 last_break_duration=context.metrics.last_break_duration,
             )
         else:
-            # Standard timeline report
-            if args.consolidate:
-                consolidated = report_timeline.consolidate_consecutive()
-            else:
-                consolidated = report_timeline
+            # Standard timeline report: always consolidate same-task runs (including AFK gaps)
+            # This prevents overlapping AFK+work slots from the same task appearing as separate rows.
+            # --consolidate flag is now deprecated for timeline (it was the only consolidation mode before period modes were added).
+            consolidated = report_timeline.consolidate_consecutive()
 
             TimelineReport(print_timeline_report).present(
                 slots=consolidated.as_dicts(),
