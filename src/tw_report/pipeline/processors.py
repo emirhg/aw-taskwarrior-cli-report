@@ -302,17 +302,24 @@ def compute_metrics(
     distracting_time = timedelta(0)
     unscored_time = timedelta(0)
 
-    for report_event in canonical_events:
-        event = report_event.event
-        max_score = window_event_max_category_score(event, cat_score_map, get_category_score)
-        if max_score > 0:
-            productive_time += event.duration
-            if report_event.active_task is not None:
-                productive_task_time += event.duration
-        elif max_score < 0:
-            distracting_time += event.duration
-        else:
-            unscored_time += event.duration
+    # Check if events have category data (window events from ActivityWatch)
+    # If no window events were fetched (AFK optimization mode), category scoring is meaningless
+    has_category_data = any(rep.event.data.get("$category") for rep in canonical_events)
+
+    if has_category_data:
+        # Normal path: score events by category (productive/distracting/unscored)
+        for report_event in canonical_events:
+            event = report_event.event
+            max_score = window_event_max_category_score(event, cat_score_map, get_category_score)
+            if max_score > 0:
+                productive_time += event.duration
+                if report_event.active_task is not None:
+                    productive_task_time += event.duration
+            elif max_score < 0:
+                distracting_time += event.duration
+            else:
+                unscored_time += event.duration
+    # else: AFK optimization mode (no window events), skip category scoring entirely
 
     return ReportMetrics(
         productive_time=productive_time,
