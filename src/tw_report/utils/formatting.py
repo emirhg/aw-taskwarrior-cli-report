@@ -9,7 +9,10 @@ import re
 import shutil
 import unicodedata
 from datetime import timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from tw_report.pipeline.models import TimeslotDuration
 
 
 def format_duration(duration: timedelta) -> str:
@@ -231,6 +234,60 @@ def format_offline_task_duration(
     else:
         # No measured productivity data - don't show productivity at all
         return f"({offline_str} OFF)  {online_str}"
+
+
+# TimeslotDuration-aware format functions (new API)
+# These functions accept TimeslotDuration for clear, type-safe duration formatting
+
+
+def format_timeslot_duration(
+    slot_duration: "TimeslotDuration",
+    productive_duration: Optional[timedelta] = None,
+) -> str:
+    """Format a TimeslotDuration for display, handling all duration types.
+
+    This is the primary formatting function for TimeslotDuration. It handles:
+    - Online-only slots (no offline gap)
+    - Offline slots (system powered off for part)
+    - Slots with AFK time detected (shown in gap notation)
+
+    Args:
+        slot_duration: TimeslotDuration object with online/offline/afk breakdown
+        productive_duration: Optional productive time (for [prod XX%] display)
+
+    Returns:
+        Formatted string:
+        - For online-only: "HH:MM:SS  [prod XX%]"
+        - For offline: "(HH:MM:SS OFF)  HH:MM:SS  [prod XX%]"
+        - For AFK: "(HH:MM:SS AFK)  HH:MM:SS  [prod XX%]"
+    """
+    if slot_duration.has_offline() and not slot_duration.has_online():
+        # Offline-only slot (rare case)
+        offline_gap = slot_duration.offline_gap or timedelta(0)
+        offline_str = format_duration(offline_gap)
+        if productive_duration and productive_duration.total_seconds() > 0:
+            label = "[prod   0%]"  # No online time to measure productivity against
+            return f"({offline_str} OFF)  --:--:--  {label:>11}"
+        return f"({offline_str} OFF)  --:--:--"
+
+    # Has online_duration (possibly with offline_gap and/or afk_portion)
+    online_duration = slot_duration.online_duration or timedelta(0)
+    prod_duration = productive_duration or timedelta(0)
+    base_format = format_duration_tracked_prod(online_duration, prod_duration)
+
+    if slot_duration.has_offline():
+        # Both online and offline: show as "(OFFLINE) ONLINE"
+        offline_gap = slot_duration.offline_gap or timedelta(0)
+        offline_str = format_duration(offline_gap)
+        return f"({offline_str} OFF)  {base_format}"
+
+    if slot_duration.afk_portion:
+        # Online with AFK: show as "(AFK) ONLINE"
+        afk_str = format_duration(slot_duration.afk_portion)
+        return f"({afk_str} AFK)  {base_format}"
+
+    # Online only, no gaps
+    return base_format
 
 
 def get_terminal_width() -> int:
