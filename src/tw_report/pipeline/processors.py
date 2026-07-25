@@ -357,49 +357,56 @@ def build_context(
 
 
 def merge_overlapping_afk_periods(afk_events: List[Event]) -> List[Event]:
-    """Merge overlapping not-afk periods into single continuous periods.
+    """Merge overlapping/touching AFK periods and bridge micro-gaps.
 
-    When not-afk events overlap (which shouldn't happen normally but can occur due to
-    data quality issues), merge them into single continuous periods. This ensures clean
-    non-overlapping periods for downstream processing.
+    Merges:
+    1. All overlapping AFK events (both 'afk' and 'not-afk' status)
+    2. Events separated by micro-gaps (< 2 seconds), treating them as continuous online time
+    3. This eliminates spurious offline-time noise (2-7s gaps) caused by ActivityWatch
+       sometimes recording events separately vs. merging them
+
+    The 2-second threshold is chosen because:
+    - Micro-gaps smaller than this are almost certainly AW recording artifacts
+    - A genuine system powerdown would produce seconds-to-minutes gaps, not milliseconds
+    - This matches typical AW event boundary jitter (~0.5s precision)
 
     Args:
         afk_events: list of AFK bucket events with 'status' field ('afk' or 'not-afk')
 
     Returns:
-        new list with overlapping not-afk periods merged
+        new list with overlapping periods and micro-gaps merged
     """
-    from aw_transform import filter_keyvals
+    from datetime import timedelta
 
-    # Filter to not-afk periods only
-    not_afk_events = filter_keyvals(afk_events, "status", ["not-afk"])
-    if len(not_afk_events) <= 1:
+    if not afk_events or len(afk_events) <= 1:
         return afk_events
 
-    # Sort by start time
-    sorted_events = sorted(not_afk_events, key=lambda e: e.timestamp)
+    # Sort all AFK events (both 'afk' and 'not-afk') by start time
+    sorted_events = sorted(afk_events, key=lambda e: e.timestamp)
 
-    # Merge overlapping periods
+    # Merge overlapping and micro-gap-separated events
     merged = []
     current_start = sorted_events[0].timestamp
     current_end = sorted_events[0].timestamp + sorted_events[0].duration
 
     for event in sorted_events[1:]:
+        event_start = event.timestamp
         event_end = event.timestamp + event.duration
+        gap = event_start - current_end
 
-        # Check if current event overlaps with merged range
-        if event.timestamp <= current_end:
-            # Overlap: extend the range
+        # Merge if overlapping OR if micro-gap (< 2 seconds, likely AW artifact)
+        if gap < timedelta(seconds=2):
+            # Overlap or small gap: extend the range (bridge the gap)
             current_end = max(current_end, event_end)
         else:
-            # No overlap: finalize current period and start new one
+            # Real gap: finalize current period and start new one
             merged_duration = current_end - current_start
             merged_event = deepcopy(sorted_events[0])
             merged_event.timestamp = current_start
             merged_event.duration = merged_duration
             merged.append(merged_event)
 
-            current_start = event.timestamp
+            current_start = event_start
             current_end = event_end
 
     # Finalize last period
@@ -409,7 +416,4 @@ def merge_overlapping_afk_periods(afk_events: List[Event]) -> List[Event]:
     merged_event.duration = merged_duration
     merged.append(merged_event)
 
-    # Reconstruct afk_events list with merged not-afk periods and original afk periods
-    afk_only = filter_keyvals(afk_events, "status", ["afk"])
-    result = list(afk_only) + merged
-    return sorted(result, key=lambda e: e.timestamp)
+    return sorted(merged, key=lambda e: e.timestamp)

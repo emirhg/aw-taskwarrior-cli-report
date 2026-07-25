@@ -6,10 +6,28 @@ metrics, detail levels, and sorting options. Used by the --timesheet output mode
 """
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Union
 
 from tw_report.core.filtering import NO_PROJECT
+
+
+def _to_local_time(dt: datetime) -> datetime:
+    """Convert UTC datetime to local timezone.
+
+    Fixes timezone display issue where UTC times were shown as local times.
+
+    Args:
+        dt: Datetime in UTC (typically from ActivityWatch)
+
+    Returns:
+        Datetime converted to local timezone, with timezone info preserved
+    """
+    if dt.tzinfo is None or dt.tzinfo == timezone.utc:
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone()
+    return dt
 from tw_report.pipeline.models import ReportTotals
 from tw_report.utils.formatting import (
     format_duration,
@@ -98,8 +116,8 @@ def print_report_summary(
         # Format time window from actual non-afk events
         first_date = first_event_time.date()
         last_date = last_event_time.date()
-        first_time_str = first_event_time.strftime("%H:%M")
-        last_time_str = last_event_time.strftime("%H:%M")
+        first_time_str = _to_local_time(first_event_time).strftime("%H:%M")
+        last_time_str = _to_local_time(last_event_time).strftime("%H:%M")
 
         time_window = f"{first_date} {first_time_str} to {last_date} {last_time_str}"
 
@@ -163,8 +181,8 @@ def print_report_summary(
 
         # Print current session and last break information
         if current_session_duration and current_session_start and current_session_end:
-            session_start_str = current_session_start.strftime("%H:%M")
-            session_end_str = current_session_end.strftime("%H:%M")
+            session_start_str = _to_local_time(current_session_start).strftime("%H:%M")
+            session_end_str = _to_local_time(current_session_end).strftime("%H:%M")
             session_str = f"{format_duration(current_session_duration)} ({session_start_str} to {session_end_str})"
             print(f"Current Session{' ' * (32 - 14)}{session_str}")
 
@@ -177,8 +195,8 @@ def print_report_summary(
                 total_offline_time > timedelta(0)
             )
             if not break_is_offline_gap:
-                break_start_str = last_break_start.strftime("%H:%M")
-                break_end_str = last_break_end.strftime("%H:%M")
+                break_start_str = _to_local_time(last_break_start).strftime("%H:%M")
+                break_end_str = _to_local_time(last_break_end).strftime("%H:%M")
                 break_str = f"{format_duration(last_break_duration)} ({break_start_str} to {break_end_str})"
                 print(f"Last Break{' ' * (32 - 10)}{break_str}")
 
@@ -366,8 +384,8 @@ def print_report_header(
         # Format time window from actual non-afk events
         first_date = first_event_time.date()
         last_date = last_event_time.date()
-        first_time_str = first_event_time.strftime("%H:%M")
-        last_time_str = last_event_time.strftime("%H:%M")
+        first_time_str = _to_local_time(first_event_time).strftime("%H:%M")
+        last_time_str = _to_local_time(last_event_time).strftime("%H:%M")
 
         time_window = f"{first_date} {first_time_str} to {last_date} {last_time_str}"
 
@@ -450,8 +468,8 @@ def print_report_header(
 
         # Print current session and last break information
         if current_session_duration and current_session_start and current_session_end:
-            session_start_str = current_session_start.strftime("%H:%M")
-            session_end_str = current_session_end.strftime("%H:%M")
+            session_start_str = _to_local_time(current_session_start).strftime("%H:%M")
+            session_end_str = _to_local_time(current_session_end).strftime("%H:%M")
             print(
                 f"Current Session: {format_duration(current_session_duration)} ({session_start_str} to {session_end_str})"
             )

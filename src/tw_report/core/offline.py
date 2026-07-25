@@ -46,6 +46,7 @@ ISSUE #1 FIX: OFFLINE task results are now filtered consistently using
 EventFilter, preventing 0:00:00 duration display in consolidated reports.
 """
 
+from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
@@ -109,6 +110,8 @@ class OfflineTaskProcessor:
         event_filter: "EventFilter",
         end_time: Optional[datetime] = None,
         use_afk_for_reconciliation: bool = False,
+        tail_tolerance_seconds: float = 10.0,
+        afk_validation_tolerance_seconds: float = 10.0,
     ):
         """
         Initialize processor.
@@ -121,6 +124,15 @@ class OfflineTaskProcessor:
             end_time: End time for the report period (used for incomplete/running tasks)
             use_afk_for_reconciliation: If True, use AFK events to calculate online time
                                        instead of window events (faster for detail_level <= 2)
+            tail_tolerance_seconds: If a task ends within N seconds after the last AFK event,
+                                   and the task was active during online time, extend online
+                                   time to cover the tail (reduces spurious offline time).
+                                   Default 10s, set to 0 to disable.
+            afk_validation_tolerance_seconds: When validating if a period is truly offline,
+                                             check if task and AFK event start/end times match
+                                             within N seconds. If they do, query window bucket
+                                             to confirm offline (no window events = offline).
+                                             Default 10s. Uses window events as ground truth.
         """
         self.task_events = task_events or []
         self.window_events = window_events
@@ -128,6 +140,8 @@ class OfflineTaskProcessor:
         self.event_filter = event_filter
         self.end_time = end_time
         self.use_afk_for_reconciliation = use_afk_for_reconciliation
+        self.tail_tolerance_seconds = tail_tolerance_seconds
+        self.afk_validation_tolerance_seconds = afk_validation_tolerance_seconds
         self.offline_durations: Dict[Tuple, timedelta] = {}
         self.offline_event_durations: Dict[Tuple, timedelta] = {}
         self.event_groups: Dict[Tuple, List[Event]] = {}
@@ -247,6 +261,75 @@ class OfflineTaskProcessor:
         raw_tags = task_event.data.get("tags", [])
         tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
         return any(t.lower() == "offline" for t in tags)
+
+    def _has_window_coverage(self, period_start: datetime, period_end: datetime) -> bool:
+        """
+        Check if ANY window events exist during a time period.
+
+        Used to validate if system was actually on (ground truth via window events).
+
+        Args:
+            period_start: Start of period to check
+            period_end: End of period to check
+
+        Returns:
+            True if any window events overlap this period, False if none
+        """
+        for window_event in self.window_events:
+            window_start = window_event.timestamp
+            window_end = window_start + window_event.duration
+            # Check for any overlap
+            if window_start < period_end and window_end > period_start:
+                return True
+        return False
+
+    def _validate_afk_task_overlap(
+        self, task_event: Event, afk_event: Event
+    ) -> bool:
+        """
+        Check if task and AFK event are tightly aligned (within tolerance).
+
+        When start/end times are tightly aligned, it suggests they represent the
+        same time period. This allows us to validate against window events.
+
+        Args:
+            task_event: TaskWarrior task event
+            afk_event: AFK bucket event that overlaps with task
+
+        Returns:
+            True if start AND end times both within tolerance, False otherwise
+        """
+        task_start = task_event.timestamp
+        task_end = task_start + (task_event.duration or timedelta(0))
+        afk_start = afk_event.timestamp
+        afk_end = afk_start + afk_event.duration
+
+        tolerance = timedelta(seconds=self.afk_validation_tolerance_seconds)
+
+        start_diff = abs(task_start - afk_start)
+        end_diff = abs(task_end - afk_end)
+
+        return start_diff <= tolerance and end_diff <= tolerance
+
+    def _is_period_truly_offline(
+        self, period_start: datetime, period_end: datetime
+    ) -> bool:
+        """
+        Validate if a period is truly offline using window events as ground truth.
+
+        If no window events exist during the period, it's offline (system wasn't
+        recording activity). If window events exist, system was on.
+
+        Args:
+            period_start: Start of period to validate
+            period_end: End of period to validate
+
+        Returns:
+            True if truly offline (no window events), False if online or unclear
+        """
+        # No window coverage = no activity recorded = system was off (or AW didn't record)
+        # We treat this as offline
+        return not self._has_window_coverage(period_start, period_end)
 
     def _other_task_interrupts(
         self, task_key: Tuple[str, str], session_start: datetime, session_end: datetime
@@ -508,6 +591,25 @@ class OfflineTaskProcessor:
                         relevant_afk.append(afk_event)
                         break  # Already added, no need to check other ranges
 
+            # FIX: Extend last AFK event to cover SMALL gaps between last AFK and task end.
+            # Small gaps (< 60 seconds) at task end = recording lag, extend online.
+            # Large gaps (>= 60 seconds) = genuine system powerdown, count as offline.
+            # Rationale: recording lag is typically < 30s, but we use 60s to be conservative.
+            # System powerdown produces multi-minute gaps.
+            GAP_THRESHOLD = timedelta(seconds=60)
+            if relevant_afk and task_time_ranges:
+                last_task_end = max(task_end for task_start, task_end in task_time_ranges)
+                last_afk = max(relevant_afk, key=lambda e: e.timestamp + e.duration)
+                last_afk_end = last_afk.timestamp + last_afk.duration
+                gap = last_task_end - last_afk_end
+                if gap > timedelta(0) and gap < GAP_THRESHOLD:
+                    # Small gap: likely recording lag, extend last AFK to cover it
+                    extended_afk = deepcopy(last_afk)
+                    extended_afk.duration = last_afk.duration + gap
+                    # Replace the old last AFK with the extended version
+                    relevant_afk = [e if e != last_afk else extended_afk for e in relevant_afk]
+                # Large gaps (>= 60s) are left as-is (counted as offline)
+
             online_time = timedelta(0)
             for event in sorted_events:
                 event_start = event.timestamp
@@ -522,6 +624,31 @@ class OfflineTaskProcessor:
                         overlap = overlap_end - overlap_start
                         online_time += overlap
 
+            # VALIDATION: Use window events as ground truth for offline periods.
+            # When window_events are available, validate AFK claims:
+            # - If AFK says online but NO window events exist, system was offline
+            # - If window events exist, AFK+window confirm online
+            #
+            # This catches cases where AFK logs data even during real shutdowns.
+            truly_offline = timedelta(0)
+            if self.window_events:  # Only validate if we have window data
+                # Check each AFK-claimed period against window events
+                for afk_event in relevant_afk:
+                    afk_start = afk_event.timestamp
+                    afk_end = afk_start + afk_event.duration
+
+                    # Check if this AFK period overlaps any task time range
+                    for task_start, task_end in task_time_ranges:
+                        if afk_start < task_end and afk_end > task_start:
+                            overlap_start = max(afk_start, task_start)
+                            overlap_end = min(afk_end, task_end)
+
+                            # Validate: does this AFK period have window events?
+                            if self._is_period_truly_offline(overlap_start, overlap_end):
+                                # No window events during AFK-claimed period = truly offline
+                                truly_offline += overlap_end - overlap_start
+
+                online_time = max(online_time - truly_offline, timedelta(0))
             offline_remainder = wall_clock_duration - online_time
 
             # Build simple categories (no detail breakdown)
@@ -580,16 +707,21 @@ class OfflineTaskProcessor:
         online_time = sum of ALL AFK bucket event durations (afk + not-afk) that
                       overlap with the OFFLINE task's time span
 
-        This represents the total amount of time during the task when the system
-        was powered on and could potentially record activity (whether the user was
-        at the keyboard or away). The remaining time (offline_time = task_duration
-        - online_time) is when the system was completely off.
+        TAIL TOLERANCE FEATURE:
+        If task ends within N seconds after the last AFK event (tail_tolerance_seconds),
+        and the task was active during online time (had AFK coverage), extend online_time
+        to cover the tail. This eliminates spurious offline-time noise from:
+        - Timing jitter at task end
+        - AW recording lag
+        - Small gaps that don't represent genuine system powerdown
 
         Example:
         - Task period: 13:01-18:15 (5:14:01 total)
-        - AFK bucket events during that period: 1:52:36 (sum of all afk+not-afk)
-        - online_time = 1:52:36 (system was on)
-        - offline_time = 5:14:01 - 1:52:36 = 3:21:25 (system was off)
+        - AFK bucket events during that period: 1:52:36
+        - Last AFK event ends at: 18:09:30
+        - Task ends at: 18:15:00 (5:30 tail)
+        - If tail < tolerance (e.g., 10s threshold): extend online_time by 5:30
+        - Result: offline_time = 0 (tail absorbed into online period)
 
         Args:
             period_start: Start of the offline task period
@@ -599,6 +731,7 @@ class OfflineTaskProcessor:
             Total online time (sum of ALL AFK event intersections with period)
         """
         online_time = timedelta(0)
+        last_afk_end = None
 
         for afk_event in self.afk_events:
             # Check if AFK event overlaps with period
@@ -611,6 +744,25 @@ class OfflineTaskProcessor:
                 overlap_end = min(afk_end, period_end)
                 overlap = overlap_end - overlap_start
                 online_time += overlap
+
+                # Track the latest AFK end time (for tail tolerance)
+                if last_afk_end is None or afk_end > last_afk_end:
+                    last_afk_end = afk_end
+
+        # Apply tail tolerance: if task ends shortly after last AFK event,
+        # extend online_time to cover the tail (reduce spurious offline time)
+        if (
+            last_afk_end is not None
+            and self.tail_tolerance_seconds > 0
+            and last_afk_end < period_end
+            and online_time > timedelta(0)  # Task was active during online time
+        ):
+            tail_duration = period_end - last_afk_end
+            tail_threshold = timedelta(seconds=self.tail_tolerance_seconds)
+
+            if tail_duration <= tail_threshold:
+                # Tail is within tolerance: extend online_time to cover it
+                online_time += tail_duration
 
         return online_time
 

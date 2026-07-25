@@ -364,15 +364,19 @@ class ReportTimelineSlot:
                 piece_slot_data["afk_duration"] = timedelta(
                     seconds=self.slot.afk_duration.total_seconds() * ratio
                 )
-            if self.slot.offline_extension_duration is not None and self.slot.offline_extension_duration.total_seconds() > 0:
-                piece_slot_data["offline_extension_duration"] = timedelta(
-                    seconds=self.slot.offline_extension_duration.total_seconds() * ratio
-                )
             # event_duration is required for offline_task slots (validation check in TimelineSlot.__post_init__)
             if self.slot.event_duration is not None:
                 piece_slot_data["event_duration"] = timedelta(
                     seconds=self.slot.event_duration.total_seconds() * ratio
                 )
+            # offline_extension_duration must be calculated from split piece duration - event_duration
+            # to avoid rounding error accumulation when both are prorated independently
+            if self.slot.offline_extension_duration is not None and self.slot.offline_extension_duration.total_seconds() > 0:
+                # Only set if piece actually spans offline time
+                piece_event_duration = piece_slot_data.get("event_duration", timedelta(0))
+                piece_offline_extension = piece_duration - piece_event_duration
+                if piece_offline_extension > timedelta(0):
+                    piece_slot_data["offline_extension_duration"] = piece_offline_extension
             if self.slot.apps is not None:
                 piece_slot_data["apps"] = self.slot.apps
 

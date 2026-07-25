@@ -61,6 +61,8 @@ def reorder_arguments(argv: List[str]) -> List[str]:
                     "--max-score",
                     "--detail-level",
                     "--task-id",
+                    "--tail-tolerance",
+                    "--afk-validation-tolerance",
                 ]:
                     optional_args.append(argv[i + 1])
                     i += 1
@@ -249,6 +251,18 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         "--exclude-online",
         action="store_true",
         help="Exclude online time reporting for OFFLINE tasks (omits window event queries as optimization).",
+    )
+    parser.add_argument(
+        "--tail-tolerance",
+        type=float,
+        default=10.0,
+        help="When OFFLINE task ends within N seconds after last AFK event, extend online time to cover the tail (reduces spurious offline noise). Default: 10s, set to 0 to disable.",
+    )
+    parser.add_argument(
+        "--afk-validation-tolerance",
+        type=float,
+        default=10.0,
+        help="When validating AFK data against window events, check if task/AFK times are within N seconds of each other. If matched tightly, query window bucket to confirm true offline (no window events = offline). Default: 10s.",
     )
     return parser.parse_args(reordered_argv)
 

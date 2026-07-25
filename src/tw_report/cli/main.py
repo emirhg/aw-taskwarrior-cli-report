@@ -354,6 +354,22 @@ def main():
             (event.timestamp + event.duration).astimezone() for event in not_afk_events
         )
 
+    # Check if there are OFFLINE-tagged tasks that need window validation
+    # If so, fetch windows even in AFK optimization mode (needed for validation)
+    if use_afk_optimization and not window_events and task_events:
+        has_offline_tasks = any(
+            "offline" in (
+                e.data.get("tags", [])
+                if isinstance(e.data.get("tags", []), list)
+                else [e.data.get("tags", "")]
+            )
+            for e in task_events
+        )
+        if has_offline_tasks:
+            # Fetch windows for OFFLINE validation
+            window_bucket = get_bucket_id("window")
+            window_events = get_events(client, window_bucket, start_time, end_time)
+
     # Special case: task-UUID mode or project/task-filter mode (skip window bucket)
     # Convert taskwarrior events directly to canonical events (skip window correlation)
     # Also handles AFK optimization mode where window_events are intentionally empty
@@ -440,6 +456,8 @@ def main():
             event_filter=event_filter,
             end_time=end_time,
             use_afk_for_reconciliation=use_afk_optimization,
+            tail_tolerance_seconds=args.tail_tolerance,
+            afk_validation_tolerance_seconds=args.afk_validation_tolerance,
         )
         offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
 

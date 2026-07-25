@@ -85,6 +85,26 @@ from tw_report.utils.formatting import (
     split_gaps_and_duration,
 )
 
+
+def _to_local_time(dt: datetime) -> datetime:
+    """Convert UTC datetime to local timezone.
+
+    Fixes timezone display issue where UTC times were shown as local times.
+
+    Args:
+        dt: Datetime in UTC (typically from ActivityWatch)
+
+    Returns:
+        Datetime converted to local timezone, with timezone info preserved
+    """
+    if dt.tzinfo is None or dt.tzinfo == timezone.utc:
+        # UTC-aware or naive UTC datetime
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone()
+    return dt
+
+
 def _render_system_shutdown_separator() -> None:
     """Print a blank line to indicate a gap (system shutdown, break, etc.)."""
     print()
@@ -139,8 +159,8 @@ def _render_embedded_afk_slots(afk_slots: List[Dict], width: int) -> None:
         width: Terminal width for formatting
     """
     for afk_slot in afk_slots:
-        s_start = afk_slot["start"].strftime("%H:%M")
-        s_end = (afk_slot["start"] + afk_slot["duration"]).strftime("%H:%M")
+        s_start = _to_local_time(afk_slot["start"]).strftime("%H:%M")
+        s_end = _to_local_time(afk_slot["start"] + afk_slot["duration"]).strftime("%H:%M")
         slot_duration = afk_slot.get("actual_duration", afk_slot["duration"])
         slot_dur_str = format_afk_label(slot_duration)
 
@@ -861,8 +881,8 @@ def print_timeline_report(
             task_name = offline_task_slot.get("task", NO_TASK)
             wall_clock_duration = offline_task_slot.get("duration", timedelta(0))
             event_duration = offline_task_slot.get("event_duration", timedelta(0))
-            start_str = offline_task_slot["start"].strftime("%H:%M")
-            end_str = (offline_task_slot["start"] + wall_clock_duration).strftime("%H:%M")
+            start_str = _to_local_time(offline_task_slot["start"]).strftime("%H:%M")
+            end_str = _to_local_time(offline_task_slot["start"] + wall_clock_duration).strftime("%H:%M")
 
             # Format OFFLINE task entries with same style as regular entries
             abbrev_project = abbreviate_project_path(project_name, task_name)
@@ -928,8 +948,8 @@ def print_timeline_report(
             (s.get("afk_duration", timedelta(0)) for s in group_slots),
             timedelta(0),
         )
-        start_str = group_start.strftime("%H:%M")
-        end_str = group_end.strftime("%H:%M")
+        start_str = _to_local_time(group_start).strftime("%H:%M")
+        end_str = _to_local_time(group_end).strftime("%H:%M")
         duration_str = format_duration_with_afk(
             group_total_duration, group_productive_duration, group_afk_duration
         )
@@ -980,8 +1000,8 @@ def print_timeline_report(
                 if pending_date_prefix is not None:
                     print(pending_date_prefix)
                     pending_date_prefix = None
-                s_start = slot["start"].strftime("%H:%M")
-                s_end = (slot["start"] + slot["duration"]).strftime("%H:%M")
+                s_start = _to_local_time(slot["start"]).strftime("%H:%M")
+                s_end = _to_local_time(slot["start"] + slot["duration"]).strftime("%H:%M")
                 slot_duration = slot.get("actual_duration", slot["duration"])
                 slot_dur_str = format_afk_label(slot_duration)
                 task_name = slot["task"]
