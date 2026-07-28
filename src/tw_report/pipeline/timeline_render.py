@@ -542,6 +542,7 @@ def print_timeline_report(
         last_break_end=last_break_end,
         last_break_duration=last_break_duration,
         total_offline_time=total_offline_time,
+        afk_time=total_afk_time,
         total_time_all=total_time_including_offline,
     )
 
@@ -1325,7 +1326,9 @@ def print_period_consolidated_report(
         (s.get("afk_duration", timedelta(0)) for s in slots), timedelta(0)
     )
     total_offline = sum(
-        (s.get("offline_extension_duration", timedelta(0)) for s in slots), timedelta(0)
+        (s.get("duration", timedelta(0)) - s.get("event_duration", timedelta(0))
+         for s in slots if s.get("type") == "offline_task"),
+        timedelta(0),
     )
 
     # Print SUMMARY at top
@@ -1350,6 +1353,7 @@ def print_period_consolidated_report(
         last_break_end=kwargs.get("last_break_end"),
         last_break_duration=kwargs.get("last_break_duration"),
         total_offline_time=total_offline,
+        afk_time=total_afk,
         total_time_all=total_all,
     )
 

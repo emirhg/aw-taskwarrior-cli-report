@@ -60,6 +60,7 @@ def print_report_summary(
     last_break_end: Optional[datetime] = None,
     last_break_duration: Optional[timedelta] = None,
     total_offline_time: Optional[timedelta] = None,
+    afk_time: Optional[timedelta] = None,
     total_time_all: Optional[timedelta] = None,
 ) -> None:
     """Print report header with SUMMARY section at the top.
@@ -107,8 +108,10 @@ def print_report_summary(
         if total_time_all and total_time_all > timedelta(0):
             total_tracking_time = total_time_all
         else:
+            # Fallback: sum individual time components (Active + AFK + Offline)
+            afk_duration = afk_time if afk_time else timedelta(0)
             total_offline_duration = total_offline_time if total_offline_time else timedelta(0)
-            total_tracking_time = non_afk_time + total_offline_duration
+            total_tracking_time = non_afk_time + afk_duration + total_offline_duration
 
         # Display online time only (clarify it's not total)
         online_time_str = format_duration(non_afk_time)
