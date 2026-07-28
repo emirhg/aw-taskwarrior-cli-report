@@ -128,7 +128,7 @@ def main():
     args = parse_args()
     client = ActivityWatchClient("tw-report")
 
-    # Determine grouping mode (default to hierarchical/project)
+    # Determine grouping mode (default to --by-day)
     grouping_mode = None
     if args.by_project:
         grouping_mode = "project"
@@ -141,8 +141,8 @@ def main():
     elif args.by_year:
         grouping_mode = "year"
     else:
-        # Default to hierarchical (project) if no grouping mode specified
-        grouping_mode = "project"
+        # Default to by-day if no grouping mode specified
+        grouping_mode = "day"
 
     # Parse positional arguments to separate period from search term
     period, search_term = parse_positional_args(args.args)
