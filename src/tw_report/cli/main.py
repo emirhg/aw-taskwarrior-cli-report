@@ -241,16 +241,57 @@ def main():
     # Apply to all report types: hierarchical (--by-project) and timesheet (--by-day/week/month/year)
     use_afk_optimization = args.detail_level <= 2
 
+    # FIX: When using AFK optimization, we still need windows for OFFLINE task validation.
+    # Check if there are OFFLINE-tagged tasks and fetch windows for their time ranges.
+    has_offline_tasks = False
+    offline_task_ranges = None
+    if use_afk_optimization and not args.no_taskwarrior:
+        # Check for OFFLINE-tagged tasks to determine if we need window validation
+        # We fetch task events only if we haven't already (task_events_early)
+        if task_events_early:
+            # Use pre-fetched task events from UUID filtering
+            check_task_events = task_events_early
+        else:
+            # Fetch task events to check for OFFLINE tags (fetch all, no filtering)
+            task_bucket = get_bucket_id("taskwarrior")
+            try:
+                check_task_events = get_events(client, task_bucket, start_time, end_time)
+            except Exception:
+                check_task_events = []
+
+        # Check if any task has the 'offline' tag
+        if check_task_events:
+            for event in check_task_events:
+                raw_tags = event.data.get("tags", [])
+                tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+                if any(t.lower() == "offline" for t in tags):
+                    has_offline_tasks = True
+                    # Extract time ranges from OFFLINE tasks for window fetching
+                    if not offline_task_ranges:
+                        offline_task_ranges = []
+                    event_start = event.timestamp
+                    event_end = event_start + (event.duration or timedelta(0))
+                    offline_task_ranges.append((event_start, event_end))
+
+            # Merge overlapping ranges
+            if offline_task_ranges:
+                offline_task_ranges.sort()
+                merged = []
+                for start, end in offline_task_ranges:
+                    if merged and merged[-1][1] >= start:
+                        merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+                    else:
+                        merged.append((start, end))
+                offline_task_ranges = merged
+
     # Fetch events based on optimization and filtering strategy
     if skip_window and not use_afk_optimization:
         # Skip both windows and AFK (extreme filtering case, not OFFLINE reconciliation needed)
         window_events = []
         afk_events = []
     elif use_afk_optimization:
-        # AFK optimization: skip windows, fetch AFK for OFFLINE reconciliation
-        # Fetch all AFK once (fast), then filter in-memory to task time windows (instant)
-        # This gets best of both worlds: single fast query + small dataset to process
-        window_events = []
+        # AFK optimization: skip windows for categories, fetch AFK for OFFLINE reconciliation
+        # BUT: still fetch windows for OFFLINE task validation (if OFFLINE tasks exist)
         afk_bucket = get_bucket_id("afk")
         afk_events = get_events(client, afk_bucket, start_time, end_time)
 
@@ -265,6 +306,14 @@ def main():
                         filtered_afk.append(afk_event)
                         break
             afk_events = filtered_afk
+
+        # Fetch windows specifically for OFFLINE task validation (if OFFLINE tasks exist)
+        if has_offline_tasks and offline_task_ranges:
+            # Fetch windows only for times when OFFLINE tasks exist (for validation)
+            window_events = _fetch_events_for_ranges(client, "window", offline_task_ranges)
+        else:
+            # No OFFLINE tasks with AFK optimization: skip windows entirely
+            window_events = []
     else:
         # Normal case: fetch both windows and AFK for category detail
         if task_time_ranges:
