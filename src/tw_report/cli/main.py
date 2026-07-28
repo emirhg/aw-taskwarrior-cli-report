@@ -290,6 +290,13 @@ def main():
             afk_bucket = get_bucket_id("afk")
             afk_events = get_events(client, afk_bucket, start_time, end_time)
 
+    # Filter AFK events to only those that START within the requested period
+    # (ActivityWatch sometimes returns events from outside the range if they overlap it)
+    afk_events = [
+        event for event in afk_events
+        if event.timestamp >= start_time and event.timestamp < end_time
+    ]
+
     # Merge any overlapping not-afk periods (data quality fix)
     afk_events = merge_overlapping_afk_periods(afk_events)
 

@@ -384,36 +384,40 @@ def merge_overlapping_afk_periods(afk_events: List[Event]) -> List[Event]:
     # Sort all AFK events (both 'afk' and 'not-afk') by start time
     sorted_events = sorted(afk_events, key=lambda e: e.timestamp)
 
-    # Merge overlapping and micro-gap-separated events
+    # Merge overlapping and micro-gap-separated events (SAME STATUS ONLY)
     merged = []
-    current_start = sorted_events[0].timestamp
-    current_end = sorted_events[0].timestamp + sorted_events[0].duration
+    current_event = deepcopy(sorted_events[0])
+    current_start = current_event.timestamp
+    current_end = current_event.timestamp + current_event.duration
+    current_status = current_event.data.get("status")
 
     for event in sorted_events[1:]:
+        event_status = event.data.get("status")
         event_start = event.timestamp
         event_end = event.timestamp + event.duration
         gap = event_start - current_end
 
-        # Merge if overlapping OR if micro-gap (< 2 seconds, likely AW artifact)
-        if gap < timedelta(seconds=2):
-            # Overlap or small gap: extend the range (bridge the gap)
+        # Only merge if same status AND (overlapping OR micro-gap < 2 seconds)
+        # Don't merge across status changes (afk ≠ not-afk)
+        if event_status == current_status and gap < timedelta(seconds=2):
+            # Same status + overlap/small gap: extend the range
             current_end = max(current_end, event_end)
         else:
-            # Real gap: finalize current period and start new one
+            # Status changed OR real gap: finalize current period and start new one
             merged_duration = current_end - current_start
-            merged_event = deepcopy(sorted_events[0])
-            merged_event.timestamp = current_start
-            merged_event.duration = merged_duration
-            merged.append(merged_event)
+            current_event.timestamp = current_start
+            current_event.duration = merged_duration
+            merged.append(current_event)
 
+            current_event = deepcopy(event)
             current_start = event_start
             current_end = event_end
+            current_status = event_status
 
     # Finalize last period
     merged_duration = current_end - current_start
-    merged_event = deepcopy(sorted_events[0])
-    merged_event.timestamp = current_start
-    merged_event.duration = merged_duration
-    merged.append(merged_event)
+    current_event.timestamp = current_start
+    current_event.duration = merged_duration
+    merged.append(current_event)
 
     return sorted(merged, key=lambda e: e.timestamp)
