@@ -611,27 +611,43 @@ def print_timeline_report(
                 offline_slots_by_task[key] = []
             offline_slots_by_task[key].append(slot)
 
-    # Remove regular slots that occur within OFFLINE periods for the same task
+    # Remove regular slots that occur within OFFLINE periods
+    # This includes:
+    # 1. Regular slots for the same task (originally implemented)
+    # 2. "No project assigned" unassigned slots (new fix for overlapping unassigned activity)
     filtered_slots = []
+    all_offline_periods = []
+    for offline_slots in offline_slots_by_task.values():
+        for offline_slot in offline_slots:
+            all_offline_periods.append((offline_slot["start"], offline_slot["start"] + offline_slot["duration"]))
+
     for slot in slots:
         if slot.get("type") == "offline_task":
             filtered_slots.append(slot)
         else:
-            # Check if this regular slot overlaps with any OFFLINE period for the same task
-            key = (slot.get("project"), slot.get("task"))
             slot_start = slot["start"]
             slot_end = slot["start"] + slot.get("duration", timedelta(0))
 
             overlaps_offline = False
-            if key in offline_slots_by_task:
-                for offline_slot in offline_slots_by_task[key]:
-                    offline_start = offline_slot["start"]
-                    offline_end = offline_start + offline_slot["duration"]
 
-                    # Check if regular slot overlaps with or falls within OFFLINE period
+            # Check if slot is "No project assigned" - these should be removed if they overlap ANY OFFLINE period
+            if slot.get("project") in [NO_PROJECT, "No project assigned", None, ""] or \
+               slot.get("task") in [NO_TASK, "No task assigned", None, ""]:
+                # "No project assigned" slots should not overlap with any OFFLINE period
+                for offline_start, offline_end in all_offline_periods:
                     if slot_start < offline_end and slot_end > offline_start:
                         overlaps_offline = True
                         break
+            else:
+                # Regular task slots: only remove if they match the same task as an OFFLINE period
+                key = (slot.get("project"), slot.get("task"))
+                if key in offline_slots_by_task:
+                    for offline_slot in offline_slots_by_task[key]:
+                        offline_start = offline_slot["start"]
+                        offline_end = offline_start + offline_slot["duration"]
+                        if slot_start < offline_end and slot_end > offline_start:
+                            overlaps_offline = True
+                            break
 
             if not overlaps_offline:
                 filtered_slots.append(slot)
