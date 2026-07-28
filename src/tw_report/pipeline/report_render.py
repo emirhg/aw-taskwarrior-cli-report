@@ -269,20 +269,6 @@ def print_report_totals(
     print("TOTALS")
     print("─" * width)
 
-    # Calculate grand total (online + offline)
-    grand_total = online_time + (offline_time if offline_time else timedelta(0))
-    grand_total_str = format_duration_tracked_prod(grand_total, productive_time)
-    print(f"{'Total Time'.ljust(label_width)}{grand_total_str}")
-
-    # Time Worked While System Offline as first sub-level (indented 2 spaces) - only if present
-    if offline_time and offline_time > timedelta(0):
-        offline_str = format_duration(offline_time)
-        print(f"{'  Time Worked While System Offline'.ljust(label_width)}{' ' * 2}{offline_str}")
-
-    # Total Online time as second sub-level (indented 2 spaces)
-    online_time_str = format_duration_tracked_prod(online_time, productive_time)
-    print(f"{'  Total Online time'.ljust(label_width)}{' ' * 2}{online_time_str}")
-
     # Breakdown of online: Active (non-AFK) and AFK as further indented sub-lines (indented 4 spaces)
     if active_time and active_time > timedelta(0):
         active_str = format_duration(active_time)
@@ -291,6 +277,20 @@ def print_report_totals(
     if afk_time and afk_time > timedelta(0):
         afk_str = format_duration(afk_time)
         print(f"{'    AFK time'.ljust(label_width)}{' ' * 4}{afk_str}")
+
+    # Online (renamed from "Total Online time") as sub-level (indented 2 spaces)
+    online_time_str = format_duration_tracked_prod(online_time, productive_time)
+    print(f"{'  Online'.ljust(label_width)}{' ' * 2}{online_time_str}")
+
+    # Offline tracked (renamed from "Time Worked While System Offline") as sub-level (indented 2 spaces) - only if present
+    if offline_time and offline_time > timedelta(0):
+        offline_str = format_duration(offline_time)
+        print(f"{'  Offline tracked'.ljust(label_width)}{' ' * 2}{offline_str}")
+
+    # Calculate grand total (online + offline) - last entry (no indent)
+    grand_total = online_time + (offline_time if offline_time else timedelta(0))
+    grand_total_str = format_duration_tracked_prod(grand_total, productive_time)
+    print(f"{'Total Time'.ljust(label_width)}{grand_total_str}")
 
     print("=" * width)
 
