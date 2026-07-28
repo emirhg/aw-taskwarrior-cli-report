@@ -238,7 +238,8 @@ def main():
     # AFK-based optimization for detail_level <= 2:
     # When we don't need category/app/title detail, skip expensive window bucket fetch
     # and use AFK events for OFFLINE task reconciliation (much faster).
-    use_afk_optimization = args.detail_level <= 2 and grouping_mode in ["day", "week", "month", "year"]
+    # Apply to all report types: hierarchical (--by-project) and timesheet (--by-day/week/month/year)
+    use_afk_optimization = args.detail_level <= 2
 
     # Fetch events based on optimization and filtering strategy
     if skip_window and not use_afk_optimization:
