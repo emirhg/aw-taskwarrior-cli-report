@@ -231,7 +231,7 @@ def main():
             task_time_ranges = _get_time_ranges_from_events(task_events_early)
 
     # Determine if window bucket queries can be skipped for general filtering
-    skip_window = should_skip_window_bucket(args, args.detail_level)
+    skip_window = should_skip_window_bucket(args, args.detail_level, grouping_mode)
 
     # AFK-based optimization for detail_level <= 2:
     # When we don't need category/app/title detail, skip expensive window bucket fetch

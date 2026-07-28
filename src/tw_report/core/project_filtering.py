@@ -136,6 +136,7 @@ def resolve_project_filter_value(value: str) -> Tuple[Optional[str], Optional[st
 def should_skip_window_bucket(
     args,
     detail_level: int = 1,
+    grouping_mode: str = "day",
 ) -> bool:
     """Determine if window bucket queries can be skipped.
 
@@ -143,26 +144,27 @@ def should_skip_window_bucket(
     1. Filtering by project only (don't need app-level details)
     2. Detail level is 1-2 (don't need category/app/title breakdown)
     3. Not filtering by app (which requires window events)
-    4. Timesheet mode enabled (for timeline reports)
+    4. Using timeline mode (day/week/month/year), not hierarchical (project)
 
     Args:
         args: Parsed command-line arguments
         detail_level: Detail level (1-5)
+        grouping_mode: Grouping mode ("project", "day", "week", "month", "year")
 
     Returns:
         True if window bucket can be safely skipped, False otherwise
 
     Examples:
-        >>> # Can skip window bucket: project filter + timesheet + detail 1
-        >>> should_skip_window_bucket(args, detail_level=1)
+        >>> # Can skip window bucket: project filter + timeline mode + detail 1
+        >>> should_skip_window_bucket(args, detail_level=1, grouping_mode="day")
         True
 
         >>> # Cannot skip: filtering by app requires window events
-        >>> should_skip_window_bucket(args, detail_level=1)
+        >>> should_skip_window_bucket(args, detail_level=1, grouping_mode="day")
         False  # if args.app is set
     """
-    # Can only skip if timesheet mode (need window for hierarchical reports)
-    if not args.timesheet:
+    # Can only skip if timeline mode (day/week/month/year), not hierarchical (project)
+    if grouping_mode == "project":
         return False
 
     # Can't skip if filtering by app (requires window events)
