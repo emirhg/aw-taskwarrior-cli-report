@@ -1285,18 +1285,20 @@ def print_period_consolidated_report(
 
     width = get_terminal_width()
 
-    # Compute totals for header (same as print_timeline_report)
+    # Compute totals for header (use actual_duration for consolidated slots to exclude gaps)
     all_regular = [s for s in slots if s.get("type") != "offline"]
     tracked = [s for s in all_regular if s.get("project") != NO_PROJECT]
 
+    # For consolidated slots (which have actual_duration), use that instead of duration
+    # This avoids double-counting gaps between separate work sessions on same day
     total_duration = sum(
-        (_get_displayed_duration(s) for s in tracked), timedelta(0)
+        (s.get("actual_duration", s.get("duration", timedelta(0))) for s in tracked), timedelta(0)
     )
     total_productive = sum(
         (s.get("productive_duration", timedelta(0)) for s in tracked), timedelta(0)
     )
     total_all = sum(
-        (_get_displayed_duration(s) for s in all_regular), timedelta(0)
+        (s.get("actual_duration", s.get("duration", timedelta(0))) for s in all_regular), timedelta(0)
     )
     total_productive_all = sum(
         (s.get("productive_duration", timedelta(0)) for s in all_regular), timedelta(0)
