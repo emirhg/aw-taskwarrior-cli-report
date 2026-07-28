@@ -6,7 +6,7 @@ Handles all argument parsing, data fetching, processing, and report generation.
 
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, cast, Literal
+from typing import Dict, List, Optional, Tuple
 
 from aw_client import ActivityWatchClient
 from aw_core.models import Event
@@ -56,7 +56,7 @@ from tw_report.pipeline.processors import (
     matches_user_filters,
 )
 from tw_report.pipeline.report_render import print_report
-from tw_report.pipeline.timeline_render import print_timeline_report, print_period_consolidated_report
+from tw_report.pipeline.timeline_render import print_timeline_report
 from tw_report.utils.formatting import normalize_title
 
 
@@ -801,68 +801,35 @@ def main():
         # Convert timeline to ReportTimeline for unified consolidation/bucketing
         report_timeline = timeline.to_report_timeline()
 
-        # Check if we're doing period-level consolidation (not project grouping)
-        if grouping_mode in ["day", "week", "month", "year"]:
-            # Period-level consolidation (day/week/month/year)
-            period_mode_typed = cast(Literal["day", "week", "month", "year"], grouping_mode)
-            bucketed = report_timeline.bucket(period_mode_typed)
-            # Filter consolidated results based on EventFilter rules
-            # (e.g., --exclude-non-project, --exclude-offline)
-            filtered_bucketed = [
-                slot for slot in bucketed.as_dicts()
-                if event_filter.should_include_entry(slot)
-            ]
-            TimelineReport(print_period_consolidated_report).present(
-                slots=filtered_bucketed,
-                period=period,
-                start_time=start_time,
-                end_time=end_time,
-                period_mode=grouping_mode,
-                detail_level=args.detail_level,
-                non_afk_time=context.metrics.non_afk_time,
-                productive_time=context.metrics.productive_time,
-                productive_task_time=context.metrics.productive_task_time,
-                first_event_time=context.metrics.first_event_time,
-                last_event_time=context.metrics.last_event_time,
-                task_based=context.is_task_based_report,
-                distracting_time=context.metrics.distracting_time,
-                unscored_time=context.metrics.unscored_time,
-                current_session_start=context.metrics.current_session_start,
-                current_session_end=context.metrics.current_session_end,
-                current_session_duration=context.metrics.current_session_duration,
-                last_break_start=context.metrics.last_break_start,
-                last_break_end=context.metrics.last_break_end,
-                last_break_duration=context.metrics.last_break_duration,
-            )
-        else:
-            # Standard timeline report (chronological slots)
-            # Combine work slots with embedded AFK periods for clearer visualization
-            final = report_timeline.combine_work_with_embedded_afk()
+        # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
+        # Use the standard timeline rendering which shows chronological slots
+        # Combine work slots with embedded AFK periods for clearer visualization
+        final = report_timeline.combine_work_with_embedded_afk()
 
-            TimelineReport(print_timeline_report).present(
-                slots=final.as_dicts(),
-                period=period,
-                start_time=start_time,
-                end_time=end_time,
-                detail_level=args.detail_level,
-                non_afk_time=context.metrics.non_afk_time,
-                productive_time=context.metrics.productive_time,
-                productive_task_time=context.metrics.productive_task_time,
-                first_event_time=context.metrics.first_event_time,
-                last_event_time=context.metrics.last_event_time,
-                task_based=context.is_task_based_report,
-                distracting_time=context.metrics.distracting_time,
-                unscored_time=context.metrics.unscored_time,
-                rollup=False,
-                current_session_start=context.metrics.current_session_start,
-                current_session_end=context.metrics.current_session_end,
-                current_session_duration=context.metrics.current_session_duration,
-                last_break_start=context.metrics.last_break_start,
-                last_break_end=context.metrics.last_break_end,
-                last_break_duration=context.metrics.last_break_duration,
-                afk_events=afk_events,
-                exclude_online=exclude_online,
-            )
+        TimelineReport(print_timeline_report).present(
+            slots=final.as_dicts(),
+            period=period,
+            start_time=start_time,
+            end_time=end_time,
+            detail_level=args.detail_level,
+            non_afk_time=context.metrics.non_afk_time,
+            productive_time=context.metrics.productive_time,
+            productive_task_time=context.metrics.productive_task_time,
+            first_event_time=context.metrics.first_event_time,
+            last_event_time=context.metrics.last_event_time,
+            task_based=context.is_task_based_report,
+            distracting_time=context.metrics.distracting_time,
+            unscored_time=context.metrics.unscored_time,
+            rollup=False,
+            current_session_start=context.metrics.current_session_start,
+            current_session_end=context.metrics.current_session_end,
+            current_session_duration=context.metrics.current_session_duration,
+            last_break_start=context.metrics.last_break_start,
+            last_break_end=context.metrics.last_break_end,
+            last_break_duration=context.metrics.last_break_duration,
+            afk_events=afk_events,
+            exclude_online=exclude_online,
+        )
     else:
         # If no task_events, treat as non-task-based report regardless of is_task_based_report
         report_task_based = (
