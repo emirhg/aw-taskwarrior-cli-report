@@ -1412,7 +1412,14 @@ def print_period_consolidated_report(
             total_dur += display_duration
             total_prod += productive
             period_afk += row.get("afk_duration", timedelta(0))
-            period_offline += row.get("offline_extension_duration", timedelta(0))
+            # BUG FIX: Calculate offline gap (system powered off) not window activity during offline
+            # Offline gap = wall-clock duration - online (recorded) duration
+            if row.get("type") == "offline_task":
+                offline_gap = row.get("duration", timedelta(0)) - row.get("event_duration", timedelta(0))
+                period_offline += offline_gap
+            else:
+                # Non-offline rows have no offline gap
+                pass
 
         # Render based on detail level
         if detail_level == 1:
