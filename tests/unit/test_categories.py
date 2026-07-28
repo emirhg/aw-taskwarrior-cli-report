@@ -219,7 +219,7 @@ class TestCategorizeEvent:
         assert event.data.get("$category") == ["Work > Coding > Python"]
 
     def test_categorize_no_match(self):
-        """Event with no matching rule should not be categorized."""
+        """Event with no matching rule should be categorized as Uncategorized."""
         event = Event(
             timestamp=datetime.now(timezone.utc),
             duration=__import__("datetime").timedelta(seconds=60),
@@ -231,7 +231,8 @@ class TestCategorizeEvent:
 
         categorize_event(event, rules)
 
-        assert "$category" not in event.data
+        # No match should assign "Uncategorized" category
+        assert event.data["$category"] == ["Uncategorized"]
 
     def test_categorize_specificity_ordering(self):
         """Most specific (longest) matching category should win."""

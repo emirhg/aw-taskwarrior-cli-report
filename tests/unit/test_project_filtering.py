@@ -318,7 +318,8 @@ class TestShouldSkipWindowBucket:
             search=None,
         )
 
-        assert should_skip_window_bucket(args, detail_level=1) is False
+        # Hierarchical reports use grouping_mode="project"
+        assert should_skip_window_bucket(args, detail_level=1, grouping_mode="project") is False
 
     def test_skip_with_task_filter_timesheet(self):
         """Should skip window bucket: task filter + timesheet."""
