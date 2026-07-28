@@ -21,8 +21,8 @@ class TestReorderArguments:
 
     def test_flags_only(self):
         """Only flags, no positional args."""
-        argv = ["--timesheet", "--consolidate"]
-        assert reorder_arguments(argv) == ["--timesheet", "--consolidate"]
+        argv = ["--by-day", "--exclude-afk"]
+        assert reorder_arguments(argv) == ["--by-day", "--exclude-afk"]
 
     def test_positional_only(self):
         """Only positional args, no flags."""
@@ -31,18 +31,18 @@ class TestReorderArguments:
 
     def test_flags_then_positional(self):
         """Flags already before positional args."""
-        argv = ["--timesheet", "--project", "Climb", ":today"]
+        argv = ["--by-day", "--project", "Climb", ":today"]
         result = reorder_arguments(argv)
         # Flags first, then positionals
-        assert result[:3] == ["--timesheet", "--project", "Climb"]
+        assert result[:3] == ["--by-day", "--project", "Climb"]
         assert result[3:] == [":today"]
 
     def test_positional_then_flags(self):
         """Positional args before flags (should be reordered)."""
-        argv = [":today", "Climb", "--timesheet"]
+        argv = [":today", "Climb", "--by-week"]
         result = reorder_arguments(argv)
         # Should reorder to flags first
-        assert result[0] == "--timesheet"
+        assert result[0] == "--by-week"
         assert ":today" in result
         assert "Climb" in result
 
@@ -50,7 +50,7 @@ class TestReorderArguments:
         """Complex mixed ordering with multiple flags and values."""
         argv = [
             ":month",
-            "--timesheet",
+            "--by-month",
             "Climb",
             "--project",
             "Personal",
@@ -59,7 +59,7 @@ class TestReorderArguments:
         ]
         result = reorder_arguments(argv)
         # Flags with their values should come first
-        assert result[0] == "--timesheet"
+        assert result[0] == "--by-month"
         assert "--project" in result
         assert "Personal" in result[result.index("--project") + 1]
         assert "--detail-level" in result
@@ -124,8 +124,11 @@ class TestParseArgs:
         """No arguments should use defaults."""
         args = parse_args([])
         assert args.args == []
-        assert args.timesheet is False
-        assert args.consolidate is False
+        assert args.by_project is False
+        assert args.by_day is False
+        assert args.by_week is False
+        assert args.by_month is False
+        assert args.by_year is False
         assert args.detail_level == 2
         assert args.exclude_afk is False
         assert args.include_afk is False
@@ -135,16 +138,31 @@ class TestParseArgs:
         args = parse_args([":week"])
         assert args.args == [":week"]
 
-    def test_timesheet_flag(self):
-        """--timesheet flag."""
-        args = parse_args(["--timesheet", ":today"])
-        assert args.timesheet is True
+    def test_by_project_flag(self):
+        """--by-project flag (hierarchical report)."""
+        args = parse_args(["--by-project", ":today"])
+        assert args.by_project is True
         assert args.args == [":today"]
 
-    def test_consolidate_flag(self):
-        """--consolidate flag."""
-        args = parse_args(["--consolidate", ":today"])
-        assert args.consolidate is True
+    def test_by_day_flag(self):
+        """--by-day flag (period consolidation)."""
+        args = parse_args(["--by-day", ":today"])
+        assert args.by_day is True
+
+    def test_by_week_flag(self):
+        """--by-week flag (period consolidation)."""
+        args = parse_args(["--by-week", ":week"])
+        assert args.by_week is True
+
+    def test_by_month_flag(self):
+        """--by-month flag (period consolidation)."""
+        args = parse_args(["--by-month", ":month"])
+        assert args.by_month is True
+
+    def test_by_year_flag(self):
+        """--by-year flag (period consolidation)."""
+        args = parse_args(["--by-year", ":year"])
+        assert args.by_year is True
 
     def test_detail_level(self):
         """--detail-level with value."""
@@ -188,8 +206,7 @@ class TestParseArgs:
     def test_combined_flags(self):
         """Multiple flags combined."""
         args = parse_args([
-            "--timesheet",
-            "--consolidate",
+            "--by-week",
             "--detail-level",
             "2",
             "--exclude-afk",
@@ -197,8 +214,7 @@ class TestParseArgs:
             "Climb",
             ":week",
         ])
-        assert args.timesheet is True
-        assert args.consolidate is True
+        assert args.by_week is True
         assert args.detail_level == 2
         assert args.exclude_afk is True
         assert args.project == ["Climb"]

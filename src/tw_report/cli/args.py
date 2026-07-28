@@ -191,36 +191,31 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         metavar="N",
         help="Report depth: 1=Project, 2=+Task (default), 3=+Category, 4=+App, 5=+Title.",
     )
-    parser.add_argument(
-        "--timesheet",
+    grouping_group = parser.add_mutually_exclusive_group()
+    grouping_group.add_argument(
+        "--by-project",
         action="store_true",
-        help="Timeline report: show activity as continuous slots ordered by time.",
+        help="Group by project (hierarchical report).",
     )
-    consolidate_group = parser.add_mutually_exclusive_group()
-    consolidate_group.add_argument(
-        "--consolidate",
+    grouping_group.add_argument(
+        "--by-day",
         action="store_true",
-        help="Consolidate sessions: merge consecutive sessions of the same task (even with gaps) unless interrupted by another task.",
+        help="Group by day (consolidate to one line per project per day).",
     )
-    consolidate_group.add_argument(
-        "--consolidate-day",
+    grouping_group.add_argument(
+        "--by-week",
         action="store_true",
-        help="Consolidate to one line per project per day (totals only, no time range).",
+        help="Group by ISO week (Mon-Sun).",
     )
-    consolidate_group.add_argument(
-        "--consolidate-week",
+    grouping_group.add_argument(
+        "--by-month",
         action="store_true",
-        help="Consolidate to one line per project per ISO week (Mon-Sun).",
+        help="Group by calendar month.",
     )
-    consolidate_group.add_argument(
-        "--consolidate-month",
+    grouping_group.add_argument(
+        "--by-year",
         action="store_true",
-        help="Consolidate to one line per project per calendar month.",
-    )
-    consolidate_group.add_argument(
-        "--consolidate-year",
-        action="store_true",
-        help="Consolidate to one line per project per calendar year.",
+        help="Group by calendar year.",
     )
     parser.add_argument(
         "--exclude-non-project",

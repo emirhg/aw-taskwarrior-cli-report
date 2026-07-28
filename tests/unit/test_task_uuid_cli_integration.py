@@ -57,12 +57,12 @@ class TestTaskUuidCliIntegration:
         # Task ID after period
         args2 = parse_args([":today", "--task-id", "48"])
         # Task ID with other flags
-        args3 = parse_args(["--timesheet", "--task-id", "48", ":week"])
+        args3 = parse_args(["--by-week", "--task-id", "48", ":week"])
 
         assert args1.task_id == 48
         assert args2.task_id == 48
         assert args3.task_id == 48
-        assert args3.timesheet is True
+        assert args3.by_week is True
 
     def test_uuid_lookup_error_handling(self):
         """Verify UUID lookup errors are handled gracefully."""
@@ -210,7 +210,7 @@ class TestTaskUuidCliIntegration:
         from tw_report.cli.args import parse_args
 
         # Default: no --task-id flag
-        args = parse_args([":today", "--timesheet"])
+        args = parse_args([":today", "--by-day"])
 
         assert not hasattr(args, "task_id") or args.task_id is None
 
@@ -221,16 +221,14 @@ class TestTaskUuidCliIntegration:
         args = parse_args(
             [
                 "--task-id", "48",
-                "--timesheet",
-                "--consolidate",
+                "--by-week",
                 "--detail-level", "2",
                 ":week",
             ]
         )
 
         assert args.task_id == 48
-        assert args.timesheet is True
-        assert args.consolidate is True
+        assert args.by_week is True
         assert args.detail_level == 2
 
     def test_task_uuid_with_search_term(self):

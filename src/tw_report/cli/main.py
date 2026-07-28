@@ -6,7 +6,7 @@ Handles all argument parsing, data fetching, processing, and report generation.
 
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, cast, Literal
 
 from aw_client import ActivityWatchClient
 from aw_core.models import Event
@@ -128,21 +128,31 @@ def main():
     args = parse_args()
     client = ActivityWatchClient("tw-report")
 
-    # Period consolidation flags imply --timesheet (user shouldn't need to pass both)
-    if args.consolidate_day or args.consolidate_week or args.consolidate_month or args.consolidate_year:
-        args.timesheet = True
+    # Determine grouping mode (default to --by-day)
+    grouping_mode = None
+    if args.by_project:
+        grouping_mode = "project"
+    elif args.by_week:
+        grouping_mode = "week"
+    elif args.by_month:
+        grouping_mode = "month"
+    elif args.by_year:
+        grouping_mode = "year"
+    else:
+        # Default to by-day if no grouping mode specified
+        grouping_mode = "day"
 
     # Parse positional arguments to separate period from search term
     period, search_term = parse_positional_args(args.args)
     args.search = search_term  # Set search term from positional args (None if not provided)
 
-    # Adjust default period based on consolidation mode (if no explicit period provided)
+    # Adjust default period based on grouping mode (if no explicit period provided)
     if period == ":today":  # Only adjust if using the default period
-        if args.consolidate_week and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
+        if grouping_mode == "week" and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
             period = ":week"
-        elif args.consolidate_month and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
+        elif grouping_mode == "month" and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
             period = ":month"
-        elif args.consolidate_year and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
+        elif grouping_mode == "year" and not any(arg.startswith(":") or arg[0].isdigit() for arg in args.args):
             period = ":year"
 
     # Resolve task UUID if --task-id is provided
@@ -226,7 +236,7 @@ def main():
     # AFK-based optimization for detail_level <= 2:
     # When we don't need category/app/title detail, skip expensive window bucket fetch
     # and use AFK events for OFFLINE task reconciliation (much faster).
-    use_afk_optimization = args.detail_level <= 2 and args.timesheet
+    use_afk_optimization = args.detail_level <= 2 and grouping_mode in ["day", "week", "month", "year"]
 
     # Fetch events based on optimization and filtering strategy
     if skip_window and not use_afk_optimization:
@@ -643,8 +653,9 @@ def main():
                 proj_node["total_duration"] += offline_duration
                 task_node["categories"] = offline_categories_dict
 
-    # Generate timeline report if --timesheet is specified
-    if args.timesheet:
+    # Generate timeline report for period-based grouping (day/week/month/year)
+    # Hierarchical (by-project) is handled in the else clause
+    if grouping_mode in ["day", "week", "month", "year"]:
         timeline_events = [
             {
                 "event": rep.event,
@@ -788,20 +799,11 @@ def main():
         # Convert timeline to ReportTimeline for unified consolidation/bucketing
         report_timeline = timeline.to_report_timeline()
 
-        # Determine which consolidation mode to use
-        period_mode = None
-        if args.consolidate_day:
-            period_mode = "day"
-        elif args.consolidate_week:
-            period_mode = "week"
-        elif args.consolidate_month:
-            period_mode = "month"
-        elif args.consolidate_year:
-            period_mode = "year"
-
-        if period_mode:
+        # Check if we're doing period-level consolidation (not project grouping)
+        if grouping_mode in ["day", "week", "month", "year"]:
             # Period-level consolidation (day/week/month/year)
-            bucketed = report_timeline.bucket(period_mode)
+            period_mode_typed = cast(Literal["day", "week", "month", "year"], grouping_mode)
+            bucketed = report_timeline.bucket(period_mode_typed)
             # Filter consolidated results based on EventFilter rules
             # (e.g., --exclude-non-project, --exclude-offline)
             filtered_bucketed = [
@@ -813,7 +815,7 @@ def main():
                 period=period,
                 start_time=start_time,
                 end_time=end_time,
-                period_mode=period_mode,
+                period_mode=grouping_mode,
                 detail_level=args.detail_level,
                 non_afk_time=context.metrics.non_afk_time,
                 productive_time=context.metrics.productive_time,
@@ -831,15 +833,9 @@ def main():
                 last_break_duration=context.metrics.last_break_duration,
             )
         else:
-            # Standard timeline report
-            # First, combine work slots with embedded AFK periods for clearer visualization
-            combined = report_timeline.combine_work_with_embedded_afk()
-
-            # Then optionally consolidate if --consolidate flag is passed
-            if args.consolidate:
-                final = combined.consolidate_consecutive()
-            else:
-                final = combined
+            # Standard timeline report (chronological slots)
+            # Combine work slots with embedded AFK periods for clearer visualization
+            final = report_timeline.combine_work_with_embedded_afk()
 
             TimelineReport(print_timeline_report).present(
                 slots=final.as_dicts(),
@@ -855,7 +851,7 @@ def main():
                 task_based=context.is_task_based_report,
                 distracting_time=context.metrics.distracting_time,
                 unscored_time=context.metrics.unscored_time,
-                rollup=(args.timesheet and args.consolidate),
+                rollup=False,
                 current_session_start=context.metrics.current_session_start,
                 current_session_end=context.metrics.current_session_end,
                 current_session_duration=context.metrics.current_session_duration,
