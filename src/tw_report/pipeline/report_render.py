@@ -66,7 +66,16 @@ def print_report_summary(
     """Print report header with SUMMARY section at the top.
 
     Displays period info and metrics in a clean aligned format at the top.
-    Note: AFK time is NOT shown here (it appears in TOTALS section to avoid duplication).
+
+    Metric Semantics:
+    - Active Time (non_afk_time): Keyboard/mouse focus time (non-AFK events only)
+    - AFK Time: Away-from-keyboard idle periods (subset of Online Time)
+    - Online Time: Total system recording time (Active + AFK combined) = non_afk_time + afk_time
+    - Offline Time: System powered off during task work
+    - Total Time: Online + Offline = full wall-clock duration
+    - Project Tracking %: tracked_time / total_time × 100
+
+    Note: AFK time is NOT shown in this SUMMARY section (it appears in TOTALS to avoid duplication).
 
     Args:
         title: Report title (centered with = padding)

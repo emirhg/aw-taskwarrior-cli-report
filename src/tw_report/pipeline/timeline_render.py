@@ -466,6 +466,10 @@ def print_timeline_report(
     )
 
     # Calculate total AFK time
+    # AFK Time = sum of "afk" status events from AFK bucket (idle periods)
+    # This is a SUBSET of Online Time, not separate from it
+    # Relationship: Online Time = Active Time + AFK Time
+    #
     # Check if slots are consolidated (contain afk_duration field) or regular (type="afk" slots)
     has_consolidated_afk = any(s.get("afk_duration") for s in slots)
 
@@ -1165,6 +1169,10 @@ def print_timeline_report(
                     last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
 
         # Accumulate totals using TimeslotDuration for clear accounting
+        # NOTE: group_regular_duration represents TOTAL ONLINE TIME (AFK + non-AFK combined)
+        # This is passed to daily_metrics as the "online" parameter
+        # AFK time is tracked separately in group_afk_duration (a subset of online time)
+        # Later: active_duration = online_duration - afk_duration
         group_regular_duration = timedelta(0)
         group_regular_productive = timedelta(0)
         group_afk_duration = timedelta(0)
@@ -1173,11 +1181,12 @@ def print_timeline_report(
             slot_type = s.get("type")
 
             if slot_type == "afk":
-                # AFK slots: pure idle time (100% AFK, still counts as online)
+                # AFK slots: pure idle time (100% AFK, still counts as online time)
+                # Online Time = Active Time + AFK Time, so AFK must be included in online total
                 # Display uses: actual_duration
                 afk_duration = s.get("actual_duration", s["duration"])
                 group_afk_duration += afk_duration
-                # AFK-only slots are online time! Add to regular_duration so online total is correct
+                # Add to online total (AFK is online, just not active)
                 group_regular_duration += afk_duration
             elif slot_type == "offline_task":
                 # OFFLINE slots: display uses actual_duration
