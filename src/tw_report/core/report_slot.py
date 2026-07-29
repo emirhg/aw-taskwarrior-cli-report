@@ -1003,12 +1003,23 @@ class ReportEntries:
                     merged_event_duration = (curr_event + rs_event) if (curr_event or rs_event) else None
 
                     # Create merged ReportTimelineSlot directly
+                    # CRITICAL: Use merged_duration for actual_duration
+                    # (not sum of overlapping durations, which would double-count)
+                    # Calculate proportional productive duration based on merged duration
+                    curr_prod = current.productive_duration or timedelta(0)
+                    rs_prod = rs.productive_duration or timedelta(0)
+                    curr_productive_ratio = curr_prod.total_seconds() / max(current.duration.total_seconds(), 1)
+                    rs_productive_ratio = rs_prod.total_seconds() / max(rs.duration.total_seconds(), 1)
+                    avg_productive_ratio = (curr_productive_ratio + rs_productive_ratio) / 2
+                    merged_productive_seconds = merged_duration.total_seconds() * avg_productive_ratio
+                    merged_productive_duration = timedelta(seconds=merged_productive_seconds) if merged_productive_seconds > 0 else timedelta(0)
+
                     current = ReportTimelineSlot(
                         start=current.start,
                         end=merged_end,
                         duration=merged_duration,
-                        actual_duration=current.actual_duration + rs.actual_duration,
-                        productive_duration=current.productive_duration + rs.productive_duration,
+                        actual_duration=merged_duration,
+                        productive_duration=merged_productive_duration,
                         task_event=current.task_event,  # Use first slot's task_event
                         window_events=current.window_events + rs.window_events,
                         afk_events=current.afk_events + rs.afk_events,
