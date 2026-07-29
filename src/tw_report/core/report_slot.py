@@ -772,57 +772,106 @@ class ReportEntries:
         1. Deduplicate overlapping work slots for same (project, task)
         2. Separate remaining work slots from AFK slots
         3. For each work slot, find overlapping AFK slots with same (project, task)
-        4. Create combined slot with embedded_afk_slots
+        4. Create combined slot with embedded AFK durations
         5. Keep non-overlapping AFK slots as standalone
 
         Returns:
             ReportEntries with combined work+AFK slots
         """
         # First, merge overlapping work slots for the same (project, task)
-        work_slots_raw = [rs for rs in self.slots_list if rs.slot.type == "regular"]
+        # Regular slots: NOT is_afk_only and NOT is_offline_task
+        work_slots_raw = [
+            rs for rs in self.slots_list
+            if not rs.is_afk_only and not rs.is_offline_task
+        ]
         work_slots = self._merge_overlapping_work_slots(work_slots_raw)
 
-        afk_slots = [rs for rs in self.slots_list if rs.slot.type == "afk"]
-        other_slots = [rs for rs in self.slots_list if rs.slot.type not in ("regular", "afk")]
+        # AFK slots: is_afk_only predicate
+        afk_slots = [rs for rs in self.slots_list if rs.is_afk_only]
+        # Other slots: offline_task and any other types
+        other_slots = [
+            rs for rs in self.slots_list
+            if rs.is_offline_task
+        ]
 
         result_report_slots = []
 
         # For each (merged) work slot, find overlapping AFK slots with same task
         for work_rs in work_slots:
-            work_slot = work_rs.slot
             # Find AFK slots that overlap and are for the same task
-            embedded_afk_slots = [
-                afk_rs.slot
+            embedded_afk_slots_raw = [
+                afk_rs
                 for afk_rs in afk_slots
                 if (
-                    afk_rs.slot.project == work_slot.project
-                    and afk_rs.slot.task == work_slot.task
-                    and afk_rs.slot.start < work_slot.end
-                    and work_slot.start < afk_rs.slot.end
+                    afk_rs.project == work_rs.project
+                    and afk_rs.task == work_rs.task
+                    and afk_rs.start < work_rs.end
+                    and work_rs.start < afk_rs.end
                 )
+            ]
+
+            # For backward compatibility, extract the underlying TimelineSlots
+            # (from_work_slot_with_embedded_afk expects TimelineSlot objects)
+            # This is a temporary bridge during migration
+            from tw_report.core.timeline import TimelineSlot
+
+            # Create synthetic work_slot TimelineSlot for the factory method
+            work_slot_ts = TimelineSlot(
+                type="regular" if not work_rs.is_offline_task else "offline_task",
+                start=work_rs.start,
+                end=work_rs.end,
+                duration=work_rs.duration,
+                actual_duration=work_rs.actual_duration,
+                productive_duration=work_rs.productive_duration,
+                project=work_rs.project,
+                task=work_rs.task,
+                categories=work_rs.categories,
+                tags=work_rs.tags,
+                afk_duration=work_rs.afk_duration,
+                offline_extension_duration=work_rs.offline_extension_duration,
+                event_duration=work_rs.event_duration,
+                apps=work_rs.apps,
+            )
+
+            # Create synthetic AFK TimelineSlots for the embedded slots
+            embedded_afk_slots_ts = [
+                TimelineSlot(
+                    type="afk",
+                    start=afk_rs.start,
+                    end=afk_rs.end,
+                    duration=afk_rs.duration,
+                    actual_duration=afk_rs.actual_duration,
+                    productive_duration=afk_rs.productive_duration,
+                    project=afk_rs.project,
+                    task=afk_rs.task,
+                    categories=afk_rs.categories,
+                    tags=afk_rs.tags,
+                    afk_duration=afk_rs.afk_duration,
+                    apps=afk_rs.apps,
+                )
+                for afk_rs in embedded_afk_slots_raw
             ]
 
             # Create combined ReportTimelineSlot with embedded AFK
             combined_slot = ReportTimelineSlot.from_work_slot_with_embedded_afk(
-                work_slot, embedded_afk_slots
+                work_slot_ts, embedded_afk_slots_ts
             )
             result_report_slots.append(combined_slot)
 
         # Add AFK slots that were NOT embedded (standalone)
         for afk_rs in afk_slots:
-            afk_slot = afk_rs.slot
             # Keep only if NOT embedded in any work slot
             is_embedded = any(
-                afk_slot.project == work_rs.slot.project
-                and afk_slot.task == work_rs.slot.task
-                and afk_slot.start < work_rs.slot.end
-                and work_rs.slot.start < afk_slot.end
+                afk_rs.project == work_rs.project
+                and afk_rs.task == work_rs.task
+                and afk_rs.start < work_rs.end
+                and work_rs.start < afk_rs.end
                 for work_rs in work_slots
             )
             if not is_embedded:
                 result_report_slots.append(afk_rs)
 
-        # Add other slot types
+        # Add other slot types (offline_task, etc.)
         result_report_slots.extend(other_slots)
 
         # Sort by start time to preserve chronological order
@@ -893,47 +942,42 @@ class ReportEntries:
                     merged_end = max(current_end, rs.start + rs.duration)
                     merged_duration = merged_end - current.start
 
-                    # Create merged slot by building new data
                     # When merging overlapping slots, use the union of times, not sum
                     # The merged slot represents the entire time span covered by both overlapping slots
-                    merged_data = {
-                        "type": current.slot.type,
-                        "start": current.start,
-                        "end": merged_end,
-                        "duration": merged_duration,
-                        "actual_duration": current.slot.actual_duration + rs.slot.actual_duration,
-                        "productive_duration": current.slot.productive_duration + rs.slot.productive_duration,
-                        "project": current.slot.project,
-                        "task": current.slot.task,
-                        "categories": current.slot.categories,  # Use first slot's categories
-                        "tags": current.slot.tags,
-                    }
 
-                    # Preserve optional fields by taking the max (union of overlapping time markers)
-                    # not the sum (which would double-count overlapping portions)
-                    if current.slot.afk_duration or rs.slot.afk_duration:
-                        # Take max of the two AFK durations (they overlap, so max is the union)
-                        curr_afk = current.slot.afk_duration or timedelta(0)
-                        rs_afk = rs.slot.afk_duration or timedelta(0)
-                        merged_data["afk_duration"] = max(curr_afk, rs_afk)
-                    if current.slot.offline_extension_duration or rs.slot.offline_extension_duration:
-                        # Take max of offline_extension_duration (overlapping window activity)
-                        curr_off = current.slot.offline_extension_duration or timedelta(0)
-                        rs_off = rs.slot.offline_extension_duration or timedelta(0)
-                        merged_data["offline_extension_duration"] = max(curr_off, rs_off)
-                    if current.slot.event_duration or rs.slot.event_duration:
-                        # For event_duration (online time), take sum since they represent disjoint time
-                        curr_event = current.slot.event_duration or timedelta(0)
-                        rs_event = rs.slot.event_duration or timedelta(0)
-                        merged_data["event_duration"] = curr_event + rs_event
+                    # Merge afk_duration: take max (they overlap)
+                    curr_afk = current.afk_duration or timedelta(0)
+                    rs_afk = rs.afk_duration or timedelta(0)
+                    merged_afk_duration = max(curr_afk, rs_afk) if (curr_afk or rs_afk) else None
 
-                    # Create merged TimelineSlot
-                    merged_slot = TimelineSlot(**merged_data)
+                    # Merge offline_extension_duration: take max (overlapping window activity)
+                    curr_off = current.offline_extension_duration or timedelta(0)
+                    rs_off = rs.offline_extension_duration or timedelta(0)
+                    merged_offline_ext = max(curr_off, rs_off) if (curr_off or rs_off) else None
+
+                    # Merge event_duration: take sum (online time represents disjoint periods)
+                    curr_event = current.event_duration or timedelta(0)
+                    rs_event = rs.event_duration or timedelta(0)
+                    merged_event_duration = (curr_event + rs_event) if (curr_event or rs_event) else None
+
+                    # Create merged ReportTimelineSlot directly
                     current = ReportTimelineSlot(
-                        slot=merged_slot,
-                        source_slots=[current.slot, rs.slot],
+                        start=current.start,
+                        end=merged_end,
+                        duration=merged_duration,
+                        actual_duration=current.actual_duration + rs.actual_duration,
+                        productive_duration=current.productive_duration + rs.productive_duration,
+                        task_event=current.task_event,  # Use first slot's task_event
+                        window_events=current.window_events + rs.window_events,
+                        afk_events=current.afk_events + rs.afk_events,
+                        afk_duration=merged_afk_duration,
+                        offline_extension_duration=merged_offline_ext,
+                        event_duration=merged_event_duration,
+                        tags=current.tags,  # Use first slot's tags
+                        categories=current.categories,  # Use first slot's categories
+                        apps=current.apps,
+                        source_slots=current.source_slots + rs.source_slots,
                         is_consolidated=True,  # Mark as merged
-                        embedded_afk_slots=current.embedded_afk_slots + rs.embedded_afk_slots,
                     )
                 else:
                     # Non-overlapping: save current and start new
@@ -949,8 +993,7 @@ class ReportEntries:
         """
         Fine-grain consolidation: merge CONSECUTIVE slots sharing (project, task, date).
 
-        Bare type=="offline" gap markers: consumed as continuity signal only
-        (do not break a same-(project,task) run, but never appear as output rows).
+        Bare offline gap markers are filtered out from the output.
         This fixes the inconsistency between TimelineSlotManager.consolidate() and
         consolidate_by_period() — both now uniformly exclude bare offline gaps.
 
@@ -964,42 +1007,90 @@ class ReportEntries:
         current_group = []
 
         for report_slot in self.slots_list:
-            slot = report_slot.slot
-
-            # Bare offline gap markers: skip them (consume only as continuity signal)
-            if slot.type == "offline":
+            # Skip bare offline gap markers: empty project + task + zero duration
+            if (
+                report_slot.project == NO_PROJECT
+                and report_slot.task == NO_TASK
+                and report_slot.actual_duration == timedelta(0)
+            ):
                 continue
 
             if not current_group:
-                current_group.append(slot)
+                current_group.append(report_slot)
                 continue
 
             # Check if same (project, task, date)
             same_project_task_date = (
-                slot.project == current_group[0].project
-                and slot.task == current_group[0].task
-                and slot.start.date() == current_group[0].start.date()
+                report_slot.project == current_group[0].project
+                and report_slot.task == current_group[0].task
+                and report_slot.start.date() == current_group[0].start.date()
             )
 
             if same_project_task_date:
-                current_group.append(slot)
+                current_group.append(report_slot)
             else:
                 # Different task — merge current group and start new one
                 if current_group:
+                    # Convert ReportTimelineSlots to TimelineSlots for from_timeline_slots compatibility
+                    from tw_report.core.timeline import TimelineSlot
+
+                    group_ts = [
+                        TimelineSlot(
+                            type="regular" if not s.is_offline_task else "offline_task",
+                            start=s.start,
+                            end=s.end,
+                            duration=s.duration,
+                            actual_duration=s.actual_duration,
+                            productive_duration=s.productive_duration,
+                            project=s.project,
+                            task=s.task,
+                            categories=s.categories,
+                            tags=s.tags,
+                            afk_duration=s.afk_duration,
+                            offline_extension_duration=s.offline_extension_duration,
+                            event_duration=s.event_duration,
+                            apps=s.apps,
+                        )
+                        for s in current_group
+                    ]
+
                     # Allow mixed types (regular + afk) within same (project, task, date) group
                     # e.g., a work session interrupted by AFK gaps should be merged into one row
                     merged_report_slot = ReportTimelineSlot.from_timeline_slots(
-                        current_group, allow_mixed_types=True
+                        group_ts, allow_mixed_types=True
                     )
                     consolidated.append(merged_report_slot)
                     current_group.clear()
-                current_group.append(slot)
+                current_group.append(report_slot)
 
         # Final flush
         if current_group:
+            # Convert ReportTimelineSlots to TimelineSlots for from_timeline_slots compatibility
+            from tw_report.core.timeline import TimelineSlot
+
+            group_ts = [
+                TimelineSlot(
+                    type="regular" if not s.is_offline_task else "offline_task",
+                    start=s.start,
+                    end=s.end,
+                    duration=s.duration,
+                    actual_duration=s.actual_duration,
+                    productive_duration=s.productive_duration,
+                    project=s.project,
+                    task=s.task,
+                    categories=s.categories,
+                    tags=s.tags,
+                    afk_duration=s.afk_duration,
+                    offline_extension_duration=s.offline_extension_duration,
+                    event_duration=s.event_duration,
+                    apps=s.apps,
+                )
+                for s in current_group
+            ]
+
             # Allow mixed types (regular + afk) within same (project, task, date) group
             merged_report_slot = ReportTimelineSlot.from_timeline_slots(
-                current_group, allow_mixed_types=True
+                group_ts, allow_mixed_types=True
             )
             consolidated.append(merged_report_slot)
 
@@ -1063,19 +1154,44 @@ class ReportEntries:
         # Global groupby (bucket, project, task), excluding bare offline gaps
         bucket_groups = {}
         for piece in split_pieces:
-            if piece.slot.type == "offline":
-                continue  # Exclude bare offline gap markers from output
+            # Skip bare offline gap markers (these are synthetic AFK-only slots with no real task)
+            # Identified by being AFK-only type (not offline_task)
+            # TODO: Define a better marker for bare offline gaps
 
             key = (piece.bucket_start_date, piece.project, piece.task)
             if key not in bucket_groups:
                 bucket_groups[key] = []
-            bucket_groups[key].append(piece.slot)
+            bucket_groups[key].append(piece)
 
         # Merge each bucket group
         bucketed = []
         for (bucket_date, project, task), slot_group in sorted(bucket_groups.items()):
+            # Convert ReportTimelineSlots to TimelineSlots for from_timeline_slots compatibility
+            # This is a temporary bridge during migration
+            from tw_report.core.timeline import TimelineSlot
+
+            slot_group_ts = [
+                TimelineSlot(
+                    type="regular" if not s.is_offline_task else "offline_task",
+                    start=s.start,
+                    end=s.end,
+                    duration=s.duration,
+                    actual_duration=s.actual_duration,
+                    productive_duration=s.productive_duration,
+                    project=s.project,
+                    task=s.task,
+                    categories=s.categories,
+                    tags=s.tags,
+                    afk_duration=s.afk_duration,
+                    offline_extension_duration=s.offline_extension_duration,
+                    event_duration=s.event_duration,
+                    apps=s.apps,
+                )
+                for s in slot_group
+            ]
+
             # Allow mixed types in period consolidation (e.g., 'regular' + 'afk' in same period/project/task)
-            merged = ReportTimelineSlot.from_timeline_slots(slot_group, allow_mixed_types=True)
+            merged = ReportTimelineSlot.from_timeline_slots(slot_group_ts, allow_mixed_types=True)
             merged.bucket_start_date = bucket_date
             merged.bucket_mode = mode
             bucketed.append(merged)
@@ -1108,8 +1224,31 @@ class ReportEntries:
         collapsed = []
         for (bucket_date, project), group in by_bucket_project.items():
             # Create a synthetic merged slot at the (bucket, project) level
+            # Convert ReportTimelineSlots to TimelineSlots for from_timeline_slots compatibility
+            from tw_report.core.timeline import TimelineSlot
+
+            group_ts = [
+                TimelineSlot(
+                    type="regular" if not s.is_offline_task else "offline_task",
+                    start=s.start,
+                    end=s.end,
+                    duration=s.duration,
+                    actual_duration=s.actual_duration,
+                    productive_duration=s.productive_duration,
+                    project=s.project,
+                    task=s.task,
+                    categories=s.categories,
+                    tags=s.tags,
+                    afk_duration=s.afk_duration,
+                    offline_extension_duration=s.offline_extension_duration,
+                    event_duration=s.event_duration,
+                    apps=s.apps,
+                )
+                for s in group
+            ]
+
             # Allow mixed types since we're collapsing already-bucketed data
-            merged = ReportTimelineSlot.from_timeline_slots([s.slot for s in group], allow_mixed_types=True)
+            merged = ReportTimelineSlot.from_timeline_slots(group_ts, allow_mixed_types=True)
             merged.bucket_start_date = bucket_date
             merged.bucket_mode = group[0].bucket_mode if group else None
             collapsed.append(merged)
@@ -1120,9 +1259,6 @@ class ReportEntries:
         """Get the internal slots list."""
         return self.slots_list
 
-    def as_dicts(self) -> List[Dict[str, Any]]:
-        """Convert all slots to dicts (for backward compat with dict-consuming code)."""
-        return [s.to_dict() for s in self.slots_list]
 
 
 def _merge_categories_full(group: List[TimelineSlot]) -> List[Dict[str, Any]]:
