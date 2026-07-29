@@ -201,6 +201,8 @@ class DisplayColumns:
             task_display = " " if abbrev_project else ""
 
         # Format duration columns (no parenthesis)
+        slot_type = get_field("type", "regular")
+
         offline_time = ""
         offline_dur = get_field("offline_extension_duration")
         if offline_dur:
@@ -215,21 +217,32 @@ class DisplayColumns:
 
         # Active time = ONLINE time - AFK time
         # (actual_duration is online time when system was recording)
-        online_duration = get_field("actual_duration") or get_field("duration")
-        afk_duration_slot = get_field("afk_duration") or timedelta(0)
+        # Special case: OFFLINE slots show ONLY in offline column, no active time
+        active_time = ""
+        active_duration = timedelta(0)
 
-        if online_duration:
-            if isinstance(online_duration, timedelta):
-                # Calculate active as online minus afk
-                active_duration = online_duration - afk_duration_slot
-                if active_duration.total_seconds() > 0:
-                    active_time = format_duration(active_duration)
-                else:
-                    active_time = ""
-            else:
-                active_time = str(online_duration)
+        if slot_type == "offline":
+            # OFFLINE slots are system-off periods - no online or active time
+            # All time should be in offline column only
+            pass
         else:
-            active_time = ""
+            # IMPORTANT: Must check "is not None" not just falsy, so actual_duration=0 is honored
+            actual_dur = get_field("actual_duration")
+            online_duration = actual_dur if actual_dur is not None else get_field("duration")
+            afk_duration_slot = get_field("afk_duration") or timedelta(0)
+
+            if online_duration:
+                if isinstance(online_duration, timedelta):
+                    # Calculate active as online minus afk
+                    active_duration = online_duration - afk_duration_slot
+                    if active_duration.total_seconds() > 0:
+                        active_time = format_duration(active_duration)
+                    else:
+                        active_time = ""
+                else:
+                    active_time = str(online_duration)
+            else:
+                active_time = ""
 
         # Productivity metric
         productivity = ""
@@ -338,6 +351,16 @@ class ReportTimelineSlot:
             and self.event_duration is None
         )
 
+    @property
+    def type(self) -> str:
+        """Return the type discriminator for this slot (offline, offline_task, or regular)."""
+        if self.is_offline_gap:
+            return "offline"
+        elif self.is_offline_task:
+            return "offline_task"
+        else:
+            return "regular"
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict format for backward compatibility.
 
@@ -364,7 +387,9 @@ class ReportTimelineSlot:
             slot_dict["event_duration"] = self.event_duration
 
         # Add type discriminator for legacy code paths
-        if self.is_offline_task:
+        if self.is_offline_gap:
+            slot_dict["type"] = "offline"
+        elif self.is_offline_task:
             slot_dict["type"] = "offline_task"
         elif self.is_offline_gap:
             slot_dict["type"] = "offline"
