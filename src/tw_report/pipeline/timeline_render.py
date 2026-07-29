@@ -93,6 +93,8 @@ def _get_slot_type(slot: Union[Dict, "ReportTimelineSlot"]) -> str:
         # ReportTimelineSlot uses predicates instead of type field
         if slot.is_offline_task:
             return "offline_task"
+        elif slot.is_offline_gap:
+            return "offline"
         elif slot.is_afk_only:
             return "afk"
         else:

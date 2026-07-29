@@ -326,6 +326,17 @@ class ReportTimelineSlot:
             and self.event_duration is None
         )
 
+    @property
+    def is_offline_gap(self) -> bool:
+        """True if this is an OFFLINE gap: system was off (actual_duration==duration, no task_event)."""
+        return (
+            self.task_event is None
+            and self.actual_duration == self.duration
+            and self.afk_duration is not None
+            and self.afk_duration == timedelta(0)
+            and self.event_duration is None
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict format for backward compatibility.
 
@@ -354,6 +365,8 @@ class ReportTimelineSlot:
         # Add type discriminator for legacy code paths
         if self.is_offline_task:
             slot_dict["type"] = "offline_task"
+        elif self.is_offline_gap:
+            slot_dict["type"] = "offline"
         elif self.is_afk_only:
             slot_dict["type"] = "afk"
         else:

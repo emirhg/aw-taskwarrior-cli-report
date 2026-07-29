@@ -406,12 +406,13 @@ def generate_afk_and_offline_slots(
         # Handle OFFLINE portions (where system was powered off)
         if partitions["offline_portion"]:
             offline_start, offline_end = partitions["offline_portion"]
+            offline_duration = offline_end - offline_start
             offline_slot = {
                 "type": "offline",
                 "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
                 "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
-                "duration": offline_end - offline_start,
-                "actual_duration": timedelta(0),  # System was off, no actual activity recorded
+                "duration": offline_duration,
+                "actual_duration": offline_duration,  # OFFLINE time is "actual" (wall-clock time while offline)
                 "afk_duration": timedelta(0),
                 "project": NO_PROJECT,
                 "task": NO_TASK,
@@ -462,6 +463,7 @@ def generate_afk_and_offline_slots(
 def convert_active_periods_to_slots(
     active_events: List[Event],
     task_events: Optional[List[Event]] = None,
+    afk_events: Optional[List[Event]] = None,
 ) -> List[Dict]:
     """Convert status="not-afk" events to ACTIVE slots for uncovered periods only.
 
@@ -469,30 +471,44 @@ def convert_active_periods_to_slots(
     them to timeline slots, but ONLY for periods NOT already covered by TaskWarrior events.
     This prevents duplicate slots when a task's active period overlaps with an AFK not-afk event.
 
+    When afk_events are provided, partitions each active period by overlapping AFK events,
+    creating separate slots for AFK and pure ACTIVE portions.
+
     Args:
         active_events: AFKEvents with status="not-afk" (from AFK bucket)
         task_events: TaskWarrior events for exclusion (periods covered by tasks are skipped)
+        afk_events: Optional AFK events to partition active periods into AFK/ACTIVE portions
 
     Returns:
-        List of slot dicts with type="active" (no project assigned, no AFK)
+        List of slot dicts with type="active" (no project assigned, no AFK) or "afk"
     """
     result = []
+    afk_events = afk_events or []
 
     # If no task events, all active periods are uncovered
     if not task_events:
         for active_event in active_events:
-            slot = {
-                "type": "active",
-                "start": active_event.timestamp.astimezone() if hasattr(active_event.timestamp, 'astimezone') else active_event.timestamp,
-                "end": (active_event.timestamp + active_event.duration).astimezone() if hasattr(active_event.timestamp, 'astimezone') else (active_event.timestamp + active_event.duration),
-                "duration": active_event.duration,
-                "actual_duration": active_event.duration,
-                "afk_duration": timedelta(0),  # By definition, not-afk events have no idle time
-                "project": NO_PROJECT,
-                "task": NO_TASK,
-                "categories": [],
-            }
-            result.append(slot)
+            # Partition by AFK events if provided
+            partitioned = _partition_untracked_gap(active_event, afk_events)
+
+            for portion in partitioned:
+                if portion.duration >= MIN_EVENT_DURATION:
+                    gap_type = portion.data.get("gap_type", "untracked_active")
+                    slot_type = "afk" if gap_type == "untracked_afk" else "active"
+                    afk_duration = portion.duration if gap_type == "untracked_afk" else timedelta(0)
+
+                    slot = {
+                        "type": slot_type,
+                        "start": portion.timestamp.astimezone() if hasattr(portion.timestamp, 'astimezone') else portion.timestamp,
+                        "end": (portion.timestamp + portion.duration).astimezone() if hasattr(portion.timestamp, 'astimezone') else (portion.timestamp + portion.duration),
+                        "duration": portion.duration,
+                        "actual_duration": portion.duration,
+                        "afk_duration": afk_duration,
+                        "project": NO_PROJECT,
+                        "task": NO_TASK,
+                        "categories": [],
+                    }
+                    result.append(slot)
         return result
 
     # For each active period, check if it's covered by any task event
@@ -508,18 +524,27 @@ def convert_active_periods_to_slots(
 
         # Only emit ACTIVE slot if this period is NOT covered by any task
         if not has_task_coverage:
-            slot = {
-                "type": "active",
-                "start": active_event.timestamp.astimezone() if hasattr(active_event.timestamp, 'astimezone') else active_event.timestamp,
-                "end": (active_event.timestamp + active_event.duration).astimezone() if hasattr(active_event.timestamp, 'astimezone') else (active_event.timestamp + active_event.duration),
-                "duration": active_event.duration,
-                "actual_duration": active_event.duration,
-                "afk_duration": timedelta(0),  # By definition, not-afk events have no idle time
-                "project": NO_PROJECT,
-                "task": NO_TASK,
-                "categories": [],
-            }
-            result.append(slot)
+            # Partition by AFK events if provided
+            partitioned = _partition_untracked_gap(active_event, afk_events)
+
+            for portion in partitioned:
+                if portion.duration >= MIN_EVENT_DURATION:
+                    gap_type = portion.data.get("gap_type", "untracked_active")
+                    slot_type = "afk" if gap_type == "untracked_afk" else "active"
+                    afk_duration = portion.duration if gap_type == "untracked_afk" else timedelta(0)
+
+                    slot = {
+                        "type": slot_type,
+                        "start": portion.timestamp.astimezone() if hasattr(portion.timestamp, 'astimezone') else portion.timestamp,
+                        "end": (portion.timestamp + portion.duration).astimezone() if hasattr(portion.timestamp, 'astimezone') else (portion.timestamp + portion.duration),
+                        "duration": portion.duration,
+                        "actual_duration": portion.duration,
+                        "afk_duration": afk_duration,
+                        "project": NO_PROJECT,
+                        "task": NO_TASK,
+                        "categories": [],
+                    }
+                    result.append(slot)
 
     return result
 

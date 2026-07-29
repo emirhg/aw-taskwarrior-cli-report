@@ -856,9 +856,13 @@ def main():
         )
 
         # Generate ACTIVE slots from status="not-afk" events (keyboard/mouse activity)
-        # These already exist in the AFK bucket, just need direct conversion to slots
+        # Partition by AFK events to split long continuous periods into AFK and pure ACTIVE portions
         active_periods = context.bucket_events.get_active_periods()
-        active_slots = convert_active_periods_to_slots(active_periods, context.task_events)
+        active_slots = convert_active_periods_to_slots(
+            active_periods,
+            context.task_events,
+            afk_events=context.afk_events,
+        )
 
         # Generate partitioned TaskWarrior task slots (ACTIVE/AFK/OFFLINE portions)
         # This breaks down each task duration into its constituent components,
