@@ -549,15 +549,26 @@ def print_timeline_report(
     if not slots:
         print("No activity found for the specified period.")
 
-    # Print date/week header and duration column labels
+    # Print date/week header and duration column labels with proper alignment
     print("Wk  Date       Day")
-    # Labels for duration columns - positioned at exact column boundaries
-    # DisplayColumns layout: 70 left + offline(12:70-82) + afk(12:82-94) + active(8:94-102)
-    labels_line = " " * 70  # Position 0-70
-    labels_line += "OFFLINE".ljust(12)  # Position 70-82
-    labels_line += "AFK".ljust(12)      # Position 82-94
-    labels_line += "ACTIVE"              # Position 94+
-    print(labels_line)
+    # Create label line using same alignment logic as DisplayColumns.format()
+    # Left section: same width as data rows (7 indent + 11 time + 2 sep + 28 project + 2 sep + 35 task)
+    left_label_section = " " * (7 + 11 + 2 + 28 + 2 + 35)  # 85 chars of padding
+    # Right section: duration labels with same column widths as data
+    offline_label = "OFFLINE".ljust(12)
+    afk_label = "AFK".ljust(12)
+    active_label = "ACTIVE".ljust(8)
+    productivity_label = " " * 14  # No label for productivity
+    right_label_section = offline_label + afk_label + active_label + productivity_label
+    # Right-align to terminal width like DisplayColumns.format()
+    terminal_width = width
+    left_padding = terminal_width - len(left_label_section) - len(right_label_section) - 2
+    if left_padding < 0:
+        label_line = left_label_section + "  " + right_label_section
+    else:
+        label_line = left_label_section + (" " * left_padding) + "  " + right_label_section
+    # Match DisplayColumns.format() by stripping trailing whitespace
+    print(label_line.rstrip())
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
