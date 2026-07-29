@@ -328,12 +328,12 @@ class ReportTimelineSlot:
             "categories": self.categories,
             "apps": self.apps or [],
         }
-        # Add optional fields only if they have values
-        if self.afk_duration:
+        # Add optional fields only if they have values (must check for None, not truthiness)
+        if self.afk_duration is not None:
             slot_dict["afk_duration"] = self.afk_duration
-        if self.offline_extension_duration:
+        if self.offline_extension_duration is not None:
             slot_dict["offline_extension_duration"] = self.offline_extension_duration
-        if self.event_duration:
+        if self.event_duration is not None:
             slot_dict["event_duration"] = self.event_duration
 
         # Add type discriminator for legacy code paths
@@ -1317,12 +1317,12 @@ class ReportEntries:
                 "categories": slot.categories,
                 "apps": slot.apps or [],
             }
-            # Add optional fields only if they have values
-            if slot.afk_duration:
+            # Add optional fields only if they have values (must check for None, not truthiness)
+            if slot.afk_duration is not None:
                 slot_dict["afk_duration"] = slot.afk_duration
-            if slot.offline_extension_duration:
+            if slot.offline_extension_duration is not None:
                 slot_dict["offline_extension_duration"] = slot.offline_extension_duration
-            if slot.event_duration:
+            if slot.event_duration is not None:
                 slot_dict["event_duration"] = slot.event_duration
 
             # Add type discriminator for legacy code paths
