@@ -309,6 +309,44 @@ def _render_slot_detail(slot: Dict, detail_level: int, width: int) -> None:
 
 
 
+def format_and_print_day_total(daily_metrics, width):
+    """Format and print day total with proper DisplayColumns alignment.
+
+    Single source of truth for day total formatting used by all three code paths:
+    - Week boundary closure
+    - Date change within week
+    - End-of-report totals
+    """
+    from tw_report.utils.formatting import ljust_display, display_width
+
+    total_day_with_afk = daily_metrics.online_duration
+    indent = " " * 7
+    day_total_label = "Day total:   "
+
+    offline_col = ljust_display(
+        (f"({format_duration(daily_metrics.offline_gap)})"
+         if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0
+         else ""), 12)
+    afk_col = ljust_display("", 12)
+    active_col = ljust_display(format_duration(total_day_with_afk), 8)
+    productivity_col = ljust_display(
+        "  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]"
+        if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0
+        else "", 14)
+
+    right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+    left_part = ljust_display(f"{indent}{day_total_label}", 87)
+    left_part_width = display_width(left_part)
+    right_section_width = display_width(right_section)
+    dynamic_left_padding = width - left_part_width - right_section_width - 2
+
+    if dynamic_left_padding < 0:
+        full_line = left_part + "  " + right_section
+    else:
+        full_line = left_part + (" " * dynamic_left_padding) + "  " + right_section
+    print(full_line)
+
+
 def print_timeline_report(
     slots: List[Dict],
     period: str,
@@ -871,49 +909,7 @@ def print_timeline_report(
             if current_week_key is not None:
                 print(("-" * 22).rjust(width))
                 if not prev_date_was_rollup:
-                    # Use online_duration only (not total_duration) since offline_gap is displayed separately
-                    total_day_with_afk = daily_metrics.online_duration
-                    # Format offline time in gap notation if present
-                    if daily_metrics.offline_gap and daily_metrics.offline_gap > timedelta(0):
-                        gaps_str = f"({format_duration(daily_metrics.offline_gap)} OFF)"
-                    else:
-                        gaps_str = ""
-                    # Use DisplayColumns-style multi-column alignment (OFFLINE, AFK, ACTIVE, PRODUCTIVITY)
-                    # NOT the old single-value format
-                    from tw_report.core.report_slot import DisplayColumns
-                    from tw_report.utils.formatting import ljust_display, display_width
-                    from datetime import time
-
-                    day_total_slot = {
-                        "offline_extension_duration": daily_metrics.offline_gap if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else None,
-                        "afk_duration": None,
-                        "actual_duration": total_day_with_afk,
-                        "productive_duration": daily_metrics.productive_duration,
-                    }
-                    # Create a fake start/end for the day total line
-                    day_start = datetime.combine(group_date, time(0, 0, 0))
-                    day_end = datetime.combine(group_date, time(23, 59, 59))
-                    day_start_aware = day_start.replace(tzinfo=timezone.utc).astimezone()
-                    day_end_aware = day_end.replace(tzinfo=timezone.utc).astimezone()
-
-                    indent = " " * 7
-                    day_total_label = "Day total:   "
-                    offline_col = ljust_display((f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else ""), 12)
-                    afk_col = ljust_display("", 12)
-                    active_col = ljust_display(format_duration(total_day_with_afk), 8)
-                    productivity_col = ljust_display("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]" if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else "", 14)
-
-                    right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
-                    # CRITICAL: Use dynamic terminal_width padding like DisplayColumns and header
-                    left_part = ljust_display(f"{indent}{day_total_label}", 87)
-                    left_part_width = display_width(left_part)
-                    right_section_width = display_width(right_section)
-                    dynamic_left_padding = width - left_part_width - right_section_width - 2
-                    if dynamic_left_padding < 0:
-                        full_line = left_part + "  " + right_section
-                    else:
-                        full_line = left_part + (" " * dynamic_left_padding) + "  " + right_section
-                    print(full_line)
+                    format_and_print_day_total(daily_metrics, width)
                 if not is_single_day:
                     # Use online_duration only (not total_duration) since offline_gap is displayed separately
                     total_week_with_afk = weekly_metrics.online_duration
@@ -943,83 +939,7 @@ def print_timeline_report(
             # Date changed within same week: close previous day
             if not prev_date_was_rollup and current_date is not None:
                 print(("-" * 22).rjust(width))
-                # Use online_duration only (not total_duration) since offline_gap is displayed separately
-                total_day_with_afk = daily_metrics.online_duration
-                # Format offline time in gap notation if present
-                # CRITICAL: Day total line alignment (2026-07-29)
-                # ====================================================
-                # Day total MUST use IDENTICAL column structure to:
-                # 1. DisplayColumns.format() (the data row format)
-                # 2. Header construction above (line 552-586)
-                #
-                # Left section: 87 display width
-                #   7 indent + "Day total:   " (13) = 20 visual width
-                #   Remaining: 67 spaces to reach 87 total
-                #
-                # Right section: 46 display width (MUST include ALL columns)
-                #   12 OFFLINE + 12 AFK + 8 ACTIVE + 14 PRODUCTIVITY = 46
-                #
-                # Dynamic padding: terminal_width - 87 - 46 - 2 = left_padding
-                #   (Same formula as DisplayColumns.format() and header!)
-                #
-                # If day total columns don't align with data rows:
-                # - Check left_part reaches exactly 87 visual width
-                # - Check right_section has all 4 columns (46 total)
-                # - Check ljust_display() is used for all padding (never ljust())
-                # - Verify terminal_width calculation is identical to DisplayColumns
-                #
-                # Example alignment:
-                #   Data:      [87 visual]  [2 sep]  [12 OFF][12 AFK][8 ACT][14 PROD]
-                #   Day total: [87 visual]  [2 sep]  [12 OFF][12 AFK][8 ACT][14 PROD]
-                #   Header:    [87 visual]  [2 sep]  [12 OFF][12 AFK][8 ACT][14 PROD]
-                # All three must match exactly or columns will be misaligned.
-
-                from tw_report.core.report_slot import DisplayColumns
-                day_total_slot = {
-                    "offline_extension_duration": daily_metrics.offline_gap if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else None,
-                    "afk_duration": None,
-                    "actual_duration": total_day_with_afk,
-                    "productive_duration": daily_metrics.productive_duration,
-                }
-                # Create a fake start/end for the day total line
-                # current_date is a date object, convert to datetime at midnight
-                from datetime import time
-                day_start = datetime.combine(current_date, time(0, 0, 0))
-                day_end = datetime.combine(current_date, time(23, 59, 59))
-                day_start_aware = day_start.replace(tzinfo=timezone.utc).astimezone()
-                day_end_aware = day_end.replace(tzinfo=timezone.utc).astimezone()
-
-                cols = DisplayColumns.from_slot_dict(day_total_slot, day_start_aware, day_end_aware)
-                # Override the formatted output for day total line
-                from tw_report.utils.formatting import ljust_display, display_width
-                indent = " " * 7
-                day_total_label = "Day total:   "
-                offline_col = ljust_display((f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else ""), 12)
-                afk_col = ljust_display("", 12)
-                active_col = ljust_display(format_duration(total_day_with_afk), 8)
-                productivity_col = ljust_display("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]" if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else "", 14)
-
-                right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
-                # CRITICAL: Day total MUST use dynamic terminal_width padding like DisplayColumns and header
-                # Align day total line with data rows: 87 display width for left section
-                # Calculation: 7 indent + "Day total:   " (13 chars) + dynamic padding to reach 87
-                left_part = ljust_display(f"{indent}{day_total_label}", 87)
-                # Use SAME dynamic padding formula as DisplayColumns.format() and header construction
-                # 2026-07-29 Bug Fix: This calculation was missing, causing misalignment on wide terminals
-                # On wide terminals (150+ chars), without this padding:
-                #   - Header labels appeared at position X based on terminal_width
-                #   - Day total values appeared at position Y (87+2+46=135) far from header labels
-                #   - Visual result: values appeared to the right of their column labels
-                # Solution: Calculate padding based on actual terminal width, same as DisplayColumns
-                # Formula: dynamic_padding = terminal_width - left_width - right_width - 2-char separator
-                left_part_width = display_width(left_part)
-                right_section_width = display_width(right_section)
-                dynamic_left_padding = width - left_part_width - right_section_width - 2
-                if dynamic_left_padding < 0:
-                    full_line = left_part + "  " + right_section
-                else:
-                    full_line = left_part + (" " * dynamic_left_padding) + "  " + right_section
-                print(full_line)
+                format_and_print_day_total(daily_metrics, width)
                 print()
             daily_metrics = PeriodMetrics()
             date_str = group_date.strftime("%Y-%m-%d")
@@ -1294,30 +1214,7 @@ def print_timeline_report(
     if slots:
         print(("-" * 22).rjust(width))
         if not prev_date_was_rollup:
-            # CRITICAL: Use DisplayColumns-style alignment with dynamic terminal_width padding
-            # Use online_duration only (not total_duration) since offline_gap is displayed separately
-            total_day_with_afk = daily_metrics.online_duration
-            from tw_report.utils.formatting import ljust_display, display_width
-
-            indent = " " * 7
-            day_total_label = "Day total:   "
-            # Use ljust_display() for UTF-8 safety and display_width() for proper calculations
-            offline_col = ljust_display((f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else ""), 12)
-            afk_col = ljust_display("", 12)
-            active_col = ljust_display(format_duration(total_day_with_afk), 8)
-            productivity_col = ljust_display("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]" if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else "", 14)
-
-            right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
-            # CRITICAL: Use same dynamic padding as DisplayColumns and header
-            left_part = ljust_display(f"{indent}{day_total_label}", 87)
-            left_part_width = display_width(left_part)
-            right_section_width = display_width(right_section)
-            dynamic_left_padding = width - left_part_width - right_section_width - 2
-            if dynamic_left_padding < 0:
-                full_line = left_part + "  " + right_section
-            else:
-                full_line = left_part + (" " * dynamic_left_padding) + "  " + right_section
-            print(full_line)
+            format_and_print_day_total(daily_metrics, width)
         # Use online_duration only (not total_duration) since offline_gap is displayed separately
         total_week_with_afk = weekly_metrics.online_duration
         if not is_single_day:
