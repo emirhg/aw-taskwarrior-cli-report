@@ -2,7 +2,7 @@
 Unit tests for timeline data generation (tw_report.pipeline.generation).
 
 These characterization tests capture the current behavior of generate_timeline_data
-and generate_gap_entries for later extraction and testing.
+and generate_afk_and_offline_slots for later extraction and testing.
 """
 
 from datetime import datetime, timedelta, timezone
@@ -11,6 +11,7 @@ from typing import Dict, List
 import pytest
 from aw_core.models import Event
 
+from tw_report.core.aw_events import AFKEvent
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 
 UTC = timezone.utc
@@ -25,6 +26,11 @@ def make_datetime(year: int, month: int, day: int,
 def make_event(timestamp: datetime, duration: timedelta, data: Dict) -> Event:
     """Helper to create ActivityWatch Event objects."""
     return Event(timestamp=timestamp, duration=duration, data=data)
+
+
+def make_afk_event(timestamp: datetime, duration: timedelta, status: str = "afk") -> AFKEvent:
+    """Helper to create AFKEvent objects."""
+    return AFKEvent(timestamp=timestamp, duration=duration, data={"status": status})
 
 
 class TestMergeOverlappingEvents:
@@ -96,8 +102,8 @@ class TestMergeOverlappingEvents:
         assert result[1].timestamp == base_time + timedelta(hours=3)
 
 
-class TestGenerateGapEntries:
-    """Test generate_gap_entries function."""
+class TestGenerateAfkAndOfflineSlots:
+    """Test generate_afk_and_offline_slots function."""
 
     @pytest.fixture
     def base_time(self):
@@ -105,18 +111,18 @@ class TestGenerateGapEntries:
 
     def test_empty_afk_events(self):
         """Empty AFK events should return empty slots."""
-        from tw_report.pipeline.generation import generate_gap_entries
-        result = generate_gap_entries([], None)
+        from tw_report.pipeline.generation import generate_afk_and_offline_slots
+        result = generate_afk_and_offline_slots([], None)
         assert result == []
 
     def test_afk_slot_basic(self, base_time):
-        """Basic AFK slot creation."""
-        from tw_report.pipeline.generation import generate_gap_entries
+        """Basic AFK slot creation from AFKEvent."""
+        from tw_report.pipeline.generation import generate_afk_and_offline_slots
         afk_events = [
-            make_event(base_time, timedelta(minutes=10), {"status": "afk"}),
-            make_event(base_time + timedelta(hours=1), timedelta(hours=1), {"status": "not-afk"}),
+            make_afk_event(base_time, timedelta(minutes=10), "afk"),
+            make_afk_event(base_time + timedelta(hours=1), timedelta(hours=1), "not-afk"),
         ]
-        result = generate_gap_entries(afk_events, None)
+        result = generate_afk_and_offline_slots(afk_events, None)
         assert len(result) == 1
         assert result[0]["type"] == "afk"
         assert result[0]["project"] == NO_PROJECT
@@ -124,41 +130,41 @@ class TestGenerateGapEntries:
         assert result[0]["duration"] == timedelta(minutes=10)
 
     def test_afk_slot_with_task_overlap(self, base_time):
-        """AFK slot should find overlapping task."""
-        from tw_report.pipeline.generation import generate_gap_entries
+        """AFK slot should be skipped if it overlaps with a task (handled by partitioned_task_slots)."""
+        from tw_report.pipeline.generation import generate_afk_and_offline_slots
         afk_events = [
-            make_event(base_time, timedelta(minutes=10), {"status": "afk"}),
-            make_event(base_time + timedelta(hours=1), timedelta(hours=1), {"status": "not-afk"}),
+            make_afk_event(base_time, timedelta(minutes=10), "afk"),
+            make_afk_event(base_time + timedelta(hours=1), timedelta(hours=1), "not-afk"),
         ]
         task_events = [
             make_event(base_time - timedelta(minutes=5), timedelta(minutes=20),
                       {"project": "TestProj", "task": "TestTask"}),
         ]
-        result = generate_gap_entries(afk_events, task_events)
-        assert len(result) == 1
-        assert result[0]["project"] == "TestProj"
-        assert result[0]["task"] == "TestTask"
+        # AFK overlaps with task, so it should be skipped by generate_afk_and_offline_slots
+        # (it will be handled by generate_partitioned_task_slots instead)
+        result = generate_afk_and_offline_slots(afk_events, task_events)
+        assert len(result) == 0  # Task-covered AFK is filtered out
 
     def test_multiple_afk_slots(self, base_time):
-        """Multiple AFK events should create multiple slots."""
-        from tw_report.pipeline.generation import generate_gap_entries
+        """Multiple non-overlapping AFK events should create multiple slots."""
+        from tw_report.pipeline.generation import generate_afk_and_offline_slots
         afk_events = [
-            make_event(base_time, timedelta(minutes=5), {"status": "afk"}),
-            make_event(base_time + timedelta(minutes=10), timedelta(minutes=5), {"status": "afk"}),
-            make_event(base_time + timedelta(hours=1), timedelta(hours=1), {"status": "not-afk"}),
+            make_afk_event(base_time, timedelta(minutes=5), "afk"),
+            make_afk_event(base_time + timedelta(minutes=10), timedelta(minutes=5), "afk"),
+            make_afk_event(base_time + timedelta(hours=1), timedelta(hours=1), "not-afk"),
         ]
-        result = generate_gap_entries(afk_events, None)
+        result = generate_afk_and_offline_slots(afk_events, None)
         assert len(result) == 2
 
     def test_overlapping_afk_merged(self, base_time):
         """Overlapping AFK events should be merged before creating slots."""
-        from tw_report.pipeline.generation import generate_gap_entries
+        from tw_report.pipeline.generation import generate_afk_and_offline_slots
         afk_events = [
-            make_event(base_time, timedelta(minutes=10), {"status": "afk"}),
-            make_event(base_time + timedelta(minutes=5), timedelta(minutes=10), {"status": "afk"}),  # overlaps
-            make_event(base_time + timedelta(hours=1), timedelta(hours=1), {"status": "not-afk"}),
+            make_afk_event(base_time, timedelta(minutes=10), "afk"),
+            make_afk_event(base_time + timedelta(minutes=5), timedelta(minutes=10), "afk"),  # overlaps
+            make_afk_event(base_time + timedelta(hours=1), timedelta(hours=1), "not-afk"),
         ]
-        result = generate_gap_entries(afk_events, None)
+        result = generate_afk_and_offline_slots(afk_events, None)
         # Should be merged into one slot instead of two
         assert len(result) == 1
 

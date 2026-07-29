@@ -223,7 +223,7 @@ def build_categories_from_window_events(
     flattens it into the TimelineSlot.categories list format.
 
     This is a shared helper used by:
-    - generate_gap_entries(): Extract categories from window events during AFK periods
+    - generate_afk_and_offline_slots(): Extract categories from window events during AFK periods
     - OfflineTaskProcessor: Extract categories from window events during OFFLINE periods
 
     Args:

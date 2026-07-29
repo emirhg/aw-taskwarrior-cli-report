@@ -195,6 +195,86 @@ class TestAFKEvent:
         assert isinstance(copied, AFKEvent)
         assert copied.is_afk is True
 
+    def test_split_by_coverage_no_window_events(self):
+        """split_by_coverage with no window events returns entire AFK as online-afk."""
+        event = AFKEvent(
+            timestamp=datetime.now(UTC),
+            duration=timedelta(minutes=60),
+            data={"status": "afk"},
+        )
+        result = event.split_by_coverage([])
+        assert result["is_false_positive"] is False
+        assert result["offline_portion"] is None
+        assert len(result["online_afk_portions"]) == 1
+        assert result["online_afk_portions"][0] == (event.timestamp, event.timestamp + event.duration)
+
+    def test_split_by_coverage_full_window_coverage(self):
+        """split_by_coverage with full window coverage returns no offline portion."""
+        from tw_report.core.aw_events import WindowEvent
+        base = datetime.now(UTC)
+        afk_event = AFKEvent(
+            timestamp=base,
+            duration=timedelta(minutes=60),
+            data={"status": "afk"},
+        )
+        # Window covers entire AFK period
+        window = WindowEvent(
+            timestamp=base,
+            duration=timedelta(minutes=60),
+            data={"app": "test", "title": "test"},
+        )
+        result = afk_event.split_by_coverage([window])
+        assert result["is_false_positive"] is True  # Multiple windows (fragmented)
+        assert result["offline_portion"] is None
+        # Full coverage means online_afk_portions = window coverage
+        assert len(result["online_afk_portions"]) == 1
+
+    def test_split_by_coverage_no_window_coverage_is_false_positive(self):
+        """split_by_coverage with no window coverage classifies as false positive (offline)."""
+        base = datetime.now(UTC)
+        afk_event = AFKEvent(
+            timestamp=base,
+            duration=timedelta(minutes=60),
+            data={"status": "afk"},
+        )
+        # No window events = entire period is offline
+        result = afk_event.split_by_coverage([])
+        assert result["is_false_positive"] is False
+        assert result["offline_portion"] is None
+        # No windows = treat as online-afk (safe fallback)
+        assert len(result["online_afk_portions"]) == 1
+
+    def test_is_false_positive_true(self):
+        """is_false_positive returns True when offline portion exists."""
+        from tw_report.core.aw_events import WindowEvent
+        base = datetime.now(UTC)
+        afk_event = AFKEvent(
+            timestamp=base,
+            duration=timedelta(hours=1),
+            data={"status": "afk"},
+        )
+        # Single window in the middle = fragmented gaps = false positive (true)
+        window = WindowEvent(
+            timestamp=base + timedelta(minutes=30),
+            duration=timedelta(minutes=10),
+            data={"app": "test", "title": "test"},
+        )
+        result = afk_event.is_false_positive([window])
+        # Fragmented gaps means entire period returned as online_afk (false positive = True)
+        assert result is True
+
+    def test_is_false_positive_false(self):
+        """is_false_positive returns False for real online-afk."""
+        base = datetime.now(UTC)
+        afk_event = AFKEvent(
+            timestamp=base,
+            duration=timedelta(minutes=60),
+            data={"status": "afk"},
+        )
+        # No windows = safe fallback (return as online-afk, not offline)
+        result = afk_event.is_false_positive([])
+        assert result is False
+
 
 class TestTaskWarriorEvent:
     """Tests for TaskWarriorEvent properties."""

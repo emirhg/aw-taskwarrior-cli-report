@@ -54,6 +54,9 @@ class WindowEvent(Event):
             self.data["offline_extension_duration"] = value
 
 
+SYSTEM_OFF_MINIMUM_DURATION = timedelta(minutes=1)
+
+
 class AFKEvent(Event):
     """Event from the afk bucket (away-from-keyboard tracking)."""
 
@@ -66,6 +69,153 @@ class AFKEvent(Event):
     def is_afk(self) -> bool:
         """True if status is 'afk'."""
         return self.status == "afk"
+
+    def split_by_coverage(self, window_events: List["WindowEvent"], min_off_duration: Optional[timedelta] = None) -> dict:
+        """Classify this AFK event and split into OFFLINE and ONLINE_AFK portions.
+
+        Determines if this AFK event (status="afk") represents a real offline period or a false positive.
+        A valid OFFLINE period must be a single continuous gap with no window coverage, lasting at least
+        min_off_duration. If the gap is fragmented or too small, emits only ONLINE_AFK portions (where
+        windows exist) and ignores the small gaps.
+
+        Args:
+            window_events: Window bucket events overlapping this AFK period
+            min_off_duration: Minimum continuous gap to classify as SYSTEM OFF.
+                Defaults to SYSTEM_OFF_MINIMUM_DURATION if not provided.
+
+        Returns:
+            dict with:
+                "is_false_positive": bool - whether this is a false positive (system was off)
+                "offline_portion": (datetime_start, datetime_end) | None - SYSTEM OFF period (if valid)
+                "online_afk_portions": [(datetime_start, datetime_end), ...] - SYSTEM ON portions with AFK
+
+        Example:
+            AFK: 10:00-11:00 (60 min), Windows: [10:05-10:20], [10:30-10:40]
+            → Gaps: [10:00-10:05], [10:20-10:30], [10:40-11:00] (fragmented)
+            → is_false_positive: True (detected as offline)
+            → online_afk_portions: [(10:05-10:20), (10:30-10:40)]
+
+            AFK: 10:00-11:00 (60 min), No windows
+            → is_false_positive: False (entire period is offline)
+            → offline_portion: (10:00-11:00)
+            → online_afk_portions: []
+        """
+        if min_off_duration is None:
+            min_off_duration = SYSTEM_OFF_MINIMUM_DURATION
+
+        afk_start = self.timestamp
+        afk_end = self.timestamp + self.duration
+
+        # If no window events provided, assume all AFK is real
+        if not window_events:
+            return {
+                "is_false_positive": False,
+                "offline_portion": None,
+                "online_afk_portions": [(afk_start, afk_end)],
+            }
+
+        # Filter windows that overlap this AFK period and sort by start time
+        overlapping_windows = []
+        for w in window_events:
+            w_start = w.timestamp
+            w_end = w_start + w.duration
+            if w_start < afk_end and w_end > afk_start:
+                overlapping_windows.append(w)
+
+        overlapping_windows.sort(key=lambda w: w.timestamp)
+
+        # If no windows, entire AFK is offline
+        if not overlapping_windows:
+            return {
+                "is_false_positive": self.duration >= min_off_duration,
+                "offline_portion": (afk_start, afk_end),
+                "online_afk_portions": [],
+            }
+
+        # Calculate complement: gaps where there are no windows
+        gaps = []
+
+        # Gap before first window
+        first_window_start = overlapping_windows[0].timestamp
+        if first_window_start > afk_start:
+            gaps.append((afk_start, first_window_start))
+
+        # Gaps between consecutive windows
+        for i in range(len(overlapping_windows) - 1):
+            curr_window = overlapping_windows[i]
+            next_window = overlapping_windows[i + 1]
+            curr_end = curr_window.timestamp + curr_window.duration
+            next_start = next_window.timestamp
+            if next_start > curr_end:
+                gaps.append((curr_end, next_start))
+
+        # Gap after last window
+        last_window = overlapping_windows[-1]
+        last_window_end = last_window.timestamp + last_window.duration
+        if last_window_end < afk_end:
+            gaps.append((last_window_end, afk_end))
+
+        # Check if complement is a single continuous block
+        if len(gaps) != 1:
+            # Fragmented gaps: system was on, user was idle
+            return {
+                "is_false_positive": True,
+                "offline_portion": None,
+                "online_afk_portions": [(afk_start, afk_end)],
+            }
+
+        # Single continuous gap: check if it meets minimum duration
+        gap_start, gap_end = gaps[0]
+        gap_duration = gap_end - gap_start
+
+        if gap_duration < min_off_duration:
+            # Gap too small: system was on, user was idle
+            return {
+                "is_false_positive": True,
+                "offline_portion": None,
+                "online_afk_portions": [(afk_start, afk_end)],
+            }
+
+        # Valid OFFLINE period found
+        # Merge overlapping/adjacent windows into consolidated ONLINE_AFK periods
+        sorted_windows = sorted(overlapping_windows, key=lambda w: w.timestamp)
+        merged_periods = []
+        current_start = None
+        current_end = None
+
+        for w in sorted_windows:
+            w_start = w.timestamp
+            w_end = w_start + w.duration
+
+            if current_start is None:
+                current_start = w_start
+                current_end = w_end
+            elif w_start <= current_end:
+                current_end = max(current_end, w_end)
+            else:
+                merged_periods.append((current_start, current_end))
+                current_start = w_start
+                current_end = w_end
+
+        if current_start is not None:
+            merged_periods.append((current_start, current_end))
+
+        return {
+            "is_false_positive": False,
+            "offline_portion": (gap_start, gap_end),
+            "online_afk_portions": merged_periods,
+        }
+
+    def is_false_positive(self, window_events: List["WindowEvent"]) -> bool:
+        """Check if this AFK event is a false positive (system was offline).
+
+        Args:
+            window_events: Window bucket events to check coverage against
+
+        Returns:
+            True if system was offline during this AFK period, False if truly idle
+        """
+        return self.split_by_coverage(window_events)["is_false_positive"]
 
 
 class TaskWarriorEvent(Event):

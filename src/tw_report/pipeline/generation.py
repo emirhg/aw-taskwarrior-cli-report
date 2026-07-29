@@ -17,7 +17,7 @@ from tw_report.core.categories import (
     build_categories_from_window_events,
     get_category_score as default_get_category_score,
 )
-from tw_report.core.events import classify_afk_and_split_slots, partition_task_duration
+from tw_report.core.events import partition_task_duration
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 from tw_report.core.task_matching import (
     find_active_task,
@@ -350,27 +350,23 @@ def generate_partitioned_task_slots(
     return result
 
 
-def generate_gap_entries(
+def generate_afk_and_offline_slots(
     afk_events: List[Event],
     task_events: Optional[List[Event]],
-    offline_threshold_s: float = 120.0,
     window_events: Optional[List[Event]] = None,
 ) -> List[Dict]:
     """Generate AFK and OFFLINE slots from AFK bucket events with system state detection.
 
     For each AFK event with status="afk", determines if it represents:
     - ONLINE_AFK (user idle, system was recording) → emit AFK slot(s)
-    - OFFLINE (false positive, system was powered off) → emit OFFLINE slot + optional AFK slot(s)
+    - OFFLINE (false positive, system was powered off) → emit OFFLINE slot
 
-    System state is determined by window coverage:
-    - If window events cover the AFK period continuously → real AFK (system was on)
-    - If NO window coverage exists in a continuous block (≥1 min) → OFFLINE (system was off)
-    - If window coverage is fragmented → treat small gaps as logging noise, emit only covered portions
+    System state is determined by window coverage via AFKEvent.split_by_coverage().
+    AFK events overlapping with TaskWarrior tasks are skipped (handled by generate_partitioned_task_slots).
 
     Args:
         afk_events: all AFK bucket events (both status="afk" and status="not-afk")
         task_events: TaskWarrior events for resolving active tasks during AFK periods
-        offline_threshold_s: (deprecated, no longer used)
         window_events: optional window events to validate AFK periods and extract categories
 
     Returns:
@@ -378,7 +374,7 @@ def generate_gap_entries(
     """
     result = []
 
-    # Generate slots from explicit status="afk" events
+    # Filter to explicit status="afk" events
     afk_only_events = filter_keyvals(afk_events, "status", ["afk"])
     # Merge overlapping AFK events to prevent duplicate overlapping slots
     afk_only_events = _merge_overlapping_events(afk_only_events)
@@ -404,15 +400,12 @@ def generate_gap_entries(
             afk_events_uncovered.append(afk_event)
 
     for afk_event in afk_events_uncovered:
-        # Classify AFK event and determine if it should be split into OFFLINE and ONLINE_AFK portions
-        classification = classify_afk_and_split_slots(
-            afk_event,
-            window_events or []
-        )
+        # Split this AFK event into offline and online-afk portions based on window coverage
+        partitions = afk_event.split_by_coverage(window_events or [])
 
         # Handle OFFLINE portions (where system was powered off)
-        if "offline_portion" in classification and classification["offline_portion"]:
-            offline_start, offline_end = classification["offline_portion"]
+        if partitions["offline_portion"]:
+            offline_start, offline_end = partitions["offline_portion"]
             offline_slot = {
                 "type": "offline",
                 "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
@@ -426,7 +419,7 @@ def generate_gap_entries(
             result.append(offline_slot)
 
         # Handle ONLINE_AFK portions (where system was on, user was idle)
-        for online_start, online_end in classification["online_afk_portions"]:
+        for online_start, online_end in partitions["online_afk_portions"]:
             # Find active TW task during this ONLINE_AFK period
             online_afk_event = Event(
                 timestamp=online_start,

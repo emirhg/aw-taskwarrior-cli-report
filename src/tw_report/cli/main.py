@@ -51,7 +51,7 @@ from tw_report.core.task_filtering import (
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.pipeline.generation import (
     convert_active_periods_to_slots,
-    generate_gap_entries,
+    generate_afk_and_offline_slots,
     generate_partitioned_task_slots,
     generate_timeline_data,
     generate_untracked_gap_events,
@@ -320,7 +320,7 @@ def main():
             window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
 
         # Categorize all window events (including those during AFK periods)
-        # This ensures generate_gap_entries can extract categories for AFK slot details
+        # This ensures generate_afk_and_offline_slots can extract categories for AFK slot details
         for event in window_events:
             categorize_event(event, compiled_categories)
 
@@ -847,11 +847,9 @@ def main():
 
         # Timeline auto-sorts on insertion, no need to manually sort
 
-        # Generate AFK slots and OFFLINE markers unconditionally
-        # (filtering happens below to allow independent control of each type)
-        # Pass original window_events to extract categories from AFK periods
-        # (canonical_events are filtered to not-afk only, so can't detect overlaps with AFK)
-        gap_entries = generate_gap_entries(
+        # Generate AFK and OFFLINE slots from uncovered AFK events (not associated with any task)
+        # Delegates false-positive detection (system offline vs. user idle) to AFKEvent.split_by_coverage()
+        afk_offline_slots = generate_afk_and_offline_slots(
             context.afk_events,
             context.task_events,
             window_events=window_events,
@@ -871,8 +869,8 @@ def main():
             context.afk_events,
         )
 
-        # Combine gap entries with partitioned task slots and ACTIVE slots for uncovered periods
-        all_slot_entries = gap_entries + active_slots + partitioned_task_slots
+        # Combine AFK/offline slots with partitioned task slots and ACTIVE slots for uncovered periods
+        all_slot_entries = afk_offline_slots + active_slots + partitioned_task_slots
 
         # Filter entries using unified EventFilter for consistency
         # (replaces 50+ lines of scattered filter logic)
