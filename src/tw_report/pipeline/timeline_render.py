@@ -1261,16 +1261,24 @@ def print_timeline_report(
 
     # Print TOTALS at bottom
     # Calculate "Online Time" (AFK + non-AFK combined, from AFK bucket)
-    # In consolidated mode: AFK is already embedded in work slots (total_time_all = online time)
-    # In non-consolidated mode: AFK is stored separately, so we add it to get online time
-    total_time_final = (
-        total_time_all + total_afk_time if not has_consolidated_afk else total_time_all
-    )
+    # CRITICAL FIX: Online time must be calculated from AFK bucket events, NOT from slot durations.
+    # Slots can be filtered/deduplicated and won't accurately reflect the true online time.
+    #
+    # Correct calculation:
+    #   Online Time = Active Time (non_afk_time from AFK bucket) + AFK Time (from AFK bucket)
+    #
+    # The non_afk_time parameter is the authoritative source - it comes directly from
+    # the AFK bucket "not-afk" status events, same as used in the summary.
+    # We use it instead of deriving from slots, which can differ due to consolidation/deduplication.
 
-    # CRITICAL: Use non_afk_time from AFK bucket (same as summary) for consistency
-    # Previously we calculated as (total_time_all - total_afk_time) which could differ
-    # due to different data sources. The non_afk_time parameter comes directly from AFK
-    # bucket not-afk events, so it's the authoritative source.
+    # Calculate online time from AFK bucket sources (not from slot durations)
+    # This ensures it matches the summary's Active Time calculation
+    online_time_from_afk = non_afk_time if non_afk_time else timedelta(0)
+    online_time_from_afk += total_afk_time
+
+    # Total time = online (from AFK bucket) + offline (from OFFLINE tasks)
+    total_time_final = online_time_from_afk + total_offline_time
+
     print_report_totals(
         total_time_all=total_time_final,
         total_productive_all=total_productive_all,

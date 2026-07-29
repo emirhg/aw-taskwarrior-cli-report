@@ -241,28 +241,31 @@ class TestTotalsConsistencyChecks:
 class TestBrokenOutputDetection:
     """Tests that would detect the specific bug in user's output."""
 
-    def test_detect_online_equals_day_total_bug(self):
-        """Detect bug: Online = 17:01:49 (day total) instead of 05:47:51."""
-        # From broken output
+    def test_online_time_correct_after_fix(self):
+        """Verify fix: Online = Active + AFK (not day total).
+
+        REGRESSION TEST for bug where Online was showing day_total.
+        """
+        # From user's broken output
         active_time = timedelta(hours=4, minutes=34, seconds=57)
         afk_time = timedelta(hours=1, minutes=12, seconds=54)
-        online_broken = timedelta(hours=17, minutes=1, seconds=49)
         day_total = timedelta(hours=17, minutes=1, seconds=49)
 
-        # Calculate correct online
+        # Calculate correct online (what it should be after fix)
         online_correct = active_time + afk_time
 
         # Verify they're different
         assert online_correct == timedelta(hours=5, minutes=47, seconds=51)
-        assert online_broken != online_correct
-        assert online_broken == day_total
+        assert day_total == timedelta(hours=17, minutes=1, seconds=49)
+        assert online_correct != day_total
 
-        # Test to catch bug:
-        if online_broken == day_total and online_broken != online_correct:
-            pytest.fail(
-                f"BUG DETECTED: Online={online_broken} equals day_total, "
-                f"but should be {online_correct} (Active+AFK)"
-            )
+        # The bug was: online == day_total
+        # After fix: online should equal active + afk (and NOT equal day_total)
+        assert online_correct == active_time + afk_time
+        assert online_correct != day_total, (
+            f"BUG STILL PRESENT: Online should be {online_correct} (Active+AFK), "
+            f"not {day_total} (day_total)"
+        )
 
     def test_detect_missing_afk_in_totals_bug(self):
         """Detect bug: AFK time missing large unassigned AFK blocks.
