@@ -550,24 +550,29 @@ def print_timeline_report(
         print("No activity found for the specified period.")
 
     # Print date/week header with duration column labels on same line
-    # Header should have NO indent (unlike data rows which have 7-space indent)
-    # Labels must align with data duration columns at byte positions 89, 101, 113
+    # Data rows use display_width() for column alignment, so header must too
     from tw_report.utils.formatting import display_width, ljust_display
 
     header_text = "Wk  Date       Day"
-    # Header text (18 chars) + padding to reach position 89 where durations start
-    # Position 0-17: header text
-    # Position 18-88: padding (71 spaces)
-    # Position 89+: duration labels
-    padding_to_durations = 89 - len(header_text)
 
-    # Build header right section with labels (same widths as DisplayColumns)
+    # Data rows structure (from DisplayColumns):
+    # - 7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task = 87 display width
+    # - 2 space separator
+    # - Then durations at visual position 89
+
+    # Header must align labels at same visual position (89) as data row durations
+    header_left_visual_width = 87  # Same as data row left section (matching structure)
+    header_text_width = display_width(header_text)
+    padding_needed = header_left_visual_width - header_text_width
+
+    # Build header with proper display width alignment
+    header_left = header_text + (" " * padding_needed)
     header_right_section = ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) + ljust_display("ACTIVE", 8)
 
-    # Assemble header: text + padding + labels + trailing padding to match data line length (135 bytes)
-    header_line = header_text + (" " * padding_to_durations) + header_right_section
+    # Assemble with 2-space separator (same as data rows)
+    header_line = header_left + "  " + header_right_section
 
-    # Pad to standard data line length for visual alignment
+    # Pad to match data line length for visual alignment
     min_line_length = 135
     if len(header_line) < min_line_length:
         header_line = header_line + " " * (min_line_length - len(header_line))
