@@ -1,7 +1,7 @@
 """Timeline report rendering (print to stdout).
 
 Renders a detailed timeline of work sessions organized by date and week,
-with support for rollup, consolidation, and detail levels.
+with support for consolidation and detail levels.
 
 CRITICAL HISTORY (Phases 5-8, 2026-07-02):
 ===========================================
@@ -399,7 +399,6 @@ def print_timeline_report(
     task_based: bool = True,
     distracting_time: Optional[timedelta] = None,
     unscored_time: Optional[timedelta] = None,
-    rollup: bool = False,
     current_session_start: Optional[datetime] = None,
     current_session_end: Optional[datetime] = None,
     current_session_duration: Optional[timedelta] = None,
@@ -486,23 +485,14 @@ def print_timeline_report(
       - Gap visualization makes work session boundaries immediately obvious
       - Especially important for long reports with many activities
 
-    ROLLUP MODE (when --consolidate and --timesheet used):
-    =======================================================
-    In rollup mode (used with consolidation), single-entry days show both
-    date header and time range inline:
-      "W27 2026-07-01 Wed    00:00 - 04:36  ▶ Project > Task"
-    instead of on separate lines for brevity.
-
     PARAMETER NOTES:
       slots: Pre-filtered timeline slots from main() (EventFilter already applied)
       period: Human-readable period description (e.g., ":yesterday", "2026-07-01")
       detail_level: See above (1-5, typically 1-2 for most users)
-      rollup: If True, collapse single-entry days to inline format
       non_afk_time: Total Active Time (non-AFK) from metrics (for % calculations)
       productive_time: Total productive time from metrics
       (other metric parameters used for header display)
     """
-    from itertools import groupby
 
     width = get_terminal_width()
     is_single_day = start_time.date() == end_time.date()
@@ -857,50 +847,17 @@ def print_timeline_report(
     daily_metrics = PeriodMetrics()
     weekly_metrics = PeriodMetrics()
 
-    # Build list of (project, date, slots) for consecutive same-project same-date runs
-    # No grouping: render each slot individually as its own line
-    # Sort slots by start time to maintain chronological order
-    sorted_slots = sorted(slots, key=lambda s: s["start"])
-
-    # Convert to single-slot groups: each slot is its own group
-    # This avoids combining different activity types on the same line
-    slot_groups = [
-        (slot.get("project"), slot_date(slot), [slot])
-        for slot in sorted_slots
-    ]
-
-    # Pre-compute total slot entries per date (always 1 per slot now)
-    date_total_entries = {}
-    for gp, gd, gs in slot_groups:
-        date_total_entries[gd] = date_total_entries.get(gd, 0) + len(gs)
-
-    # Rollup state: track whether prev day was rolled up to skip its day total
-    prev_date_was_rollup = False
-    pending_date_prefix = None  # Date header held until we know if we render inline
+    # Slots are already sorted and filtered by this point (line 729).
+    # Render each slot individually — no grouping.
     last_slot_end = None  # Track end time of last rendered slot (for gap detection)
     gap_threshold = timedelta(minutes=5)  # Minimum gap to display separator
+    pending_date_prefix = None  # Date header held until the next slot prints
 
-    # Process each slot individually (each is a group of 1)
-    for group_project, group_date, group_slots in slot_groups:
-        # Sort slots chronologically; secondary key by end time for same-second starts
-        group_slots = sorted(
-            group_slots,
-            key=lambda s: (
-                s["start"],
-                s["start"] + s.get("actual_duration", s["duration"]),
-            ),
-        )
-        slot_week = group_slots[0]["start"].strftime("%G-W%V")
-
-        # Check if this is an offline_task group (singleton)
-        is_offline_task_group = group_slots[0].get("type") == "offline_task"
-
-        # Rollup: collapse to inline when exactly one slot entry for this day (exclude offline_task)
-        group_is_rollup = (
-            rollup
-            and date_total_entries.get(group_date, 0) == 1
-            and not is_offline_task_group
-        )
+    # Process each slot individually
+    for slot in slots:
+        slot_week = slot["start"].strftime("%G-W%V")
+        slot_date_val = slot_date(slot)
+        is_offline_task = slot.get("type") == "offline_task"
 
         if slot_week != current_week_key:
             # Week changed: print previous week's closing totals
@@ -917,8 +874,7 @@ def print_timeline_report(
                 else:
                     separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
                 print(separator_line)
-                if not prev_date_was_rollup:
-                    format_and_print_day_total(daily_metrics, width)
+                format_and_print_day_total(daily_metrics, width)
                 if not is_single_day:
                     # Use online_duration only (not total_duration) since offline_gap is displayed separately
                     total_week_with_afk = weekly_metrics.online_duration
@@ -935,18 +891,17 @@ def print_timeline_report(
                     print(full_line.rstrip())
                 print()
             current_week_key = slot_week
-            week_number = group_slots[0]["start"].isocalendar()[1]
+            week_number = slot["start"].isocalendar()[1]
             week_str = f"W{week_number}"
-            date_str = group_date.strftime("%Y-%m-%d")
-            day_str = group_date.strftime("%a")
+            date_str = slot_date_val.strftime("%Y-%m-%d")
+            day_str = slot_date_val.strftime("%a")
             pending_date_prefix = f"{week_str} {date_str} {day_str}"
-            current_date = group_date
+            current_date = slot_date_val
             daily_metrics = PeriodMetrics()
             weekly_metrics = PeriodMetrics()
-            prev_date_was_rollup = False
-        elif group_date != current_date:
+        elif slot_date_val != current_date:
             # Date changed within same week: close previous day
-            if not prev_date_was_rollup and current_date is not None:
+            if current_date is not None:
                 # Separator under the three duration columns using SAME dynamic padding as DisplayColumns
                 # CRITICAL: Must account for PRODUCTIVITY column (14 chars) to match DisplayColumns total_right_width (46)
                 # Left section (87) + dynamic padding + separator (2) + dashes (32 for OFFLINE+AFK+ACTIVE) + spaces (14 for PRODUCTIVITY)
@@ -962,371 +917,109 @@ def print_timeline_report(
                 format_and_print_day_total(daily_metrics, width)
                 print()
             daily_metrics = PeriodMetrics()
-            date_str = group_date.strftime("%Y-%m-%d")
-            day_str = group_date.strftime("%a")
+            date_str = slot_date_val.strftime("%Y-%m-%d")
+            day_str = slot_date_val.strftime("%a")
             # Align same-week dates: 4 spaces + date + day
             pending_date_prefix = f"    {date_str} {day_str}"
-            current_date = group_date
+            current_date = slot_date_val
 
-        # Flush pending date header for non-rollup days before printing the group
-        if pending_date_prefix is not None and not group_is_rollup:
+        # Flush pending date header before rendering this slot
+        if pending_date_prefix is not None:
             print(pending_date_prefix)
             pending_date_prefix = None
 
         # Handle offline_task slots (synthetic OFFLINE-tagged tasks formatted as gap entries)
-        if group_slots[0].get("type") == "offline_task":
-            if pending_date_prefix is not None:
-                print(pending_date_prefix)
-                pending_date_prefix = None
-
-            offline_task_slot = group_slots[0]
+        if is_offline_task:
+            wall_clock_duration = slot.get("duration", timedelta(0))
+            event_duration = slot.get("event_duration", timedelta(0))
 
             # Check for gap before rendering
             if last_slot_end is not None:
-                gap = offline_task_slot["start"] - last_slot_end
+                gap = slot["start"] - last_slot_end
                 if gap > gap_threshold:
                     _render_system_shutdown_separator()
-            project_name = offline_task_slot.get("project", NO_PROJECT).replace(
-                ".", " > "
-            )
-            task_name = offline_task_slot.get("task", NO_TASK)
-            wall_clock_duration = offline_task_slot.get("duration", timedelta(0))
-            event_duration = offline_task_slot.get("event_duration", timedelta(0))
-            start_str = _to_local_time(offline_task_slot["start"]).strftime("%H:%M")
-            end_str = _to_local_time(offline_task_slot["start"] + wall_clock_duration).strftime("%H:%M")
 
             # Format OFFLINE task entries with fixed-width columns
             # OFFLINE tasks show only OFFLINE duration type (wall-clock time untracked)
-            # Don't show ACTIVE time to avoid double-counting
-            offline_task_name = f"*{task_name}"
+            offline_task_name = f"*{slot.get('task', NO_TASK)}"
             slot_with_name = {
-                "project": offline_task_slot.get("project"),
+                "project": slot.get("project"),
                 "task": offline_task_name,
                 "type": "offline_task",
-                "start": offline_task_slot.get("start"),
+                "start": slot.get("start"),
                 "duration": None,  # Don't use duration for active time fallback
                 "offline_extension_duration": wall_clock_duration,  # Show only offline type
                 "afk_duration": None,
                 "actual_duration": None,  # Don't show active to avoid double-count
-                "productive_duration": offline_task_slot.get("productive_duration"),
+                "productive_duration": slot.get("productive_duration"),
             }
 
             from tw_report.core.report_slot import DisplayColumns
-            cols = DisplayColumns.from_slot_dict(slot_with_name, _to_local_time(offline_task_slot["start"]), _to_local_time(offline_task_slot["start"] + wall_clock_duration))
+            cols = DisplayColumns.from_slot_dict(
+                slot_with_name,
+                _to_local_time(slot["start"]),
+                _to_local_time(slot["start"] + wall_clock_duration)
+            )
             print(cols.format(width))
 
-            # Accumulate offline_task to day/week totals using TimeslotDuration
-            # for clear accounting of online vs offline time
+            # Accumulate offline_task to day/week totals
             offline_ext = wall_clock_duration - event_duration
             slot_duration = TimeslotDuration(
                 online_duration=event_duration if event_duration.total_seconds() > 0 else None,
                 offline_gap=offline_ext if offline_ext.total_seconds() > 0 else None,
-                afk_portion=None,  # offline tasks don't have separate AFK tracking
+                afk_portion=None,
             )
-            # Accumulate to daily and weekly metrics using PeriodMetrics
             daily_metrics.add_timeslot(slot_duration, productive=None)
             weekly_metrics.add_timeslot(slot_duration, productive=None)
 
             # Update last_slot_end for gap detection
-            last_slot_end = offline_task_slot["start"] + wall_clock_duration
-
-            # offline_task slots are handled above, skip the regular group handling below
-            continue
-
-        # Calculate project group totals
-        project_name = group_project.replace(".", " > ")
-        group_start = group_slots[0]["start"]
-        group_end = max(s["start"] + s["duration"] for s in group_slots)
-
-        # CRITICAL FIX: Use wall-clock duration (slot["duration"]) not actual_duration
-        # actual_duration is the sum of potentially overlapping window events (can inflate)
-        # For display and metrics, use duration (wall-clock span) to avoid double-counting
-        group_total_duration = timedelta(0)
-        for s in group_slots:
-            slot_type = s.get("type", "regular")
-            # Use appropriate duration based on slot type
-            if slot_type == "offline_task":
-                # Offline tasks: use actual_duration (event duration, no wall-clock inflation)
-                slot_duration = s.get("actual_duration", s["duration"])
-            else:
-                # Regular/AFK slots: use duration (wall-clock, consistent with metrics)
-                slot_duration = s["duration"]
-
-            slot_start = s.get("start")
-            slot_end = slot_start + slot_duration if slot_start else None
-
-            # If slot extends past period end, trim it to end_time
-            if slot_end and slot_end > end_time:
-                trimmed_duration = end_time - slot_start
-                group_total_duration += max(trimmed_duration, timedelta(0))
-            else:
-                group_total_duration += slot_duration
-        # Also trim productive and AFK durations proportionally
-        # Use wall-clock duration consistently (not actual_duration which can inflate)
-        group_productive_duration = timedelta(0)
-        group_afk_duration = timedelta(0)
-        for s in group_slots:
-            slot_start = s.get("start")
-            slot_type = s.get("type", "regular")
-
-            # Use same logic as above: actual_duration for offline_task, duration for others
-            if slot_type == "offline_task":
-                slot_duration = s.get("actual_duration", s["duration"])
-            else:
-                slot_duration = s["duration"]
-
-            slot_end = slot_start + slot_duration if slot_start else None
-
-            # Apply same trimming as group_total_duration to keep afk_duration in sync
-            if slot_end and slot_end > end_time:
-                trimmed_duration = end_time - slot_start
-                trim_ratio = trimmed_duration.total_seconds() / slot_duration.total_seconds() if slot_duration.total_seconds() > 0 else 0
-            else:
-                trim_ratio = 1.0
-
-            prod_dur = s.get("productive_duration", timedelta(0))
-            afk_dur = s.get("afk_duration", timedelta(0))
-            group_productive_duration += timedelta(seconds=prod_dur.total_seconds() * trim_ratio)
-            group_afk_duration += timedelta(seconds=afk_dur.total_seconds() * trim_ratio)
-        start_str = _to_local_time(group_start).strftime("%H:%M")
-        end_str = _to_local_time(group_end).strftime("%H:%M")
-        duration_str = format_duration_with_afk(
-            group_total_duration, group_productive_duration, group_afk_duration
-        )
-
-        if detail_level == 1 and len(group_slots) == 1:
-            # Level 1 with single slot: Project only — show inline
-            content = f"▶ {project_name}"
-            if group_is_rollup:
-                left = f"{pending_date_prefix}  {start_str}-{end_str}  {content}"
-                print(format_timeline_line(left, duration_str, max_left_width=95))
-                pending_date_prefix = None
-            else:
-                if pending_date_prefix is not None:
-                    print(pending_date_prefix)
-                    pending_date_prefix = None
-                left = f"             {start_str}  {content}"
-                print(format_timeline_line(left, duration_str, max_left_width=95))
-
-        elif detail_level == 1 and len(group_slots) > 1:
-            # Level 1 with multiple slots: Print each slot individually (project only)
-            if pending_date_prefix is not None:
-                print(pending_date_prefix)
-                pending_date_prefix = None
-
-            for slot in group_slots:
-                # Check for gap before rendering
-                if last_slot_end is not None:
-                    gap = slot["start"] - last_slot_end
-                    if gap > gap_threshold:
-                        _render_system_shutdown_separator()
-
-                task_name = slot["task"]
-                abbrev_project = abbreviate_project_path(project_name, task_name)
-
-                # Format with fixed-width columns
-                from tw_report.core.report_slot import DisplayColumns
-                slot_start_local = _to_local_time(slot["start"])
-                slot_end_local = _to_local_time(slot["start"] + slot["duration"])
-                cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
-                print(cols.format(width))
-
-                # Update last_slot_end for gap detection
-                last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
-
-        elif group_is_rollup:
-            # Single-project day (rollup): may contain multiple slots
-            # (Skip rollup for AFK-only groups — they display as regular slots)
-            if pending_date_prefix is not None:
-                print(pending_date_prefix)
-                pending_date_prefix = None
-
-            if len(group_slots) == 1 and group_slots[0].get("type") != "afk":
-                # Single non-AFK slot: inline format
-                slot = group_slots[0]
-                task_name = slot["task"]
-                abbrev_project = abbreviate_project_path(project_name, task_name)
-                # Format with fixed-width columns
-                from tw_report.core.report_slot import DisplayColumns
-                slot_start_local = _to_local_time(group_slots[0]["start"])
-                slot_end_local = _to_local_time(group_slots[0]["start"] + group_total_duration)
-                cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
-                print(cols.format(width))
-                _render_slot_detail(slot, detail_level, width)
-
-                # Render embedded AFK slots as indented sub-entries
-                embedded_afk = slot.get("embedded_afk_slots", [])
-                if embedded_afk:
-                    _render_embedded_afk_slots(embedded_afk, width)
-
-                # Update last_slot_end for gap detection
-                last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
-            else:
-                # Multiple slots or AFK slot on rollup day: print each individually
-                for slot in group_slots:
-                    # Check for gap before rendering
-                    if last_slot_end is not None:
-                        gap = slot["start"] - last_slot_end
-                        if gap > gap_threshold:
-                            _render_system_shutdown_separator()
-
-                    task_name = slot["task"]
-                    abbrev_project = abbreviate_project_path(project_name, task_name)
-
-                    # Format with fixed-width columns
-                    from tw_report.core.report_slot import DisplayColumns
-                    slot_start_local = _to_local_time(slot["start"])
-                    slot_end_local = _to_local_time(slot["start"] + slot["duration"])
-                    cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
-                    print(cols.format(width))
-                    _render_slot_detail(slot, detail_level, width)
-
-                    # Render embedded AFK slots as indented sub-entries
-                    embedded_afk = slot.get("embedded_afk_slots", [])
-                    if embedded_afk:
-                        _render_embedded_afk_slots(embedded_afk, width)
-
-                    # Update last_slot_end for gap detection
-                    last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
-                if pending_date_prefix is not None:
-                    print(pending_date_prefix)
-                    pending_date_prefix = None
-                s_start = _to_local_time(slot["start"]).strftime("%H:%M")
-                s_end = _to_local_time(slot["start"] + slot["duration"]).strftime("%H:%M")
-                slot_duration = slot.get("actual_duration", slot["duration"])
-                slot_dur_str = format_afk_label(slot_duration)
-                task_name = slot["task"]
-                abbrev_project = abbreviate_project_path(project_name, task_name)
-                content = f"▶ {abbrev_project} ▶▶ {task_name}"
-                left = f"    *{s_start} - {s_end}   {content}"
-                print(
-                    format_timeline_line(
-                        left, duration_str=slot_dur_str, max_left_width=95
-                    )
-                )
-                # Render AFK slot details (categories/apps/titles)
-                _render_slot_detail(slot, detail_level, width)
-
+            last_slot_end = slot["start"] + wall_clock_duration
         else:
-            # Multi-entry day: date header, then indented slot rows
-            if pending_date_prefix is not None:
-                print(pending_date_prefix)
-                pending_date_prefix = None
+            # Regular or AFK slot: render directly with DisplayColumns
 
-            if len(group_slots) == 1:
-                # Single slot for this project today — show inline
-                slot = group_slots[0]
+            # Check for gap before rendering
+            if last_slot_end is not None:
+                gap = slot["start"] - last_slot_end
+                if gap > gap_threshold:
+                    _render_system_shutdown_separator()
 
-                # Check for gap before rendering
-                if last_slot_end is not None:
-                    gap = slot["start"] - last_slot_end
-                    if gap > gap_threshold:
-                        _render_system_shutdown_separator()
+            # Format slot for display based on detail_level
+            slot_start_local = _to_local_time(slot["start"])
+            slot_end_local = _to_local_time(slot["start"] + slot.get("duration", timedelta(0)))
 
-                task_name = slot["task"]
-                abbrev_project = abbreviate_project_path(project_name, task_name)
+            # For detail_level == 1, suppress task column by passing NO_TASK
+            slot_for_display = slot.copy() if isinstance(slot, dict) else slot
+            if detail_level == 1 and isinstance(slot_for_display, dict):
+                slot_for_display["task"] = NO_TASK
 
-                # Format with fixed-width columns (offline, afk, active, productivity)
-                from tw_report.core.report_slot import DisplayColumns
-                slot_start_local = _to_local_time(slot["start"])
-                slot_end_local = _to_local_time(slot["start"] + slot["duration"])
-                cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
-                print(cols.format(width))
-                _render_slot_detail(slot, detail_level, width)
+            from tw_report.core.report_slot import DisplayColumns
+            cols = DisplayColumns.from_slot_dict(slot_for_display, slot_start_local, slot_end_local)
+            print(cols.format(width))
 
-                # Render embedded AFK slots as indented sub-entries
-                embedded_afk = slot.get("embedded_afk_slots", [])
-                if embedded_afk:
-                    _render_embedded_afk_slots(embedded_afk, width)
+            # Render detail (categories/apps/titles for detail_level >= 3)
+            _render_slot_detail(slot if isinstance(slot, dict) else slot.to_dict(), detail_level, width)
 
-                # Update last_slot_end for gap detection
-                last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
-            else:
-                # Multiple slots for this project today — one row each
-                for slot in group_slots:
-                    # Check for gap before rendering
-                    if last_slot_end is not None:
-                        gap = slot["start"] - last_slot_end
-                        if gap > gap_threshold:
-                            _render_system_shutdown_separator()
+            # Render embedded AFK slots as indented sub-entries (should be empty now, defensive)
+            if isinstance(slot, dict) and slot.get("embedded_afk_slots"):
+                _render_embedded_afk_slots(slot["embedded_afk_slots"], width)
 
-                    s_start = slot["start"].strftime("%H:%M")
-                    s_end = (slot["start"] + slot["duration"]).strftime("%H:%M")
-                    task_name = slot["task"]
-                    abbrev_project = abbreviate_project_path(project_name, task_name)
+            # Update last_slot_end for gap detection
+            last_slot_end = slot["start"] + slot.get("actual_duration", slot.get("duration", timedelta(0)))
 
-                    # Format with fixed-width columns (offline, afk, active, productivity)
-                    from tw_report.core.report_slot import DisplayColumns
-                    slot_start_local = _to_local_time(slot["start"])
-                    slot_end_local = _to_local_time(slot["start"] + slot["duration"])
-                    cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
-                    print(cols.format(width))
-                    _render_slot_detail(slot, detail_level, width)
-
-                    # Render embedded AFK slots as indented sub-entries
-                    embedded_afk = slot.get("embedded_afk_slots", [])
-                    if embedded_afk:
-                        _render_embedded_afk_slots(embedded_afk, width)
-
-                    # Update last_slot_end for gap detection
-                    last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
-
-        # Accumulate totals using TimeslotDuration for clear accounting
-        # NOTE: group_regular_duration represents TOTAL ONLINE TIME (AFK + non-AFK combined)
-        # This is passed to daily_metrics as the "online" parameter
-        # AFK time is tracked separately in group_afk_duration (a subset of online time)
-        # Later: active_duration = online_duration - afk_duration
-        group_regular_duration = timedelta(0)
-        group_regular_productive = timedelta(0)
-        group_afk_duration = timedelta(0)
-
-        for s in group_slots:
-            slot_type = s.get("type")
+            # Accumulate to day/week metrics
+            slot_type = slot.get("type") if isinstance(slot, dict) else _get_slot_type(slot)
+            slot_online = slot.get("duration") if isinstance(slot, dict) else slot.duration
+            slot_afk = slot.get("afk_duration") if isinstance(slot, dict) else slot.afk_duration
+            slot_productive = slot.get("productive_duration") if isinstance(slot, dict) else slot.productive_duration
 
             if slot_type == "afk":
-                # AFK slots: pure idle time (100% AFK, still counts as online time)
-                # Online Time = Active Time + AFK Time, so AFK must be included in online total
-                # Use wall-clock duration for consistency
-                afk_duration = s["duration"]
-                group_afk_duration += afk_duration
-                # Add to online total (AFK is online, just not active)
-                group_regular_duration += afk_duration
-            elif slot_type == "offline_task":
-                # OFFLINE slots: use actual_duration (event duration)
-                offline_duration = s.get("actual_duration", timedelta(0))
-                group_regular_duration += offline_duration
-                afk_portion = s.get("afk_duration")  # May be None
-                if afk_portion and afk_portion.total_seconds() > 0:
-                    group_afk_duration += afk_portion
-                productive_duration = s.get("productive_duration", timedelta(0))
-                group_regular_productive += productive_duration
+                # AFK slots: pure idle time
+                daily_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
+                weekly_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
             else:
-                # Regular (work) slots: use slot["duration"] (wall-clock)
-                displayed_duration = s["duration"]
-                group_regular_duration += displayed_duration
-                afk_portion = s.get("afk_duration")  # May be None
-                productive_duration = s.get("productive_duration", timedelta(0))
-
-                # CRITICAL FIX: Accumulate embedded AFK periods from combined work+AFK slots
-                # When a work slot has embedded AFK (from combine_work_with_embedded_afk()),
-                # the afk_duration field contains the total AFK time during that work period.
-                # These must be accumulated separately to prevent undercounting AFK in metrics.
-                if afk_portion and afk_portion.total_seconds() > 0:
-                    group_afk_duration += afk_portion
-                group_regular_productive += productive_duration
-
-        # Accumulate group totals to daily and weekly metrics
-        daily_metrics.add(
-            online=group_regular_duration,
-            afk=group_afk_duration,
-            productive=group_regular_productive
-        )
-        weekly_metrics.add(
-            online=group_regular_duration,
-            afk=group_afk_duration,
-            productive=group_regular_productive
-        )
-        prev_date_was_rollup = group_is_rollup
+                # Regular slots
+                daily_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
+                weekly_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
 
     # Print final totals
     if slots:
@@ -1341,8 +1034,7 @@ def print_timeline_report(
         else:
             separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
         print(separator_line)
-        if not prev_date_was_rollup:
-            format_and_print_day_total(daily_metrics, width)
+        format_and_print_day_total(daily_metrics, width)
         # Use online_duration only (not total_duration) since offline_gap is displayed separately
         total_week_with_afk = weekly_metrics.online_duration
         if not is_single_day:

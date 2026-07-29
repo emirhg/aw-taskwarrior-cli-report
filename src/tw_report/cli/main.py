@@ -850,10 +850,9 @@ def main():
 
         # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
         # Use the standard timeline rendering which shows chronological slots
-        # Combine work slots with embedded AFK periods for clearer visualization
+        # Each slot renders independently: no combining of work slots with embedded AFK
 
-        final = report_timeline.combine_work_with_embedded_afk()
-        final_dicts = final.as_dicts()
+        final_dicts = report_timeline.as_dicts()
 
         TimelineReport(print_timeline_report).present(
             slots=final_dicts,
@@ -869,7 +868,6 @@ def main():
             task_based=context.is_task_based_report,
             distracting_time=context.metrics.distracting_time,
             unscored_time=context.metrics.unscored_time,
-            rollup=False,
             current_session_start=context.metrics.current_session_start,
             current_session_end=context.metrics.current_session_end,
             current_session_duration=context.metrics.current_session_duration,

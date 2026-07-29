@@ -93,7 +93,8 @@ Complete example with summary total:
 Complete example with summary:
 ```
 Period: :today (2026-06-18 to 2026-06-18)
-Active Time: 5:31:22 (2026-06-18 12:00 to 2026-06-18 20:00)
+Online Time: 5:31:22 (2026-06-18 12:00 to 2026-06-18 20:00)
+  • Active Time: 4:02:13
   • AFK time: 1:29:09
   • Project Tracking: 7.9% (0:19:02)
   • Focus time: 1.6% (0:00:18)
@@ -112,6 +113,10 @@ W25 2026-06-18 Thu
 
 **Key features:**
 - Continuous time slots showing actual work sessions
+- **Visual gap separation**: Blank lines appear between work sessions with gaps > 5 minutes
+  - Helps distinguish work sessions from breaks, system shutdowns, or mode changes
+  - Improves readability and makes work session boundaries clear
+  - Threshold is configurable (default: 5 minutes)
 - `[prod XX%]` shows productivity percentage for that slot
 - `[AFK]` marks keyboard/mouse idle periods
 - Right-aligned summary total (same format as hierarchical)
@@ -341,8 +346,9 @@ categories_file = "/path/to/custom.json"
 
 ### Report Header
 
-- **Active Time** — Total non-AFK time with window focus (time span from first to last activity)
-- **AFK time** — Keyboard/mouse idle periods during the day
+- **Online Time** — Total time system was actively recording (AFK + non-AFK combined; excludes periods when system was powered off)
+- **Active Time** — Total non-AFK time with window focus (focused work periods only)
+- **AFK time** — Keyboard/mouse idle periods during the day (inactive but system still recording)
 - **Project Tracking %** — Time attributed to tasks (vs. untracked background work)
 - **Focus time %** — Task time spent on high-score (productive) category activities
 - **Overall productivity %** — Productive time as percentage of total active time

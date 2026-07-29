@@ -13,6 +13,7 @@ src/tw_report/cli/__init__.py
 src/tw_report/cli/args.py
 src/tw_report/cli/main.py
 src/tw_report/core/__init__.py
+src/tw_report/core/aw_events.py
 src/tw_report/core/categories.py
 src/tw_report/core/consolidation.py
 src/tw_report/core/events.py
@@ -35,6 +36,5 @@ src/tw_report/pipeline/timeline_render.py
 src/tw_report/utils/__init__.py
 src/tw_report/utils/formatting.py
 src/tw_report/utils/logging.py
-tests/test_consolidation_migration.py
 tests/test_report_slot.py
 tests/test_timeline.py
