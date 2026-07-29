@@ -8,9 +8,12 @@ in --task filter values, resolving them to task descriptions.
 
 import logging
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from aw_core.models import Event
+
+if TYPE_CHECKING:
+    from tw_report.core.aw_events import TaskWarriorEvent
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ def get_events_by_task(
     start: datetime,
     end: datetime,
     task: Optional[str] = None,
-) -> List[Event]:
+) -> List["TaskWarriorEvent"]:
     """Fetch taskwarrior events, optionally filtered by task name.
 
     Filters events where the task name matches the given pattern
@@ -35,7 +38,7 @@ def get_events_by_task(
         task: Optional task name pattern to filter by (substring match)
 
     Returns:
-        List of Event objects, optionally filtered by task name.
+        List of TaskWarriorEvent objects, optionally filtered by task name.
         Empty list if bucket unreachable or no matches found.
 
     Examples:
@@ -48,9 +51,10 @@ def get_events_by_task(
     """
     from tw_report.core.events import get_events
     from tw_report.core.task_matching import get_task_info
+    from tw_report.core.aw_events import TaskWarriorEvent
 
-    # Fetch all events in range from the bucket
-    all_events = get_events(client, bucket_id, start, end)
+    # Fetch all taskwarrior events in range from the bucket, re-wrapped as TaskWarriorEvent
+    all_events = get_events(client, bucket_id, start, end, event_cls=TaskWarriorEvent)
 
     # If no task filter, return all events
     if not task:

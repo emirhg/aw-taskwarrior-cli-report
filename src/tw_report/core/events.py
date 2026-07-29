@@ -9,12 +9,15 @@ typed exceptions and structured logging.
 import logging
 import platform
 from datetime import datetime, timedelta
-from typing import List, Tuple
+from typing import TYPE_CHECKING, List, Tuple, Type, Optional
 
 from aw_core.models import Event
 from aw_client import ActivityWatchClient
 
 from tw_report.exceptions import ActivityWatchConnectionError
+
+if TYPE_CHECKING:
+    from tw_report.core.aw_events import AFKEvent, WindowEvent
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,11 @@ def get_bucket_id(bucket_name: str) -> str:
 
 
 def get_events(
-    client: ActivityWatchClient, bucket_id: str, start: datetime, end: datetime
+    client: ActivityWatchClient,
+    bucket_id: str,
+    start: datetime,
+    end: datetime,
+    event_cls: Optional[Type[Event]] = None,
 ) -> List[Event]:
     """Fetch events from a specific bucket within a time range.
 
@@ -50,11 +57,14 @@ def get_events(
         bucket_id: Full bucket ID to fetch from (use get_bucket_id() to construct)
         start: Start of time range (inclusive)
         end: End of time range (inclusive)
+        event_cls: Optional Event subclass to re-wrap the results into (e.g., WindowEvent,
+                   AFKEvent, TaskWarriorEvent). If provided, each event returned by the
+                   client (plain Event instances) is re-wrapped as an instance of this class.
 
     Returns:
-        List of Event objects from the bucket. Empty list if the bucket is
-        unreachable (connection error, server offline, etc.). Logs a warning
-        when degrading.
+        List of Event objects (or instances of event_cls if provided) from the bucket.
+        Empty list if the bucket is unreachable (connection error, server offline, etc.).
+        Logs a warning when degrading.
 
     Notes:
         - Does NOT raise ActivityWatchConnectionError (logs + degrades instead)
@@ -65,6 +75,19 @@ def get_events(
     try:
         events = client.get_events(bucket_id, start=start, end=end, limit=-1)
         logger.debug(f"Fetched {len(events)} events from bucket '{bucket_id}'")
+
+        # Re-wrap events in the specified subclass if provided
+        if event_cls is not None and event_cls is not Event:
+            events = [
+                event_cls(
+                    id=e.id,
+                    timestamp=e.timestamp,
+                    duration=e.duration,
+                    data=e.data,
+                )
+                for e in events
+            ]
+
         return events
     except Exception as e:
         logger.warning(
@@ -76,8 +99,8 @@ def get_events(
 
 
 def get_afk_window_coverage(
-    afk_event: Event,
-    window_events: List[Event]
+    afk_event: "AFKEvent",
+    window_events: List["WindowEvent"]
 ) -> float:
     """Calculate percentage of AFK period covered by window events.
 
@@ -139,8 +162,8 @@ def classify_afk_slot(coverage_percent: float, threshold: float = None) -> str: 
 
 
 def split_afk_by_window_coverage(
-    afk_event: Event,
-    window_events: List[Event]
+    afk_event: "AFKEvent",
+    window_events: List["WindowEvent"]
 ) -> Tuple[timedelta, timedelta]:
     """Split AFK slot into offline and online-AFK portions based on window activity.
 

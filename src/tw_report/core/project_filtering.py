@@ -9,9 +9,12 @@ Also provides task ID/UUID resolution to project names.
 import logging
 import uuid as uuid_module
 from datetime import datetime
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from aw_core.models import Event
+
+if TYPE_CHECKING:
+    from tw_report.core.aw_events import TaskWarriorEvent
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ def get_events_by_project(
     start: datetime,
     end: datetime,
     project: Optional[str] = None,
-) -> List[Event]:
+) -> List["TaskWarriorEvent"]:
     """Fetch taskwarrior events, optionally filtered by project name.
 
     Filters events where the 'project' field matches the given project pattern
@@ -36,7 +39,7 @@ def get_events_by_project(
         project: Optional project name pattern to filter by (substring match)
 
     Returns:
-        List of Event objects, optionally filtered by project.
+        List of TaskWarriorEvent objects, optionally filtered by project.
         Empty list if bucket unreachable or no matches found.
 
     Examples:
@@ -48,9 +51,10 @@ def get_events_by_project(
         ... )
     """
     from tw_report.core.events import get_events
+    from tw_report.core.aw_events import TaskWarriorEvent
 
-    # Fetch all events in range from the bucket
-    all_events = get_events(client, bucket_id, start, end)
+    # Fetch all taskwarrior events in range from the bucket, re-wrapped as TaskWarriorEvent
+    all_events = get_events(client, bucket_id, start, end, event_cls=TaskWarriorEvent)
 
     # If no project filter, return all events
     if not project:
