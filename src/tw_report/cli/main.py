@@ -438,7 +438,14 @@ def main():
         # This fills the visibility gap when window events can't be fetched due to optimization
         # This now works even when there are NO task_events (just untracked window activity)
         if not window_events and not_afk_events:
-            untracked_events = generate_untracked_gap_events(not_afk_events, task_events or [])
+            # Generate untracked gaps from not-afk periods
+            # not_afk_events are ALREADY the ACTIVE periods from the AFK bucket
+            # No need to partition with afk_events (that would contradict the definitions)
+            untracked_events = generate_untracked_gap_events(
+                not_afk_events,
+                task_events or [],
+                afk_events=None,  # not_afk already represents ACTIVE, no partitioning needed
+            )
             # Apply filters to synthetic NO_PROJECT events (same as for task events)
             for untracked_rep in untracked_events:
                 if matches_user_filters(untracked_rep, args, _matches_any, _excluded):
@@ -713,27 +720,61 @@ def main():
             initial_slots = []
             for rep in context.canonical_events:
                 event = rep.event
-                slot = {
-                    "start": event.timestamp.astimezone(),
-                    "end": (event.timestamp + event.duration).astimezone(),
-                    "duration": event.duration,
-                    "actual_duration": event.duration,  # Required by TimelineSlot
-                    "project": rep.project,
-                    "task": rep.task,
-                    "category": "Task Activity",  # Placeholder category
-                    "type": "regular",
-                    "categories": [],
-                }
+
+                # Determine slot type: regular task or untracked ACTIVE/AFK gap
+                gap_type = event.data.get("gap_type") if event.data else None
+                if gap_type == "untracked_active":
+                    # ACTIVE gap: duration is active time, afk_duration is 0
+                    slot = {
+                        "start": event.timestamp.astimezone(),
+                        "end": (event.timestamp + event.duration).astimezone(),
+                        "duration": event.duration,
+                        "actual_duration": event.duration,
+                        "afk_duration": timedelta(0),  # No AFK in this slot
+                        "project": rep.project,
+                        "task": rep.task,
+                        "category": "Task Activity",
+                        "type": "regular",
+                        "categories": [],
+                    }
+                elif gap_type == "untracked_afk":
+                    # AFK gap: afk_duration equals total duration
+                    slot = {
+                        "start": event.timestamp.astimezone(),
+                        "end": (event.timestamp + event.duration).astimezone(),
+                        "duration": event.duration,
+                        "actual_duration": event.duration,
+                        "afk_duration": event.duration,  # Entire slot is AFK
+                        "project": rep.project,
+                        "task": rep.task,
+                        "category": "Task Activity",
+                        "type": "afk",
+                        "categories": [],
+                    }
+                else:
+                    # Regular task event
+                    slot = {
+                        "start": event.timestamp.astimezone(),
+                        "end": (event.timestamp + event.duration).astimezone(),
+                        "duration": event.duration,
+                        "actual_duration": event.duration,
+                        "project": rep.project,
+                        "task": rep.task,
+                        "category": "Task Activity",
+                        "type": "regular",
+                        "categories": [],
+                    }
                 initial_slots.append(slot)
         else:
             # Normal mode: use partitioned task slots instead of combined ones
             # This ensures ACTIVE and AFK time are represented in separate slots
             initial_slots = []
 
-        # NOTE: We skip initial_slots and use partitioned_task_slots instead (see below at line 849)
-        # This avoids mixing ACTIVE and AFK data in the same slot
-        # If we added initial_slots here, they would conflict with partitioned slots
-        # timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
+        # Add initial slots to timeline (task-only or window-free modes)
+        # When requires_window_data is False, these are the only slots we have
+        # (partitioned_task_slots are generated separately when window data IS available)
+        if initial_slots:
+            timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
 
         # Inject synthetic slots for OFFLINE task events
         # (these use aggregated task event duration from span of all events)
