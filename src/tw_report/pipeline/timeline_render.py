@@ -1135,13 +1135,16 @@ def print_timeline_report(
                 daily_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
                 weekly_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
 
-                # Track displayed values from the slot's fields (NOT offline_extension - that's only for offline_tasks)
+                # Track displayed values from the slot's fields
                 if slot_afk and slot_afk.total_seconds() > 0:
                     daily_displayed_afk += slot_afk
                     weekly_displayed_afk += slot_afk
 
-                # Active time is what's left after AFK
-                slot_active = (slot_online or timedelta(0)) - (slot_afk or timedelta(0))
+                # Active time using actual_duration (what DisplayColumns uses), not duration
+                # This matches what's actually displayed in the ACTIVE column
+                slot_actual_duration = slot.get("actual_duration") if isinstance(slot, dict) else slot.actual_duration
+                online_for_display = slot_actual_duration if slot_actual_duration is not None else slot_online
+                slot_active = (online_for_display or timedelta(0)) - (slot_afk or timedelta(0))
                 if slot_active and slot_active.total_seconds() > 0:
                     daily_displayed_active += slot_active
                     weekly_displayed_active += slot_active
