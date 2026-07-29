@@ -549,14 +549,12 @@ def print_timeline_report(
     if not slots:
         print("No activity found for the specified period.")
 
-    # Print column headers
-    print("Wk  Date       Day")
-    # Column header with markers for each column position
-    col_header = (
-        "       TIME           PROJECT                  TASK                             "
-        "OFFLINE            AFK            ACTIVE   PRODUCTIVITY"
+    # Print column headers with labels
+    print(
+        "Wk  Date       Day  |  "
+        "TIME             PROJECT                  TASK                  "
+        "OFFLINE        AFK          ACTIVE"
     )
-    print(col_header[:width] if len(col_header) > width else col_header.ljust(width))
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
@@ -1162,20 +1160,18 @@ def print_timeline_report(
         if not prev_date_was_rollup:
             # Use online_duration only (not total_duration) since offline_gap is displayed separately
             total_day_with_afk = daily_metrics.online_duration
-            # Day total using DisplayColumns-style alignment (no OFF label)
+            # Day total using DisplayColumns-style alignment - match column positions
             indent = " " * 7
             day_total_label = "Day total:   "
-            offline_col = (f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else "").ljust(12)
+            # Build with exact column spacing to match data rows
+            project_col = "".ljust(28)  # Project column (empty)
+            task_col = "".ljust(35)     # Task column (empty)
+            offline_col = (format_duration(daily_metrics.offline_gap) if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else "").ljust(12)
             afk_col = "".ljust(12)
             active_col = format_duration(total_day_with_afk).ljust(8)
-            # Productivity percentage
-            if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 and total_day_with_afk.total_seconds() > 0:
-                pct = (daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds()) * 100
-                productivity_col = (f"  [prod {pct:>3.0f}%]").ljust(14)
-            else:
-                productivity_col = " " * 14
-            right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
-            left_part = f"{indent}{day_total_label}".ljust(70)
+            # Assemble: indent + label + project + task + offset to OFFLINE + duration columns
+            left_part = f"{indent}{day_total_label}  {project_col}  {task_col}"
+            right_section = f"{offline_col}{afk_col}{active_col}"
             full_line = left_part + right_section
             print(full_line.rstrip())
         # Use online_duration only (not total_duration) since offline_gap is displayed separately

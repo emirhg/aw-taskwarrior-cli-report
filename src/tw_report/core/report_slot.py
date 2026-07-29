@@ -123,18 +123,18 @@ class DisplayColumns:
         else:
             task_display = " " if abbrev_project else ""
 
-        # Format duration columns
+        # Format duration columns (no parenthesis)
         offline_time = ""
         if slot.get("offline_extension_duration"):
             offline_dur = slot["offline_extension_duration"]
             if isinstance(offline_dur, timedelta) and offline_dur.total_seconds() > 0:
-                offline_time = f"({format_duration(offline_dur)})"
+                offline_time = format_duration(offline_dur)
 
         afk_time = ""
         if slot.get("afk_duration"):
             afk_dur = slot["afk_duration"]
             if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() > 0:
-                afk_time = f"({format_duration(afk_dur)})"
+                afk_time = format_duration(afk_dur)
 
         # Active time (use actual_duration if available, else duration)
         active_duration = slot.get("actual_duration") or slot.get("duration")
@@ -279,14 +279,14 @@ class ReportTimelineSlot:
         task_name = self.task if self.task else ""
         task_display = (f"▶▶ {task_name}" if task_name else "")[:32]  # Truncate to fit column
 
-        # Format duration columns - each type gets its own space
+        # Format duration columns - each type gets its own space (no parenthesis)
         offline_time = ""
         if self.offline_extension_duration and self.offline_extension_duration.total_seconds() > 0:
-            offline_time = f"({format_duration(self.offline_extension_duration)})"
+            offline_time = format_duration(self.offline_extension_duration)
 
         afk_time = ""
         if self.afk_duration and self.afk_duration.total_seconds() > 0:
-            afk_time = f"({format_duration(self.afk_duration)})"
+            afk_time = format_duration(self.afk_duration)
 
         # Active time is always shown (actual work duration)
         active_duration = self.actual_duration if self.actual_duration else self.duration
