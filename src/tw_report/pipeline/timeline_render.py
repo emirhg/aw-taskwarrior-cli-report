@@ -550,13 +550,20 @@ def print_timeline_report(
         print("No activity found for the specified period.")
 
     # Print date/week header with duration column labels on same line
-    # Header: "Wk  Date       Day" (18 chars) + spacing + "OFFLINE  AFK  ACTIVE"
+    # Use same alignment logic as DisplayColumns.format() for consistency
     header_left = "Wk  Date       Day"
-    # Padding to reach the duration columns (7 indent + 11 time + 2 sep + 28 project + 2 sep + 35 task = 85)
-    header_padding = " " * (7 + 11 + 2 + 28 + 2 + 35 - len(header_left))
-    # Duration column labels
-    header_labels = "OFFLINE".ljust(12) + "AFK".ljust(12) + "ACTIVE".ljust(8)
-    print(header_left + header_padding + header_labels)
+    # Build header left section to match DisplayColumns structure (85 chars total)
+    header_left_section = header_left + " " * (7 + 11 + 2 + 28 + 2 + 35 - len(header_left))
+    # Build header right section with labels (same widths as DisplayColumns)
+    header_right_section = "OFFLINE".ljust(12) + "AFK".ljust(12) + "ACTIVE".ljust(8)
+    # Apply same dynamic padding as DisplayColumns
+    terminal_width = width
+    left_padding = terminal_width - len(header_left_section) - len(header_right_section) - 2
+    if left_padding < 0:
+        header_line = header_left_section + "  " + header_right_section
+    else:
+        header_line = header_left_section + (" " * left_padding) + "  " + header_right_section
+    print(header_line)
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
