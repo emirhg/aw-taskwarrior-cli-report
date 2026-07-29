@@ -50,7 +50,12 @@ from tw_report.core.task_filtering import (
     resolve_task_filter_value,
 )
 from tw_report.core.timeline import Timeline, TimelineSlot
-from tw_report.pipeline.generation import generate_gap_entries, generate_timeline_data, generate_untracked_gap_events
+from tw_report.pipeline.generation import (
+    generate_gap_entries,
+    generate_partitioned_task_slots,
+    generate_timeline_data,
+    generate_untracked_gap_events,
+)
 from tw_report.pipeline.models import ReportContext
 from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
 from tw_report.pipeline.processors import (
@@ -800,36 +805,48 @@ def main():
             window_events=window_events,
         )
 
-        # Filter gap_entries using unified EventFilter for consistency
+        # Generate partitioned TaskWarrior task slots (ACTIVE/AFK/OFFLINE portions)
+        # This breaks down each task duration into its constituent components,
+        # enabling proper AFK time accountability (fixes 42-second mismatch)
+        partitioned_task_slots = generate_partitioned_task_slots(
+            context.task_events,
+            window_events,
+            context.afk_events,
+        )
+
+        # Combine gap entries with partitioned task slots
+        all_slot_entries = gap_entries + partitioned_task_slots
+
+        # Filter entries using unified EventFilter for consistency
         # (replaces 50+ lines of scattered filter logic)
-        gap_entries = [
+        all_slot_entries = [
             g
-            for g in gap_entries
+            for g in all_slot_entries
             if event_filter.should_include_entry(g, entry_type=g.get("type", "gap"))
         ]
 
         # FIX: --exclude-afk removes AFK period slots from the timeline
         if args.exclude_afk:
-            gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
+            all_slot_entries = [g for g in all_slot_entries if g.get("type") not in ("afk", "afk_task")]
 
         # BUGFIX: Remove AFK slots for OFFLINE-tagged tasks to prevent overlap with OFFLINE synthetic slots
         # When a user is AFK during an OFFLINE-tagged task, the OFFLINE synthetic slot already
         # captures that period with accurate duration. Showing both AFK and OFFLINE slots creates
         # confusing overlapping entries. Keep AFK-only entries (tasks="NO TASK") and AFK for non-OFFLINE tasks.
-        if offline_task_durations and gap_entries:
+        if offline_task_durations and all_slot_entries:
             # Extract the base (project, task) keys from offline_task_durations
             # (some keys might be 3-tuples with group_idx, so extract first 2 elements)
             offline_tasks = set()
             for key in offline_task_durations.keys():
                 offline_tasks.add((key[0], key[1]))
 
-            gap_entries = [
-                g for g in gap_entries
-                if g.get("type") != "afk" or (g.get("project"), g.get("task")) not in offline_tasks
+            all_slot_entries = [
+                g for g in all_slot_entries
+                if g.get("type") not in ("afk", "afk_task") or (g.get("project"), g.get("task")) not in offline_tasks
             ]
 
-        # Add gap entries to timeline (auto-sorts on insertion)
-        timeline.add_slots([TimelineSlot.from_dict(g) for g in gap_entries])
+        # Add all slot entries to timeline (auto-sorts on insertion)
+        timeline.add_slots([TimelineSlot.from_dict(g) for g in all_slot_entries])
 
         # Convert timeline to ReportEntries for unified consolidation/bucketing
         report_timeline = timeline.to_report_timeline()
