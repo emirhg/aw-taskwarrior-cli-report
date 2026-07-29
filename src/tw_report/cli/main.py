@@ -713,17 +713,14 @@ def main():
                 }
                 initial_slots.append(slot)
         else:
-            # Normal mode: window events with AFK correlation
-            initial_slots = generate_timeline_data(
-                timeline_events,
-                context.afk_events,
-                context.cat_score_map,
-                detail_level=args.detail_level,
-                deduplicate_categories=args.deduplicate_categories,
-                get_category_score=get_category_score,
-            )
+            # Normal mode: use partitioned task slots instead of combined ones
+            # This ensures ACTIVE and AFK time are represented in separate slots
+            initial_slots = []
 
-        timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
+        # NOTE: We skip initial_slots and use partitioned_task_slots instead (see below at line 849)
+        # This avoids mixing ACTIVE and AFK data in the same slot
+        # If we added initial_slots here, they would conflict with partitioned slots
+        # timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
 
         # Inject synthetic slots for OFFLINE task events
         # (these use aggregated task event duration from span of all events)
