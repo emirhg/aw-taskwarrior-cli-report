@@ -521,7 +521,8 @@ class OfflineTaskProcessor:
         """
         Process one group of offline task events.
 
-        Calculates wall-clock duration and online time for the group.
+        Splits events by AFK status and creates separate slots for online vs offline portions.
+        This prevents merging idle time (afk) with active time (not-afk).
 
         Args:
             group_key: Key for this group (project, task) or (project, task, group_index)
@@ -538,160 +539,100 @@ class OfflineTaskProcessor:
         if not sorted_events:
             return
 
-        # FIXED: Sum actual event durations instead of using wall-clock span.
-        # Wall-clock span (first event to last event) creates artificial spans
-        # that exceed the actual work time by orders of magnitude.
-        #
-        # For OFFLINE tasks, the events ARE the complete record of work time.
-        # Simply sum them instead of assuming the system was off between first→last event.
-        wall_clock_duration = timedelta(0)
-        for event in sorted_events:
-            if event.duration:
-                wall_clock_duration += event.duration
-            # Skip events without duration (incomplete records)
+        # Split task events by AFK status to avoid merging online+offline time.
+        # Events during 'not-afk' periods are online activity.
+        # Events during 'afk' periods are offline activity.
+        not_afk_events = []
+        afk_events = []
 
-        # For AFK calculation, we still need a time period.
-        # Use the span of actual events for AFK overlap detection.
-        wall_clock_start = sorted_events[0].timestamp
-        last_event = sorted_events[-1]
-        wall_clock_end = last_event.timestamp + (last_event.duration or timedelta(0))
-        if wall_clock_end <= wall_clock_start:
-            # If no duration on last event, extend slightly for AFK detection
-            wall_clock_end = wall_clock_start + timedelta(seconds=1)
+        for task_event in sorted_events:
+            task_start = task_event.timestamp
+            task_end = task_start + (task_event.duration or timedelta(0))
 
-        # Reconcile with activity data
-        if self.use_afk_for_reconciliation:
-            # AFK-based optimization (detail_level <= 2): no category detail needed
-            # Calculate online time by summing AFK overlaps with EACH TASK EVENT (not the span)
-            # This avoids overcounting when task events have gaps between them
+            # Check which AFK status dominates this task event
+            not_afk_overlap = timedelta(0)
+            afk_overlap = timedelta(0)
 
-            # OPTIMIZATION: Filter AFK events to only those that overlap with task events
-            # We fetch all AFK for the period in one fast query, then filter in-memory
-            # to only the windows where tasks exist. This avoids 50+ separate API calls
-            # while still reducing dataset from 1559 to ~50-100 events.
-
-            # Build set of time ranges from task events
-            task_time_ranges = []
-            for event in sorted_events:
-                event_start = event.timestamp
-                event_end = event_start + (event.duration or timedelta(0))
-                # Merge overlapping ranges
-                if task_time_ranges and task_time_ranges[-1][1] >= event_start:
-                    task_time_ranges[-1] = (task_time_ranges[-1][0], max(task_time_ranges[-1][1], event_end))
-                else:
-                    task_time_ranges.append((event_start, event_end))
-
-            # Filter AFK events to only those overlapping task time ranges
-            relevant_afk = []
             for afk_event in self.afk_events:
                 afk_start = afk_event.timestamp
                 afk_end = afk_start + afk_event.duration
-                for task_start, task_end in task_time_ranges:
-                    if afk_start < task_end and afk_end > task_start:
-                        relevant_afk.append(afk_event)
-                        break  # Already added, no need to check other ranges
+                status = afk_event.data.get('status', 'unknown')
 
-            # FIX: Extend last AFK event to cover SMALL gaps between last AFK and task end.
-            # Small gaps (< 60 seconds) at task end = recording lag, extend online.
-            # Large gaps (>= 60 seconds) = genuine system powerdown, count as offline.
-            # Rationale: recording lag is typically < 30s, but we use 60s to be conservative.
-            # System powerdown produces multi-minute gaps.
-            GAP_THRESHOLD = timedelta(seconds=60)
-            if relevant_afk and task_time_ranges:
-                last_task_end = max(task_end for task_start, task_end in task_time_ranges)
-                last_afk = max(relevant_afk, key=lambda e: e.timestamp + e.duration)
-                last_afk_end = last_afk.timestamp + last_afk.duration
-                gap = last_task_end - last_afk_end
-                if gap > timedelta(0) and gap < GAP_THRESHOLD:
-                    # Small gap: likely recording lag, extend last AFK to cover it
-                    extended_afk = deepcopy(last_afk)
-                    extended_afk.duration = last_afk.duration + gap
-                    # Replace the old last AFK with the extended version
-                    relevant_afk = [e if e != last_afk else extended_afk for e in relevant_afk]
-                # Large gaps (>= 60s) are left as-is (counted as offline)
+                # Check if AFK event overlaps with task event
+                if afk_start < task_end and afk_end > task_start:
+                    overlap_start = max(afk_start, task_start)
+                    overlap_end = min(afk_end, task_end)
+                    overlap = overlap_end - overlap_start
 
-            online_time = timedelta(0)
-            for event in sorted_events:
-                event_start = event.timestamp
-                event_end = event_start + (event.duration or timedelta(0))
-                # Sum AFK overlaps for this specific event (using pre-filtered AFK list)
-                for afk_event in relevant_afk:
-                    afk_start = afk_event.timestamp
-                    afk_end = afk_start + afk_event.duration
-                    if afk_start < event_end and afk_end > event_start:
-                        overlap_start = max(afk_start, event_start)
-                        overlap_end = min(afk_end, event_end)
-                        overlap = overlap_end - overlap_start
-                        online_time += overlap
+                    if status == 'not-afk':
+                        not_afk_overlap += overlap
+                    elif status == 'afk':
+                        afk_overlap += overlap
 
-            # VALIDATION: Use window events as ground truth for offline periods.
-            # When window_events are available, validate AFK claims:
-            # - If AFK says online but NO window events exist, system was offline
-            # - If window events exist, AFK+window confirm online
-            #
-            # This catches cases where AFK logs data even during real shutdowns.
-            truly_offline = timedelta(0)
-            if self.window_events:  # Only validate if we have window data
-                # Check each AFK-claimed period against window events
-                for afk_event in relevant_afk:
-                    afk_start = afk_event.timestamp
-                    afk_end = afk_start + afk_event.duration
+            # Categorize task event based on dominant AFK status
+            if not_afk_overlap >= afk_overlap:
+                not_afk_events.append(task_event)
+            else:
+                afk_events.append(task_event)
 
-                    # Check if this AFK period overlaps any task time range
-                    for task_start, task_end in task_time_ranges:
-                        if afk_start < task_end and afk_end > task_start:
-                            overlap_start = max(afk_start, task_start)
-                            overlap_end = min(afk_end, task_end)
+        # Process online (not-afk) events as regular task activity
+        if not_afk_events:
+            self._process_online_events(group_key, not_afk_events)
 
-                            # Validate: does this AFK period have window events?
-                            if self._is_period_truly_offline(overlap_start, overlap_end):
-                                # No window events during AFK-claimed period = truly offline
-                                truly_offline += overlap_end - overlap_start
+        # Process offline (afk) events as offline_task slots with no online time
+        if afk_events:
+            self._process_offline_events(group_key, afk_events)
 
-                online_time = max(online_time - truly_offline, timedelta(0))
-            offline_remainder = wall_clock_duration - online_time
+    def _process_online_events(self, group_key: Tuple, events: List[Event]) -> None:
+        """Process task events that occurred during 'not-afk' (online) periods."""
+        wall_clock_duration = timedelta(0)
+        for event in events:
+            if event.duration:
+                wall_clock_duration += event.duration
 
-            # Build simple categories (no detail breakdown)
-            reconciled_categories = []
-            if online_time > timedelta(0):
-                reconciled_categories.append({
-                    "category": "Online",
-                    "duration": online_time,
-                    "start": wall_clock_start,
-                    "end": wall_clock_end,
-                })
-            if offline_remainder > timedelta(0):
-                reconciled_categories.append({
-                    "category": "Offline",
-                    "duration": offline_remainder,
-                    "start": wall_clock_start,
-                    "end": wall_clock_end,
-                })
-            tracked_duration = online_time
-        else:
-            # Window-based reconciliation (detail_level >= 3): full category detail
-            # This replaces the flat "Offline" bucket with real category/app/title detail
-            # where window events were actually tracked during the OFFLINE period
-            window_covered_duration, window_categories = self._calculate_window_coverage(
-                wall_clock_start, wall_clock_end
-            )
+        wall_clock_start = events[0].timestamp
+        last_event = events[-1]
+        wall_clock_end = last_event.timestamp + (last_event.duration or timedelta(0))
+        if wall_clock_end <= wall_clock_start:
+            wall_clock_end = wall_clock_start + timedelta(seconds=1)
 
-            # Build reconciled categories: window categories + remainder as "Offline"
-            offline_remainder = wall_clock_duration - window_covered_duration
-            reconciled_categories = window_categories.copy()
-            if offline_remainder > timedelta(0):
-                reconciled_categories.append({
-                    "category": "Offline",
-                    "duration": offline_remainder,
-                    "start": wall_clock_start,
-                    "end": wall_clock_end,
-                })
-            tracked_duration = window_covered_duration
-
-        # Store results
+        # For online events, event_duration = wall_clock_duration (all time is online)
         self.offline_durations[group_key] = wall_clock_duration
-        self.offline_event_durations[group_key] = tracked_duration  # Online/tracked time
-        self.event_groups[group_key] = sorted_events  # Store events for this group
+        self.offline_event_durations[group_key] = wall_clock_duration  # All online
+        self.event_groups[group_key] = events
+        self.offline_categories[group_key] = []
+
+    def _process_offline_events(self, group_key: Tuple, events: List[Event]) -> None:
+        """Process task events that occurred during 'afk' (offline/idle) periods.
+
+        For purely offline events, event_duration = 0 (no online time recorded).
+        All time is treated as offline gap.
+        """
+        wall_clock_duration = timedelta(0)
+        for event in events:
+            if event.duration:
+                wall_clock_duration += event.duration
+
+        wall_clock_start = events[0].timestamp
+        last_event = events[-1]
+        wall_clock_end = last_event.timestamp + (last_event.duration or timedelta(0))
+        if wall_clock_end <= wall_clock_start:
+            wall_clock_end = wall_clock_start + timedelta(seconds=1)
+
+        # For events during 'afk' (offline) periods, event_duration = 0 (no online activity)
+        # All time is offline
+        self.offline_durations[group_key] = wall_clock_duration
+        self.offline_event_durations[group_key] = timedelta(0)  # No online time
+        self.event_groups[group_key] = events
+
+        # Create categories for offline time
+        reconciled_categories = [{
+            "category": "Offline",
+            "duration": wall_clock_duration,
+            "start": wall_clock_start,
+            "end": wall_clock_end,
+        }]
+
         self.offline_categories[group_key] = reconciled_categories
 
     def _calculate_online_time_from_afk(
@@ -700,43 +641,41 @@ class OfflineTaskProcessor:
         """
         Calculate online time during an OFFLINE task period using AFK bucket events.
 
-        For OFFLINE events, the system state (on/off) is determined by the AFK bucket:
-        - AFK bucket has events (any status: "afk" OR "not-afk") = system was ON
-        - NO AFK bucket events = system was OFF (completely powered down)
+        Counts only 'not-afk' events (active/focused time) as online time.
+        'afk' events (idle periods) are treated as potential offline time and require
+        window event validation to confirm the system was truly online.
 
-        online_time = sum of ALL AFK bucket event durations (afk + not-afk) that
-                      overlap with the OFFLINE task's time span
+        This separation mirrors the AFK false-positive detection logic: don't merge
+        idle and active periods — treat them distinctly.
 
         TAIL TOLERANCE FEATURE:
         If task ends within N seconds after the last AFK event (tail_tolerance_seconds),
-        and the task was active during online time (had AFK coverage), extend online_time
-        to cover the tail. This eliminates spurious offline-time noise from:
-        - Timing jitter at task end
-        - AW recording lag
-        - Small gaps that don't represent genuine system powerdown
-
-        Example:
-        - Task period: 13:01-18:15 (5:14:01 total)
-        - AFK bucket events during that period: 1:52:36
-        - Last AFK event ends at: 18:09:30
-        - Task ends at: 18:15:00 (5:30 tail)
-        - If tail < tolerance (e.g., 10s threshold): extend online_time by 5:30
-        - Result: offline_time = 0 (tail absorbed into online period)
+        extend online_time to cover the tail. This eliminates spurious offline-time
+        noise from timing jitter and AW recording lag.
 
         Args:
             period_start: Start of the offline task period
             period_end: End of the offline task period
 
         Returns:
-            Total online time (sum of ALL AFK event intersections with period)
+            Total online time (sum of 'not-afk' event intersections with period)
         """
         online_time = timedelta(0)
         last_afk_end = None
 
         for afk_event in self.afk_events:
-            # Check if AFK event overlaps with period
+            # Only count 'not-afk' events (active/focused time) as online
+            # 'afk' events (idle) are checked separately against window events
+            if afk_event.data.get('status') != 'not-afk':
+                # Still track last_afk_end for tail tolerance (ANY AFK event marks activity)
+                afk_end = afk_event.timestamp + afk_event.duration
+                if last_afk_end is None or afk_end > last_afk_end:
+                    last_afk_end = afk_end
+                continue
+
+            # Check if this 'not-afk' event overlaps with period
             afk_start = afk_event.timestamp
-            afk_end = afk_event.timestamp + afk_event.duration
+            afk_end = afk_start + afk_event.duration
 
             if afk_start < period_end and afk_end > period_start:
                 # Calculate intersection

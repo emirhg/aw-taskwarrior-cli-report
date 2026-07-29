@@ -423,11 +423,11 @@ def main():
     # If so, fetch windows even in AFK optimization mode (needed for validation)
     if use_afk_optimization and not window_events and task_events:
         has_offline_tasks = any(
-            "offline" in (
+            any('offline' in t.lower() for t in (
                 e.data.get("tags", [])
                 if isinstance(e.data.get("tags", []), list)
                 else [e.data.get("tags", "")]
-            )
+            ))
             for e in task_events
         )
         if has_offline_tasks:
