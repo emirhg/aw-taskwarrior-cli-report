@@ -895,16 +895,17 @@ def print_timeline_report(
 
                 cols = DisplayColumns.from_slot_dict(day_total_slot, day_start_aware, day_end_aware)
                 # Override the formatted output for day total line
+                from tw_report.utils.formatting import ljust_display
                 indent = " " * 7
                 day_total_label = "Day total:   "
-                offline_col = (f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else "").ljust(12)
-                afk_col = "".ljust(12)
-                active_col = format_duration(total_day_with_afk).ljust(8)
-                productivity_col = ("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]").ljust(14) if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else " " * 14
+                offline_col = ljust_display((f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else ""), 12)
+                afk_col = ljust_display("", 12)
+                active_col = ljust_display(format_duration(total_day_with_afk), 8)
+                productivity_col = ljust_display("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]" if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else "", 14)
 
                 right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
-                # Align day total line with data rows: 85 chars for left section (7 indent + 11 time + 2 sep + 28 project + 2 sep + 35 task)
-                left_part = f"{indent}{day_total_label}".ljust(85)
+                # Align day total line with data rows: 87 chars for left section (7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task)
+                left_part = ljust_display(f"{indent}{day_total_label}", 87)
                 full_line = left_part + "  " + right_section
                 print(full_line)
                 print()
