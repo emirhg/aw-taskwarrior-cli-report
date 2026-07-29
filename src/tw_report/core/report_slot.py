@@ -21,9 +21,13 @@ Key design:
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, time
-from typing import Any, Dict, List, Optional, Tuple, Literal
+from typing import Any, Dict, List, Optional, Tuple, Literal, TYPE_CHECKING
 
 from tw_report.core.timeline import TimelineSlot, TimelineSlotValidationError
+from tw_report.core.filtering import NO_PROJECT, NO_TASK
+
+if TYPE_CHECKING:
+    from tw_report.core.aw_events import WindowEvent, AFKEvent, TaskWarriorEvent
 
 
 @dataclass
@@ -235,150 +239,86 @@ class DisplayColumns:
 @dataclass
 class ReportTimelineSlot:
     """
-    Report-optimized timeline slot representing a single granular or consolidated activity.
+    Report-optimized consolidated timeline slot (merged from TimelineSlot + wrapper).
 
-    Wraps a TimelineSlot (validated atomic data) and adds reporting-specific metadata:
-    - source_slots: constituent slots if merged/split, for traceability
-    - is_consolidated: True if produced by merging >1 slot
-    - bucket_mode / bucket_start_date: period assignment after split_at_boundaries()
-    - embedded_afk_slots: AFK periods nested within this slot (same task/project)
+    Represents a single time span with aggregated activity data.
 
-    For combined work+AFK slots:
-    - slot: contains work data (TW task, project, duration)
-    - embedded_afk_slots: list of AFK TimelineSlots that occurred during this work period
-    - The wall-clock span encompasses both work and AFK time
+    Time span fields:
+    - start/end: Wall-clock time boundaries
+    - duration: Total duration (start to end)
+    - actual_duration: Active time (non-AFK or online portion for offline_task)
 
-    Properties delegate to self.slot for all data fields (start, duration, etc.),
-    so call sites read rts.start instead of rts.slot.start or slot["start"].
+    Data source fields:
+    - task_event: Optional TaskWarriorEvent (task/project/tags only set if matched)
+    - window_events: List[WindowEvent] from window bucket (own activity only)
+    - afk_events: List[AFKEvent] embedded within this span
+
+    Aggregates:
+    - productive_duration: Time on productive activities
+    - categories: Category/app/title breakdown
+    - tags: Union of tags from source task events
+    - apps: Legacy field
+
+    Metadata:
+    - source_slots: List of atomic slots that were merged
+    - is_consolidated: True if merged from >1 source slot
+    - bucket_mode/bucket_start_date: Period assignment
+    - afk_duration: AFK time within this span (optional, for bare AFK gaps)
+    - offline_extension_duration: OFFLINE gap duration (optional)
+    - event_duration: For offline_task slots (tracks online vs offline split)
     """
 
-    slot: TimelineSlot
-    source_slots: List[TimelineSlot] = field(default_factory=list)  # [self.slot] if atomic
+    start: datetime
+    end: datetime
+    duration: timedelta
+    actual_duration: timedelta
+    productive_duration: timedelta = field(default_factory=lambda: timedelta(0))
+    task_event: Optional["TaskWarriorEvent"] = None
+    window_events: List["WindowEvent"] = field(default_factory=list)
+    afk_events: List["AFKEvent"] = field(default_factory=list)
+    afk_duration: Optional[timedelta] = None
+    offline_extension_duration: Optional[timedelta] = None
+    event_duration: Optional[timedelta] = None
+    tags: List[str] = field(default_factory=list)
+    categories: List[Dict[str, Any]] = field(default_factory=list)
+    apps: Optional[List[Dict[str, Any]]] = None
+    source_slots: List["ReportTimelineSlot"] = field(default_factory=list)
     is_consolidated: bool = False
     bucket_mode: Optional[Literal["day", "week", "month", "year"]] = None
     bucket_start_date: Optional[date] = None
-    embedded_afk_slots: List[TimelineSlot] = field(default_factory=list)  # AFK periods within this work slot
-
-    # Delegate properties to self.slot for transparent access
-    @property
-    def type(self) -> str:
-        return self.slot.type
-
-    @property
-    def start(self) -> datetime:
-        return self.slot.start
-
-    @property
-    def end(self) -> datetime:
-        return self.slot.end
 
     @property
     def project(self) -> str:
-        return self.slot.project
+        """Project name, with NO_PROJECT fallback if no task_event."""
+        return self.task_event.project if self.task_event else NO_PROJECT
 
     @property
     def task(self) -> str:
-        return self.slot.task
+        """Task name, with NO_TASK fallback if no task_event."""
+        return self.task_event.task if self.task_event else NO_TASK
 
     @property
-    def duration(self) -> timedelta:
-        return self.slot.duration
+    def is_offline_task(self) -> bool:
+        """True if this is an offline_task slot: task_event and event_duration both set."""
+        return self.task_event is not None and self.event_duration is not None
 
     @property
-    def actual_duration(self) -> timedelta:
-        return self.slot.actual_duration
-
-    @property
-    def productive_duration(self) -> timedelta:
-        return self.slot.productive_duration
-
-    @property
-    def afk_duration(self) -> Optional[timedelta]:
-        """Optional AFK duration from the slot."""
-        return self.slot.afk_duration
-
-    @property
-    def offline_extension_duration(self) -> Optional[timedelta]:
-        """Optional offline extension duration from the slot."""
-        return self.slot.offline_extension_duration
-
-    @property
-    def event_duration(self) -> Optional[timedelta]:
-        """Optional event duration from the slot."""
-        return self.slot.event_duration
-
-    @property
-    def categories(self) -> List[Dict[str, Any]]:
-        return self.slot.categories
-
-    @property
-    def tags(self) -> List[str]:
-        return self.slot.tags
-
-    @property
-    def apps(self) -> Optional[List[Dict[str, Any]]]:
-        return self.slot.apps
-
-    def get_display_columns(self) -> DisplayColumns:
-        """Format slot data into fixed-width display columns.
-
-        Returns DisplayColumns with each duration type in its own column,
-        empty columns left blank (no offset) when data doesn't exist.
-        """
-        from tw_report.utils.formatting import format_duration
-        from datetime import timezone
-
-        # Format time range
-        def to_local(dt: datetime) -> datetime:
-            if dt.tzinfo is None or dt.tzinfo == timezone.utc:
-                return dt.replace(tzinfo=timezone.utc).astimezone()
-            return dt
-
-        start_local = to_local(self.start)
-        end_local = to_local(self.start + self.duration)
-        time_range = f"{start_local.strftime('%H:%M')} - {end_local.strftime('%H:%M')}"
-
-        # Format project and task (truncate if too long)
-        project_name = self.project.replace(".", " > ") if self.project else "No project"
-        project_display = f"▶ {project_name}"[:30]  # Truncate to fit column
-
-        task_name = self.task if self.task else ""
-        task_display = (f"▶▶ {task_name}" if task_name else "")[:32]  # Truncate to fit column
-
-        # Format duration columns - each type gets its own space (no parenthesis)
-        offline_time = ""
-        if self.offline_extension_duration and self.offline_extension_duration.total_seconds() > 0:
-            offline_time = format_duration(self.offline_extension_duration)
-
-        afk_time = ""
-        if self.afk_duration and self.afk_duration.total_seconds() > 0:
-            afk_time = format_duration(self.afk_duration)
-
-        # Active time is always shown (actual work duration)
-        active_duration = self.actual_duration if self.actual_duration else self.duration
-        active_time = format_duration(active_duration)
-
-        # Productivity metric (if applicable)
-        productivity = ""
-        if self.productive_duration and self.productive_duration.total_seconds() > 0:
-            if active_duration.total_seconds() > 0:
-                pct = (self.productive_duration.total_seconds() / active_duration.total_seconds()) * 100
-                productivity = f"[prod {pct:>3.0f}%]"
-
-        return DisplayColumns(
-            time_range=time_range,
-            project=project_display,
-            task=task_display,
-            offline_time=offline_time,
-            afk_time=afk_time,
-            active_time=active_time,
-            productivity=productivity,
+    def is_afk_only(self) -> bool:
+        """True if this is a bare AFK gap: afk_duration==actual_duration and no event_duration."""
+        return (
+            self.afk_duration is not None
+            and self.afk_duration == self.actual_duration
+            and self.event_duration is None
         )
+
 
     @classmethod
     def from_timeline_slot(cls, slot: TimelineSlot) -> "ReportTimelineSlot":
         """
-        Wrap a single TimelineSlot as an atomic ReportTimelineSlot.
+        Convert a TimelineSlot to the new merged ReportTimelineSlot shape.
+
+        Extracts all fields from the old TimelineSlot and populates the new structure.
+        This is a compatibility bridge during migration.
 
         Args:
             slot: A validated TimelineSlot
@@ -386,7 +326,45 @@ class ReportTimelineSlot:
         Returns:
             ReportTimelineSlot with is_consolidated=False, source_slots=[slot]
         """
-        return cls(slot=slot, source_slots=[slot], is_consolidated=False)
+        # Import here to avoid circular imports
+        from tw_report.core.aw_events import TaskWarriorEvent
+
+        # Extract task_event from the old slot's project/task fields if present
+        task_event = None
+        if slot.project or slot.task:
+            # Create a synthetic TaskWarriorEvent from the TimelineSlot's extracted fields
+            task_event = TaskWarriorEvent(
+                timestamp=slot.start,
+                duration=slot.duration,
+                data={
+                    "project": slot.project,
+                    "title": slot.task,
+                    "tags": slot.tags if slot.tags else [],
+                }
+            )
+
+        # For backward compat with tests that check source_slots, we need to track
+        # the original slot. Since we don't have the TimelineSlot anymore, we can't
+        # store it directly. For now, keep source_slots empty since the new model
+        # doesn't inherit from TimelineSlot.
+        return cls(
+            start=slot.start,
+            end=slot.end,
+            duration=slot.duration,
+            actual_duration=slot.actual_duration,
+            productive_duration=slot.productive_duration,
+            task_event=task_event,
+            window_events=[],
+            afk_events=[],
+            afk_duration=slot.afk_duration,
+            offline_extension_duration=slot.offline_extension_duration,
+            event_duration=slot.event_duration,
+            tags=slot.tags,
+            categories=slot.categories,
+            apps=slot.apps,
+            source_slots=[],
+            is_consolidated=False,
+        )
 
     @classmethod
     def from_timeline_slots(
@@ -471,27 +449,37 @@ class ReportTimelineSlot:
             offsets = [s.duration - (s.event_duration or timedelta(0)) for s in offline_task_slots]
             offline_extension_duration = sum(offsets, timedelta(0))
 
-        # Build the merged TimelineSlot via the real constructor
-        # (this runs __post_init__ validation immediately, catching arithmetic mistakes)
-        merged_slot = TimelineSlot(
-            type=group[0].type,
+        # Extract task_event from the first slot's project/task fields if present
+        task_event = None
+        first_slot = group[0]
+        if first_slot.project or first_slot.task:
+            from tw_report.core.aw_events import TaskWarriorEvent
+            task_event = TaskWarriorEvent(
+                timestamp=start,
+                duration=duration,
+                data={
+                    "project": first_slot.project,
+                    "title": first_slot.task,
+                    "tags": tags_union if tags_union else [],
+                }
+            )
+
+        # Build the merged ReportTimelineSlot directly (no intermediate TimelineSlot)
+        return cls(
             start=start,
             end=end,
             duration=duration,
             actual_duration=actual_duration,
             productive_duration=productive_duration,
-            project=group[0].project,
-            task=group[0].task,
-            categories=merged_categories,
-            tags=tags_union,
+            task_event=task_event,
+            window_events=[],
+            afk_events=[],
             afk_duration=afk_duration if afk_duration > timedelta(0) else None,
-            event_duration=event_duration,
             offline_extension_duration=offline_extension_duration,
-        )
-
-        return cls(
-            slot=merged_slot,
-            source_slots=group,
+            event_duration=event_duration,
+            tags=tags_union,
+            categories=merged_categories,
+            source_slots=[],  # Caller should set this if tracking provenance
             is_consolidated=True,
         )
 
@@ -564,7 +552,20 @@ class ReportTimelineSlot:
         end_bucket = ReportTimelineSlot.bucket_start(self.end - timedelta(seconds=1), mode)
         if start_bucket == end_bucket:
             self_copy = ReportTimelineSlot(
-                slot=self.slot,
+                start=self.start,
+                end=self.end,
+                duration=self.duration,
+                actual_duration=self.actual_duration,
+                productive_duration=self.productive_duration,
+                task_event=self.task_event,
+                window_events=self.window_events,
+                afk_events=self.afk_events,
+                afk_duration=self.afk_duration,
+                offline_extension_duration=self.offline_extension_duration,
+                event_duration=self.event_duration,
+                tags=self.tags,
+                categories=self.categories,
+                apps=self.apps,
                 source_slots=self.source_slots,
                 is_consolidated=self.is_consolidated,
                 bucket_mode=mode,
@@ -603,52 +604,53 @@ class ReportTimelineSlot:
             else:
                 ratio = 0
 
-            # Build the piece slot
-            piece_slot_data = {
-                "type": self.slot.type,
-                "start": piece_start,
-                "end": piece_end,
-                "duration": piece_duration,
-                "actual_duration": timedelta(
-                    seconds=self.slot.actual_duration.total_seconds() * ratio
-                ),
-                "productive_duration": timedelta(
-                    seconds=self.slot.productive_duration.total_seconds() * ratio
-                ),
-                "project": self.slot.project,
-                "task": self.slot.task,
-                "categories": self.slot.categories,  # NOT prorated
-                "tags": self.slot.tags,
-            }
+            # Calculate prorated durations
+            piece_actual_duration = timedelta(
+                seconds=self.actual_duration.total_seconds() * ratio
+            )
+            piece_productive_duration = timedelta(
+                seconds=self.productive_duration.total_seconds() * ratio
+            )
 
-            # Conditionally add optional duration fields (guard against None)
-            if self.slot.afk_duration is not None and self.slot.afk_duration.total_seconds() > 0:
-                piece_slot_data["afk_duration"] = timedelta(
-                    seconds=self.slot.afk_duration.total_seconds() * ratio
+            # Conditionally prorate optional duration fields (guard against None)
+            piece_afk_duration = None
+            if self.afk_duration is not None and self.afk_duration.total_seconds() > 0:
+                piece_afk_duration = timedelta(
+                    seconds=self.afk_duration.total_seconds() * ratio
                 )
-            # event_duration is required for offline_task slots (validation check in TimelineSlot.__post_init__)
-            if self.slot.event_duration is not None:
-                piece_slot_data["event_duration"] = timedelta(
-                    seconds=self.slot.event_duration.total_seconds() * ratio
+
+            piece_event_duration = None
+            if self.event_duration is not None:
+                piece_event_duration = timedelta(
+                    seconds=self.event_duration.total_seconds() * ratio
                 )
+
             # offline_extension_duration must be calculated from split piece duration - event_duration
             # to avoid rounding error accumulation when both are prorated independently
-            if self.slot.offline_extension_duration is not None and self.slot.offline_extension_duration.total_seconds() > 0:
-                # Only set if piece actually spans offline time
-                piece_event_duration = piece_slot_data.get("event_duration", timedelta(0))
-                piece_offline_extension = piece_duration - piece_event_duration
-                if piece_offline_extension > timedelta(0):
-                    piece_slot_data["offline_extension_duration"] = piece_offline_extension
-            if self.slot.apps is not None:
-                piece_slot_data["apps"] = self.slot.apps
+            piece_offline_extension_duration = None
+            if self.offline_extension_duration is not None and self.offline_extension_duration.total_seconds() > 0:
+                piece_event_dur = piece_event_duration or timedelta(0)
+                piece_offline_ext = piece_duration - piece_event_dur
+                if piece_offline_ext > timedelta(0):
+                    piece_offline_extension_duration = piece_offline_ext
 
-            # Construct the piece as a real TimelineSlot (validates immediately)
-            piece_slot = TimelineSlot(**piece_slot_data)
-
-            # Wrap as ReportTimelineSlot with provenance and bucket info
+            # Build the piece as ReportTimelineSlot directly
             piece_bucket_start = ReportTimelineSlot.bucket_start(piece_start, mode)
             piece_report_slot = ReportTimelineSlot(
-                slot=piece_slot,
+                start=piece_start,
+                end=piece_end,
+                duration=piece_duration,
+                actual_duration=piece_actual_duration,
+                productive_duration=piece_productive_duration,
+                task_event=self.task_event,
+                window_events=self.window_events,
+                afk_events=self.afk_events,
+                afk_duration=piece_afk_duration,
+                offline_extension_duration=piece_offline_extension_duration,
+                event_duration=piece_event_duration,
+                tags=self.tags,
+                categories=self.categories,  # NOT prorated
+                apps=self.apps,
                 source_slots=self.source_slots,
                 is_consolidated=self.is_consolidated,
                 bucket_mode=mode,
@@ -679,6 +681,8 @@ class ReportTimelineSlot:
         Returns:
             ReportTimelineSlot with work_slot as the primary slot and afk_slots nested
         """
+        from tw_report.core.aw_events import TaskWarriorEvent
+
         # Compute total AFK time that actually occurs DURING the work slot
         # Only count the intersection of AFK and work time, not AFK that extends beyond
         total_embedded_afk = timedelta(0)
@@ -691,35 +695,38 @@ class ReportTimelineSlot:
                 overlap_duration = overlap_end - overlap_start
                 total_embedded_afk += overlap_duration
 
-        # Update work slot's afk_duration to include embedded AFK
-        if total_embedded_afk > timedelta(0):
-            work_slot.afk_duration = total_embedded_afk
+        # Extract task_event from work_slot if present
+        task_event = None
+        if work_slot.project or work_slot.task:
+            task_event = TaskWarriorEvent(
+                timestamp=work_slot.start,
+                duration=work_slot.duration,
+                data={
+                    "project": work_slot.project,
+                    "title": work_slot.task,
+                    "tags": work_slot.tags if work_slot.tags else [],
+                }
+            )
 
         return cls(
-            slot=work_slot,
+            start=work_slot.start,
+            end=work_slot.end,
+            duration=work_slot.duration,
+            actual_duration=work_slot.actual_duration,
+            productive_duration=work_slot.productive_duration,
+            task_event=task_event,
+            window_events=[],
+            afk_events=[],  # Will be populated from afk_slots below
+            afk_duration=total_embedded_afk if total_embedded_afk > timedelta(0) else None,
+            offline_extension_duration=work_slot.offline_extension_duration,
+            event_duration=work_slot.event_duration,
+            tags=work_slot.tags,
+            categories=work_slot.categories,
+            apps=work_slot.apps,
             source_slots=[work_slot] + afk_slots,  # Traceability: all contributors
             is_consolidated=False,  # Not a merge (different data sources)
-            embedded_afk_slots=afk_slots,
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Convert to dict for backward-compat with code paths that haven't migrated yet.
-
-        Includes period_start if bucket_start_date is set (for print_period_consolidated_report compat).
-        Includes embedded_afk_slots if present (for rendering nested AFK gaps).
-        """
-        d = self.slot.to_dict()
-        if self.bucket_start_date is not None:
-            d["period_start"] = self.bucket_start_date
-        if self.embedded_afk_slots:
-            # Store as list of dicts for renderer compatibility
-            d["embedded_afk_slots"] = [afk.to_dict() for afk in self.embedded_afk_slots]
-        return d
-
-    def to_timeline_slot(self) -> TimelineSlot:
-        """Get the wrapped TimelineSlot."""
-        return self.slot
 
 
 @dataclass

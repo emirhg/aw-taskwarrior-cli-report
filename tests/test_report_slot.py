@@ -87,19 +87,17 @@ class TestReportTimelineSlotConstruction:
     """Test single-slot wrapping and basic properties."""
 
     def test_from_timeline_slot_wraps_atomic(self, basic_slot):
-        """from_timeline_slot should wrap a single slot unchanged."""
+        """from_timeline_slot should convert a TimelineSlot to new shape."""
         report_slot = ReportTimelineSlot.from_timeline_slot(basic_slot)
-        assert report_slot.slot is basic_slot
-        assert report_slot.source_slots == [basic_slot]
-        assert report_slot.is_consolidated is False
         assert report_slot.start == basic_slot.start
+        assert report_slot.end == basic_slot.end
+        assert report_slot.is_consolidated is False
         assert report_slot.project == "TestProject"
         assert report_slot.tags == ["tag1", "tag2"]
 
-    def test_properties_delegate_to_slot(self, basic_slot):
-        """All properties should delegate transparently to self.slot."""
+    def test_properties_delegate_to_fields(self, basic_slot):
+        """All fields should be directly accessible from the new merged slot."""
         report_slot = ReportTimelineSlot.from_timeline_slot(basic_slot)
-        assert report_slot.type == "regular"
         assert report_slot.start == basic_slot.start
         assert report_slot.end == basic_slot.end
         assert report_slot.duration == timedelta(hours=1)
