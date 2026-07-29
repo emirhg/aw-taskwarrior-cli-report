@@ -199,13 +199,20 @@ def generate_partitioned_task_slots(
     based on actual window and AFK coverage. Creates slots representing each
     portion, enabling proper accountability for all task time.
 
+    NOTE: This function currently generates ACTIVE and OFFLINE slots only.
+    AFK portions within tasks are NOT emitted as separate slots because they
+    would conflict with the existing AFK slot generation and rendering logic.
+    Instead, AFK portions are tracked within task duration accounting for
+    future architectural improvements (full task partitioning with proper
+    display integration).
+
     Args:
         task_events: TaskWarrior task events to partition
         window_events: ActivityWatch window events for detecting active time
         afk_events: ActivityWatch AFK events for detecting idle time
 
     Returns:
-        List of slot dicts with type="active_task", "afk_task", or "offline_task"
+        List of slot dicts with type="active_task" or "offline_task"
     """
     result = []
 
@@ -226,33 +233,44 @@ def generate_partitioned_task_slots(
         # Extract task metadata
         task_name, project = get_task_info(task_event)
 
-        # Generate ACTIVE portion slots
-        for active_start, active_end in partitioned["active_portions"]:
-            active_slot = {
-                "type": "active_task",
-                "start": active_start.astimezone() if hasattr(active_start, 'astimezone') else active_start,
-                "end": active_end.astimezone() if hasattr(active_end, 'astimezone') else active_end,
-                "duration": active_end - active_start,
-                "actual_duration": active_end - active_start,
-                "afk_duration": timedelta(0),  # User was actively working
-                "project": project,
-                "task": task_name,
-            }
-            result.append(active_slot)
+        # Generate ACTIVE portion slots (includes both window activity AND AFK within task)
+        # For now, ACTIVE slots cover all time when task is active (whether focused or idle)
+        active_portions = partitioned["active_portions"]
+        afk_portions = partitioned["afk_portions"]
 
-        # Generate AFK portion slots
-        for afk_start, afk_end in partitioned["afk_portions"]:
-            afk_slot = {
-                "type": "afk_task",
-                "start": afk_start.astimezone() if hasattr(afk_start, 'astimezone') else afk_start,
-                "end": afk_end.astimezone() if hasattr(afk_end, 'astimezone') else afk_end,
-                "duration": afk_end - afk_start,
-                "actual_duration": afk_end - afk_start,
-                "afk_duration": afk_end - afk_start,  # All of this portion is idle
-                "project": project,
-                "task": task_name,
-            }
-            result.append(afk_slot)
+        if active_portions or afk_portions:
+            # Find the span of all active+afk periods
+            all_periods = active_portions + afk_portions
+            if all_periods:
+                all_periods_sorted = sorted(all_periods, key=lambda p: p[0])
+                slot_start = all_periods_sorted[0][0]
+                slot_end = all_periods_sorted[-1][1]
+
+                total_active_afk = sum(
+                    (end - start for start, end in active_portions),
+                    timedelta(0)
+                ) + sum(
+                    (end - start for start, end in afk_portions),
+                    timedelta(0)
+                )
+
+                total_afk = sum(
+                    (end - start for start, end in afk_portions),
+                    timedelta(0)
+                )
+
+                # Create single "active_task" slot covering all active+afk time
+                active_slot = {
+                    "type": "active_task",
+                    "start": slot_start.astimezone() if hasattr(slot_start, 'astimezone') else slot_start,
+                    "end": slot_end.astimezone() if hasattr(slot_end, 'astimezone') else slot_end,
+                    "duration": total_active_afk,
+                    "actual_duration": total_active_afk,
+                    "afk_duration": total_afk,
+                    "project": project,
+                    "task": task_name,
+                }
+                result.append(active_slot)
 
         # Generate OFFLINE portion slots
         for offline_start, offline_end in partitioned["offline_portions"]:
@@ -261,6 +279,7 @@ def generate_partitioned_task_slots(
                 "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
                 "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
                 "duration": offline_end - offline_start,
+                "event_duration": timedelta(0),  # No window/AFK events during offline
                 "actual_duration": timedelta(0),  # System was off
                 "afk_duration": timedelta(0),
                 "project": project,

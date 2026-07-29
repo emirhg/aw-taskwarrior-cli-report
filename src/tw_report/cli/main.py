@@ -827,7 +827,7 @@ def main():
 
         # FIX: --exclude-afk removes AFK period slots from the timeline
         if args.exclude_afk:
-            all_slot_entries = [g for g in all_slot_entries if g.get("type") not in ("afk", "afk_task")]
+            all_slot_entries = [g for g in all_slot_entries if g.get("type") != "afk"]
 
         # BUGFIX: Remove AFK slots for OFFLINE-tagged tasks to prevent overlap with OFFLINE synthetic slots
         # When a user is AFK during an OFFLINE-tagged task, the OFFLINE synthetic slot already
