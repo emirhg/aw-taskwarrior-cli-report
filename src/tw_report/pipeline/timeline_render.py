@@ -1260,31 +1260,29 @@ def print_timeline_report(
         print()
 
     # Print TOTALS at bottom
-    # Calculate "Online Time" (AFK + non-AFK combined, from AFK bucket)
-    # CRITICAL FIX: Online time must be calculated from AFK bucket events, NOT from slot durations.
-    # Slots can be filtered/deduplicated and won't accurately reflect the true online time.
+    # Online time must satisfy: Online = Active Time + AFK Time
+    # Active Time comes from non_afk_time (AFK bucket not-afk events)
+    # AFK Time comes from total_afk_time (from final slots or AFK bucket afk events)
     #
-    # Correct calculation:
-    #   Online Time = Active Time (non_afk_time from AFK bucket) + AFK Time (from AFK bucket)
-    #
-    # The non_afk_time parameter is the authoritative source - it comes directly from
-    # the AFK bucket "not-afk" status events, same as used in the summary.
-    # We use it instead of deriving from slots, which can differ due to consolidation/deduplication.
+    # Note: We use non_afk_time from AFK bucket (parameter) which is the authoritative
+    # source, matching what the summary uses. This may differ from what slots show
+    # if there's untracked/gap time in "No project assigned" slots.
 
-    # Calculate online time from AFK bucket sources (not from slot durations)
-    # This ensures it matches the summary's Active Time calculation
-    online_time_from_afk = non_afk_time if non_afk_time else timedelta(0)
-    online_time_from_afk += total_afk_time
+    # Use non_afk_time parameter (from AFK bucket) as Active Time
+    active_time_final = non_afk_time if non_afk_time else timedelta(0)
 
-    # Total time = online (from AFK bucket) + offline (from OFFLINE tasks)
-    total_time_final = online_time_from_afk + total_offline_time
+    # Online = Active + AFK (this ensures the mathematical relationship holds)
+    online_time_final = active_time_final + total_afk_time
+
+    # Total = Online + Offline
+    total_time_final = online_time_final + total_offline_time
 
     print_report_totals(
         total_time_all=total_time_final,
         total_productive_all=total_productive_all,
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
-        total_non_afk=non_afk_time if non_afk_time and non_afk_time > timedelta(0) else None,
+        total_non_afk=active_time_final if active_time_final > timedelta(0) else None,
     )
 
 
