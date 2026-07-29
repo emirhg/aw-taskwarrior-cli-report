@@ -246,26 +246,22 @@ def generate_partitioned_task_slots(
                 slot_start = all_periods_sorted[0][0]
                 slot_end = all_periods_sorted[-1][1]
 
-                total_active_afk = sum(
-                    (end - start for start, end in active_portions),
-                    timedelta(0)
-                ) + sum(
-                    (end - start for start, end in afk_portions),
-                    timedelta(0)
-                )
-
                 total_afk = sum(
                     (end - start for start, end in afk_portions),
                     timedelta(0)
                 )
+
+                # Duration is the full time span from first start to last end
+                # (includes gaps between active/afk periods)
+                slot_duration = slot_end - slot_start
 
                 # Create single "active_task" slot covering all active+afk time
                 active_slot = {
                     "type": "active_task",
                     "start": slot_start.astimezone() if hasattr(slot_start, 'astimezone') else slot_start,
                     "end": slot_end.astimezone() if hasattr(slot_end, 'astimezone') else slot_end,
-                    "duration": total_active_afk,
-                    "actual_duration": total_active_afk,
+                    "duration": slot_duration,
+                    "actual_duration": slot_duration,
                     "afk_duration": total_afk,
                     "project": project,
                     "task": task_name,
