@@ -870,7 +870,7 @@ def print_timeline_report(
             prev_date_was_rollup = False
         elif group_date != current_date:
             # Date changed within same week: close previous day
-            if not prev_date_was_rollup:
+            if not prev_date_was_rollup and current_date is not None:
                 print(("-" * 22).rjust(width))
                 # Use online_duration only (not total_duration) since offline_gap is displayed separately
                 total_day_with_afk = daily_metrics.online_duration
@@ -884,8 +884,10 @@ def print_timeline_report(
                     "productive_duration": daily_metrics.productive_duration,
                 }
                 # Create a fake start/end for the day total line
-                day_start = current_date.replace(hour=0, minute=0, second=0)
-                day_end = current_date.replace(hour=23, minute=59, second=59)
+                # current_date is a date object, convert to datetime at midnight
+                from datetime import time
+                day_start = datetime.combine(current_date, time(0, 0, 0))
+                day_end = datetime.combine(current_date, time(23, 59, 59))
                 day_start_aware = day_start.replace(tzinfo=timezone.utc).astimezone()
                 day_end_aware = day_end.replace(tzinfo=timezone.utc).astimezone()
 
