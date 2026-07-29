@@ -854,10 +854,9 @@ def main():
         # CRITICAL: This converts "active_task"/"afk_task" types to standard "regular"/"afk" types
         # that the rendering code understands. Do NOT combine work with embedded AFK here.
         report_timeline = timeline.to_report_timeline()
-        final_dicts = report_timeline.as_dicts()
 
         TimelineReport(print_timeline_report).present(
-            slots=final_dicts,
+            slots=report_timeline.slots_list,
             period=period,
             start_time=start_time,
             end_time=end_time,

@@ -21,7 +21,7 @@ Key design:
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, time
-from typing import Any, Dict, List, Optional, Tuple, Literal, TYPE_CHECKING
+from typing import Any, Dict, List, Optional, Tuple, Literal, TYPE_CHECKING, Union
 
 from tw_report.core.timeline import TimelineSlot, TimelineSlotValidationError
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
@@ -158,11 +158,11 @@ class DisplayColumns:
         return full_line
 
     @classmethod
-    def from_slot_dict(cls, slot: Dict[str, Any], start_time: datetime, end_time: datetime) -> "DisplayColumns":
-        """Create DisplayColumns from a dict-based slot (from timeline rendering pipeline).
+    def from_slot_dict(cls, slot: Union[Dict[str, Any], "ReportTimelineSlot"], start_time: datetime, end_time: datetime) -> "DisplayColumns":
+        """Create DisplayColumns from a dict-based or ReportTimelineSlot (from timeline rendering pipeline).
 
         Args:
-            slot: Dictionary with keys like type, project, task, duration, afk_duration, etc.
+            slot: Dictionary or ReportTimelineSlot with keys like type, project, task, duration, afk_duration, etc.
             start_time: Start time (local timezone)
             end_time: End time (local timezone)
 
@@ -172,12 +172,19 @@ class DisplayColumns:
         from tw_report.utils.formatting import format_duration, abbreviate_project_path
         from tw_report.core.filtering import NO_PROJECT, NO_TASK
 
+        # Helper to get slot field (works with both dicts and objects)
+        def get_field(field, default=None):
+            if isinstance(slot, dict):
+                return slot.get(field, default)
+            else:
+                return getattr(slot, field, default) if hasattr(slot, field) else default
+
         # Format time range
         time_range = f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}"
 
         # Format project and task using the same abbreviation logic as rendering
-        project_name = slot.get("project", NO_PROJECT)
-        task_name = slot.get("task", NO_TASK)
+        project_name = get_field("project", NO_PROJECT)
+        task_name = get_field("task", NO_TASK)
 
         # Use abbreviate_project_path for consistent formatting
         abbrev_project = abbreviate_project_path(
@@ -195,21 +202,21 @@ class DisplayColumns:
 
         # Format duration columns (no parenthesis)
         offline_time = ""
-        if slot.get("offline_extension_duration"):
-            offline_dur = slot["offline_extension_duration"]
+        offline_dur = get_field("offline_extension_duration")
+        if offline_dur:
             if isinstance(offline_dur, timedelta) and offline_dur.total_seconds() > 0:
                 offline_time = format_duration(offline_dur)
 
         afk_time = ""
-        if slot.get("afk_duration"):
-            afk_dur = slot["afk_duration"]
+        afk_dur = get_field("afk_duration")
+        if afk_dur:
             if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() > 0:
                 afk_time = format_duration(afk_dur)
 
         # Active time = ONLINE time - AFK time
         # (actual_duration is online time when system was recording)
-        online_duration = slot.get("actual_duration") or slot.get("duration")
-        afk_duration_slot = slot.get("afk_duration") or timedelta(0)
+        online_duration = get_field("actual_duration") or get_field("duration")
+        afk_duration_slot = get_field("afk_duration") or timedelta(0)
 
         if online_duration:
             if isinstance(online_duration, timedelta):
@@ -226,8 +233,8 @@ class DisplayColumns:
 
         # Productivity metric
         productivity = ""
-        if slot.get("productive_duration"):
-            prod_dur = slot["productive_duration"]
+        prod_dur = get_field("productive_duration")
+        if prod_dur:
             if isinstance(prod_dur, timedelta) and isinstance(active_duration, timedelta):
                 if active_duration.total_seconds() > 0 and prod_dur.total_seconds() > 0:
                     pct = (prod_dur.total_seconds() / active_duration.total_seconds()) * 100
