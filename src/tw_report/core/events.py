@@ -18,6 +18,10 @@ from tw_report.exceptions import ActivityWatchConnectionError
 
 logger = logging.getLogger(__name__)
 
+# Constants for AFK false-positive detection
+AFK_FALSE_POSITIVE_THRESHOLD = timedelta(minutes=10)  # Minimum AFK duration to analyze for false-positives
+AFK_FALSE_POSITIVE_COVERAGE_THRESHOLD = 5.0  # Coverage % below which AFK is classified as offline
+
 
 def get_bucket_id(bucket_name: str) -> str:
     """Construct the full bucket ID from its name and the machine's hostname.
@@ -113,7 +117,7 @@ def get_afk_window_coverage(
     return (covered_time.total_seconds() / afk_event.duration.total_seconds()) * 100
 
 
-def classify_afk_slot(coverage_percent: float, threshold: float = 5.0) -> str:
+def classify_afk_slot(coverage_percent: float, threshold: float = None) -> str:  # type: ignore[assignment]
     """Classify AFK slot as ONLINE_AFK or OFFLINE based on window coverage.
 
     When a system comes online, window logger may record activity before
@@ -122,12 +126,15 @@ def classify_afk_slot(coverage_percent: float, threshold: float = 5.0) -> str:
 
     Args:
         coverage_percent: Percentage of AFK period with window events (0-100)
-        threshold: Coverage % below which AFK is classified as OFFLINE (default 5%)
+        threshold: Coverage % below which AFK is classified as OFFLINE.
+            Uses AFK_FALSE_POSITIVE_COVERAGE_THRESHOLD if not specified.
 
     Returns:
         "ONLINE_AFK": Real online idle time (coverage >= threshold)
         "OFFLINE": False positive, system was powered off (coverage < threshold)
     """
+    if threshold is None:
+        threshold = AFK_FALSE_POSITIVE_COVERAGE_THRESHOLD
     return "ONLINE_AFK" if coverage_percent >= threshold else "OFFLINE"
 
 
