@@ -383,16 +383,47 @@ def generate_gap_entries(
     # Merge overlapping AFK events to prevent duplicate overlapping slots
     afk_only_events = _merge_overlapping_events(afk_only_events)
 
+    # Skip AFK events that overlap with TaskWarrior tasks
+    # (those will be handled by partitioned_task_slots instead)
+    afk_events_uncovered = []
     for afk_event in afk_only_events:
+        afk_start = afk_event.timestamp
+        afk_end = afk_start + afk_event.duration
+
+        # Check if this AFK period is covered by any TaskWarrior task
+        is_covered = False
+        for task in (task_events or []):
+            task_start = task.timestamp
+            task_end = task_start + task.duration
+            # If AFK overlaps with task, skip it (partitioned_task_slots will handle it)
+            if afk_start < task_end and afk_end > task_start:
+                is_covered = True
+                break
+
+        if not is_covered:
+            afk_events_uncovered.append(afk_event)
+
+    for afk_event in afk_events_uncovered:
         # Classify AFK event and determine if it should be split into OFFLINE and ONLINE_AFK portions
         classification = classify_afk_and_split_slots(
             afk_event,
             window_events or []
         )
 
-        # NOTE: OFFLINE portions are detected but not emitted as separate slots yet.
-        # The classification tracks valid_offline for future enhancements (logging, metrics).
-        # For now, we only emit ONLINE_AFK slots and let gaps represent OFFLINE time.
+        # Handle OFFLINE portions (where system was powered off)
+        if "offline_portion" in classification and classification["offline_portion"]:
+            offline_start, offline_end = classification["offline_portion"]
+            offline_slot = {
+                "type": "offline",
+                "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
+                "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
+                "duration": offline_end - offline_start,
+                "actual_duration": timedelta(0),  # System was off, no actual activity recorded
+                "afk_duration": timedelta(0),
+                "project": NO_PROJECT,
+                "task": NO_TASK,
+            }
+            result.append(offline_slot)
 
         # Handle ONLINE_AFK portions (where system was on, user was idle)
         for online_start, online_end in classification["online_afk_portions"]:
