@@ -1274,11 +1274,11 @@ def print_timeline_report(
     # Online = Active + AFK (this ensures the mathematical relationship holds)
     online_time_final = active_time_final + total_afk_time
 
-    # Total = Online + Offline
+    # Total = Online + Offline (not passed to print_report_totals; calculated internally)
     total_time_final = online_time_final + total_offline_time
 
     print_report_totals(
-        total_time_all=total_time_final,
+        total_time_all=online_time_final,
         total_productive_all=total_productive_all,
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
