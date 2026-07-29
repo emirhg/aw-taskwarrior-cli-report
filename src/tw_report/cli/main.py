@@ -842,17 +842,12 @@ def main():
                 if g.get("type") not in ("afk", "afk_task") or (g.get("project"), g.get("task")) not in offline_tasks
             ]
 
-        # Add all slot entries to timeline (auto-sorts on insertion)
-        timeline.add_slots([TimelineSlot.from_dict(g) for g in all_slot_entries])
-
-        # Convert timeline to ReportEntries for unified consolidation/bucketing
-        report_timeline = timeline.to_report_timeline()
-
         # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
         # Use the standard timeline rendering which shows chronological slots
         # Each slot renders independently: no combining of work slots with embedded AFK
 
-        final_dicts = report_timeline.as_dicts()
+        # Sort by start time for chronological rendering
+        final_dicts = sorted(all_slot_entries, key=lambda s: s["start"])
 
         TimelineReport(print_timeline_report).present(
             slots=final_dicts,
