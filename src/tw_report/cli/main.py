@@ -512,7 +512,7 @@ def main():
             # Optimization: use task_time_ranges if available to avoid fetching entire period
             if task_time_ranges:
                 from tw_report.core.aw_events import WindowEvent
-            window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
+                window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
             else:
                 window_bucket = get_bucket_id("window")
                 window_events = get_events(client, window_bucket, start_time, end_time)
