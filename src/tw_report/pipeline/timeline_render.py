@@ -1077,13 +1077,13 @@ def print_timeline_report(
 
             slot_end = slot_start + slot_duration if slot_start else None
 
-            # Calculate trim ratio if slot extends past end_time
-            trim_ratio = 1.0
+            # Apply same trimming as group_total_duration to keep afk_duration in sync
             if slot_end and slot_end > end_time:
                 trimmed_duration = end_time - slot_start
                 trim_ratio = trimmed_duration.total_seconds() / slot_duration.total_seconds() if slot_duration.total_seconds() > 0 else 0
+            else:
+                trim_ratio = 1.0
 
-            # Apply trim ratio to productive and AFK durations
             prod_dur = s.get("productive_duration", timedelta(0))
             afk_dur = s.get("afk_duration", timedelta(0))
             group_productive_duration += timedelta(seconds=prod_dur.total_seconds() * trim_ratio)
