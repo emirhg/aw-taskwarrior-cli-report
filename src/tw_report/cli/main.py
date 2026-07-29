@@ -25,9 +25,6 @@ from tw_report.core.categories import (
 from tw_report.core.events import (
     get_bucket_id,
     get_events,
-    get_afk_window_coverage,
-    classify_afk_slot,
-    AFK_FALSE_POSITIVE_THRESHOLD,
 )
 from tw_report.core.filtering import EventFilter, NO_PROJECT, NO_TASK
 from tw_report.core.offline import OfflineTaskProcessor
@@ -134,44 +131,6 @@ def _fetch_events_for_ranges(
         range_events = get_events(client, bucket_id, start - buffer, end + buffer, event_cls=event_cls)
         events.extend(range_events)
     return events
-
-
-def _filter_false_positive_afk(gap_entries: List[Dict], false_positive_periods: set) -> List[Dict]:
-    """Filter out AFK entries that match false-positive offline periods.
-
-    Args:
-        gap_entries: List of gap/AFK entries to filter
-        false_positive_periods: Set of (start_timestamp, end_timestamp) tuples marking false-positive AFK
-
-    Returns:
-        Filtered list with false-positive AFK entries removed
-    """
-    if not false_positive_periods:
-        return gap_entries
-
-    filtered = []
-    for entry in gap_entries:
-        # Keep non-AFK entries unchanged
-        if entry.get("type") != "afk":
-            filtered.append(entry)
-            continue
-
-        # For AFK entries, check if they match any false-positive period
-        start = entry.get("start")
-        duration = entry.get("duration", timedelta(0))
-        end = start + duration if start else None
-
-        is_false_positive = False
-        for fp_start, fp_end in false_positive_periods:
-            # Direct timestamp comparison (much more reliable than fuzzy total_seconds() matching)
-            if start == fp_start and end == fp_end:
-                is_false_positive = True
-                break
-
-        if not is_false_positive:
-            filtered.append(entry)
-
-    return filtered
 
 
 def main():
@@ -868,33 +827,6 @@ def main():
         # FIX: --exclude-afk removes AFK period slots from the timeline
         if args.exclude_afk:
             gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
-
-        # BUGFIX: Detect false-positive AFK (system was offline)
-        # When system is offline but AFK watcher continues reporting idle time,
-        # window coverage is minimal. We detect this and create OFFLINE entries instead.
-        false_positive_afk_periods = set()
-
-        if context.afk_events:
-            window_events_list = window_events if window_events else []
-            for afk_event in context.afk_events:
-                if afk_event.data.get("status") != "afk":
-                    continue
-
-                # Only analyze AFK periods longer than threshold
-                if afk_event.duration < AFK_FALSE_POSITIVE_THRESHOLD:
-                    continue
-
-                # Calculate window coverage for this AFK period
-                coverage = get_afk_window_coverage(afk_event, window_events_list)
-                classification = classify_afk_slot(coverage)
-
-                if classification == "OFFLINE":
-                    # Mark this AFK period as false-positive for filtering
-                    false_positive_afk_periods.add((afk_event.timestamp, afk_event.timestamp + afk_event.duration))
-
-        # Filter out AFK entries that correspond to detected false-positive periods
-        if false_positive_afk_periods:
-            gap_entries = _filter_false_positive_afk(gap_entries, false_positive_afk_periods)
 
         # BUGFIX: Remove AFK slots for OFFLINE-tagged tasks to prevent overlap with OFFLINE synthetic slots
         # When a user is AFK during an OFFLINE-tagged task, the OFFLINE synthetic slot already
