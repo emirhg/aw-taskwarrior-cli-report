@@ -30,7 +30,8 @@ from tw_report.utils.formatting import normalize_title, sanitize_title
 
 # Minimum duration threshold for including window events in timeline
 # Events shorter than this are considered ActivityWatch tracking noise
-MIN_EVENT_DURATION = timedelta(seconds=60)
+# Minimum event duration threshold - set to 0 to show all detected activity including small splits
+MIN_EVENT_DURATION = timedelta(seconds=0)
 
 
 def _merge_overlapping_events(events: List[Event]) -> List[Event]:
@@ -443,10 +444,15 @@ def generate_afk_and_offline_slots(
 
         # Handle ONLINE_AFK portions (where system was on, user was idle)
         for online_start, online_end in partitions["online_afk_portions"]:
+            # Skip online_afk portions below minimum duration threshold
+            online_afk_duration = online_end - online_start
+            if online_afk_duration < MIN_EVENT_DURATION:
+                continue
+
             # Find active TW task during this ONLINE_AFK period
             online_afk_event = Event(
                 timestamp=online_start,
-                duration=online_end - online_start,
+                duration=online_afk_duration,
                 data={"status": "afk"}
             )
             active_task = find_active_task(online_afk_event, task_events) if task_events else None
@@ -460,9 +466,9 @@ def generate_afk_and_offline_slots(
                 "type": "afk",
                 "start": online_start.astimezone() if hasattr(online_start, 'astimezone') else online_start,
                 "end": online_end.astimezone() if hasattr(online_end, 'astimezone') else online_end,
-                "duration": online_end - online_start,
-                "actual_duration": online_end - online_start,  # User was idle but system was recording
-                "afk_duration": online_end - online_start,  # All of this period is idle time
+                "duration": online_afk_duration,
+                "actual_duration": online_afk_duration,  # User was idle but system was recording
+                "afk_duration": online_afk_duration,  # All of this period is idle time
                 "project": project,
                 "task": task_name,
             }
