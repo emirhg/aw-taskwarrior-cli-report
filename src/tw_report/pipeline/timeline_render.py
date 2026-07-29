@@ -912,7 +912,10 @@ def print_timeline_report(
         if slot_week != current_week_key:
             # Week changed: print previous week's closing totals
             if current_week_key is not None:
-                print(("-" * 22).rjust(width))
+                # Separator under the three duration columns (OFFLINE 12 + AFK 12 + ACTIVE 8 = 32 chars)
+                # Position: 87 left + 2 separator + 32 dashes = 121 chars
+                separator_line = " " * 89 + "-" * 32
+                print(separator_line)
                 if not prev_date_was_rollup:
                     format_and_print_day_total(daily_metrics, width)
                 if not is_single_day:
@@ -943,7 +946,10 @@ def print_timeline_report(
         elif group_date != current_date:
             # Date changed within same week: close previous day
             if not prev_date_was_rollup and current_date is not None:
-                print(("-" * 22).rjust(width))
+                # Separator under the three duration columns (OFFLINE 12 + AFK 12 + ACTIVE 8 = 32 chars)
+                # Position: 87 left + 2 separator + 32 dashes = 121 chars
+                separator_line = " " * 89 + "-" * 32
+                print(separator_line)
                 format_and_print_day_total(daily_metrics, width)
                 print()
             daily_metrics = PeriodMetrics()
@@ -1217,7 +1223,9 @@ def print_timeline_report(
 
     # Print final totals
     if slots:
-        print(("-" * 22).rjust(width))
+        # Separator under the three duration columns (OFFLINE 12 + AFK 12 + ACTIVE 8 = 32 chars)
+        separator_line = " " * 89 + "-" * 32
+        print(separator_line)
         if not prev_date_was_rollup:
             format_and_print_day_total(daily_metrics, width)
         # Use online_duration only (not total_duration) since offline_gap is displayed separately
