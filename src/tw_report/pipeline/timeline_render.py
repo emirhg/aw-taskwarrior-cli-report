@@ -549,12 +549,12 @@ def print_timeline_report(
     if not slots:
         print("No activity found for the specified period.")
 
-    # Print column headers with labels
-    print(
-        "Wk  Date       Day  |  "
-        "TIME             PROJECT                  TASK                  "
-        "OFFLINE        AFK          ACTIVE"
-    )
+    # Print date/week header and duration column labels
+    print("Wk  Date       Day")
+    # Labels for duration columns only - positioned above their actual columns
+    # Based on DisplayColumns layout: 70 char left section + offshore(12) + afk(12) + active(8)
+    duration_labels = " " * 70 + "OFFLINE        AFK          ACTIVE"
+    print(duration_labels)
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
