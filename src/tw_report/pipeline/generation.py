@@ -451,6 +451,71 @@ def generate_gap_entries(
     return result
 
 
+def convert_active_periods_to_slots(
+    active_events: List[Event],
+    task_events: Optional[List[Event]] = None,
+) -> List[Dict]:
+    """Convert status="not-afk" events to ACTIVE slots for uncovered periods only.
+
+    Takes AFKEvents with status="not-afk" (keyboard/mouse active periods) and converts
+    them to timeline slots, but ONLY for periods NOT already covered by TaskWarrior events.
+    This prevents duplicate slots when a task's active period overlaps with an AFK not-afk event.
+
+    Args:
+        active_events: AFKEvents with status="not-afk" (from AFK bucket)
+        task_events: TaskWarrior events for exclusion (periods covered by tasks are skipped)
+
+    Returns:
+        List of slot dicts with type="active" (no project assigned, no AFK)
+    """
+    result = []
+
+    # If no task events, all active periods are uncovered
+    if not task_events:
+        for active_event in active_events:
+            slot = {
+                "type": "active",
+                "start": active_event.timestamp.astimezone() if hasattr(active_event.timestamp, 'astimezone') else active_event.timestamp,
+                "end": (active_event.timestamp + active_event.duration).astimezone() if hasattr(active_event.timestamp, 'astimezone') else (active_event.timestamp + active_event.duration),
+                "duration": active_event.duration,
+                "actual_duration": active_event.duration,
+                "afk_duration": timedelta(0),  # By definition, not-afk events have no idle time
+                "project": NO_PROJECT,
+                "task": NO_TASK,
+                "categories": [],
+            }
+            result.append(slot)
+        return result
+
+    # For each active period, check if it's covered by any task event
+    for active_event in active_events:
+        active_start = active_event.timestamp
+        active_end = active_start + active_event.duration
+
+        # Check if this active period overlaps with any task event
+        has_task_coverage = any(
+            task_event.timestamp < active_end and (task_event.timestamp + task_event.duration) > active_start
+            for task_event in task_events
+        )
+
+        # Only emit ACTIVE slot if this period is NOT covered by any task
+        if not has_task_coverage:
+            slot = {
+                "type": "active",
+                "start": active_event.timestamp.astimezone() if hasattr(active_event.timestamp, 'astimezone') else active_event.timestamp,
+                "end": (active_event.timestamp + active_event.duration).astimezone() if hasattr(active_event.timestamp, 'astimezone') else (active_event.timestamp + active_event.duration),
+                "duration": active_event.duration,
+                "actual_duration": active_event.duration,
+                "afk_duration": timedelta(0),  # By definition, not-afk events have no idle time
+                "project": NO_PROJECT,
+                "task": NO_TASK,
+                "categories": [],
+            }
+            result.append(slot)
+
+    return result
+
+
 def generate_timeline_data(
     report_events: List[Dict[str, Any]],
     afk_events: List[Event],

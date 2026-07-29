@@ -50,6 +50,7 @@ from tw_report.core.task_filtering import (
 )
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.pipeline.generation import (
+    convert_active_periods_to_slots,
     generate_gap_entries,
     generate_partitioned_task_slots,
     generate_timeline_data,
@@ -856,6 +857,11 @@ def main():
             window_events=window_events,
         )
 
+        # Generate ACTIVE slots from status="not-afk" events (keyboard/mouse activity)
+        # These already exist in the AFK bucket, just need direct conversion to slots
+        active_periods = context.bucket_events.get_active_periods()
+        active_slots = convert_active_periods_to_slots(active_periods, context.task_events)
+
         # Generate partitioned TaskWarrior task slots (ACTIVE/AFK/OFFLINE portions)
         # This breaks down each task duration into its constituent components,
         # enabling proper AFK time accountability (fixes 42-second mismatch)
@@ -865,8 +871,8 @@ def main():
             context.afk_events,
         )
 
-        # Combine gap entries with partitioned task slots
-        all_slot_entries = gap_entries + partitioned_task_slots
+        # Combine gap entries with partitioned task slots and ACTIVE slots for uncovered periods
+        all_slot_entries = gap_entries + active_slots + partitioned_task_slots
 
         # Filter entries using unified EventFilter for consistency
         # (replaces 50+ lines of scattered filter logic)

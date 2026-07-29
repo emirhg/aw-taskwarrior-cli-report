@@ -1,8 +1,39 @@
-from dataclasses import dataclass
+from __future__ import annotations
+
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 from aw_core.models import Event
+
+
+@dataclass
+class BucketEvents:
+    """Typed collection of events organized by ActivityWatch bucket.
+
+    Stores the raw results from bucket queries as strongly-typed Event subclasses,
+    replacing scattered List[Event] collections with organized, bucket-aware storage.
+
+    Attributes:
+        afk: Events from the afk bucket (status="afk" or status="not-afk")
+        window: Events from the window/desktop-activity bucket
+        taskwarrior: Events from the taskwarrior bucket
+    """
+    afk: List[Event] = field(default_factory=list)
+    window: List[Event] = field(default_factory=list)
+    taskwarrior: List[Event] = field(default_factory=list)
+
+    def get_afk_by_status(self, status: str) -> List[Event]:
+        """Get AFKEvents filtered by status ('afk' or 'not-afk')."""
+        return [e for e in self.afk if e.data.get("status") == status]
+
+    def get_active_periods(self) -> List[Event]:
+        """Get all Events with status='not-afk' (active periods)."""
+        return self.get_afk_by_status("not-afk")
+
+    def get_idle_periods(self) -> List[Event]:
+        """Get all Events with status='afk' (idle periods)."""
+        return self.get_afk_by_status("afk")
 
 
 @dataclass(frozen=True)
@@ -346,9 +377,31 @@ class ReportMetrics:
 
 @dataclass(frozen=True)
 class ReportContext:
+    """Complete context for generating a report.
+
+    Attributes:
+        bucket_events: Typed collection of raw bucket events (AFKEvent, WindowEvent, TaskWarriorEvent)
+        canonical_events: Correlated events (TaskWarrior + ActivityWatch overlap)
+        cat_score_map: Category productivity score mapping
+        is_task_based_report: True if this is a task-based report
+        metrics: Aggregated metrics for the report period
+
+    Legacy fields (for backwards compatibility):
+        task_events: List of TaskWarriorEvents (via bucket_events.taskwarrior)
+        afk_events: List of AFKEvents (via bucket_events.afk)
+    """
+    bucket_events: BucketEvents
     canonical_events: List[ReportEvent]
-    task_events: Optional[List[Event]]
-    afk_events: List[Event]
     cat_score_map: Dict[str, float]
     is_task_based_report: bool
     metrics: ReportMetrics
+
+    @property
+    def task_events(self) -> Optional[List[Event]]:
+        """Legacy accessor for taskwarrior events."""
+        return self.bucket_events.taskwarrior if self.bucket_events.taskwarrior else None
+
+    @property
+    def afk_events(self) -> List[Event]:
+        """Legacy accessor for afk events."""
+        return self.bucket_events.afk

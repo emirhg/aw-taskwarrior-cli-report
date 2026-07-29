@@ -346,10 +346,18 @@ def build_context(
     is_task_based_report: bool,
     metrics: ReportMetrics,
 ) -> ReportContext:
+    from tw_report.pipeline.models import BucketEvents
+
+    # Organize events into typed BucketEvents collection
+    bucket_events = BucketEvents(
+        afk=afk_events,
+        taskwarrior=task_events or [],
+        window=[],  # Window events not stored in context (fetched on-demand)
+    )
+
     return ReportContext(
+        bucket_events=bucket_events,
         canonical_events=canonical_events,
-        task_events=task_events,
-        afk_events=afk_events,
         cat_score_map=cat_score_map,
         is_task_based_report=is_task_based_report,
         metrics=metrics,
