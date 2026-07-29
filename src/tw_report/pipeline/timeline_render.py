@@ -907,35 +907,20 @@ def print_timeline_report(
             start_str = _to_local_time(offline_task_slot["start"]).strftime("%H:%M")
             end_str = _to_local_time(offline_task_slot["start"] + wall_clock_duration).strftime("%H:%M")
 
-            # Format OFFLINE task entries with same style as regular entries
-            abbrev_project = abbreviate_project_path(project_name, task_name)
-            # Pass productive_duration from the offline_task slot for consistent productivity measurement
-            productive_dur = slot.get("productive_duration", timedelta(0))
-            duration_formatted = format_offline_task_duration(wall_clock_duration, event_duration, productive_dur)
-
-            # Parse the duration_formatted to extract gaps and duration
-            # Format is like "(HH:MM:SS OFF)  HH:MM:SS  [prod XX%]"
-            # Extract the first part (gaps) and the rest (duration)
-            if duration_formatted.startswith("("):
-                # Has gaps
-                close_paren = duration_formatted.find(")")
-                gaps_str = duration_formatted[:close_paren+1]
-                base_duration = duration_formatted[close_paren+1:].lstrip()
-            else:
-                gaps_str = ""
-                base_duration = duration_formatted
-
-            # Add asterisk prefix to offline task name for easy spotting
+            # Format OFFLINE task entries with fixed-width columns
+            # Each duration type (offline, afk, active) gets its own reserved column
             offline_task_name = f"*{task_name}"
+            slot_with_name = dict(offline_task_slot)  # Copy offline_task_slot dict
+            slot_with_name["task"] = offline_task_name
+            # Set offline gap (wall-clock minus event time)
+            offline_gap = wall_clock_duration - event_duration
+            slot_with_name["offline_extension_duration"] = offline_gap if offline_gap.total_seconds() > 0 else None
+            # Set actual_duration to the tracked/online time (not wall-clock)
+            slot_with_name["actual_duration"] = event_duration if event_duration.total_seconds() > 0 else None
 
-            time_range = f"{start_str} - {end_str}".ljust(15)  # Pad for column alignment
-            print(format_timeline_columns(
-                time_range=time_range,
-                project=abbrev_project,
-                task=offline_task_name,
-                gaps=gaps_str,
-                duration=base_duration,
-            ))
+            from tw_report.core.report_slot import DisplayColumns
+            cols = DisplayColumns.from_slot_dict(slot_with_name, _to_local_time(offline_task_slot["start"]), _to_local_time(offline_task_slot["start"] + wall_clock_duration))
+            print(cols.format(width))
 
             # Accumulate offline_task to day/week totals using TimeslotDuration
             # for clear accounting of online vs offline time

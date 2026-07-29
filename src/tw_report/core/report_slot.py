@@ -88,6 +88,83 @@ class DisplayColumns:
 
         return full_line.rstrip()
 
+    @classmethod
+    def from_slot_dict(cls, slot: Dict[str, Any], start_time: datetime, end_time: datetime) -> "DisplayColumns":
+        """Create DisplayColumns from a dict-based slot (from timeline rendering pipeline).
+
+        Args:
+            slot: Dictionary with keys like type, project, task, duration, afk_duration, etc.
+            start_time: Start time (local timezone)
+            end_time: End time (local timezone)
+
+        Returns:
+            DisplayColumns formatted and ready to display
+        """
+        from tw_report.utils.formatting import format_duration, abbreviate_project_path
+        from tw_report.core.filtering import NO_PROJECT, NO_TASK
+
+        # Format time range
+        time_range = f"{start_time.strftime('%H:%M')} - {end_time.strftime('%H:%M')}"
+
+        # Format project and task using the same abbreviation logic as rendering
+        project_name = slot.get("project", NO_PROJECT)
+        task_name = slot.get("task", NO_TASK)
+
+        # Use abbreviate_project_path for consistent formatting
+        abbrev_project = abbreviate_project_path(
+            project_name.replace(".", " > ") if project_name != NO_PROJECT else NO_PROJECT,
+            task_name
+        )
+        project_display = f"▶ {abbrev_project}"[:30] if abbrev_project else ""
+
+        # Task display (with space before for alignment)
+        if task_name and task_name != NO_TASK:
+            task_display = f"▶▶ {task_name}"[:32]
+        else:
+            task_display = " " if abbrev_project else ""
+
+        # Format duration columns
+        offline_time = ""
+        if slot.get("offline_extension_duration"):
+            offline_dur = slot["offline_extension_duration"]
+            if isinstance(offline_dur, timedelta) and offline_dur.total_seconds() > 0:
+                offline_time = f"({format_duration(offline_dur)})"
+
+        afk_time = ""
+        if slot.get("afk_duration"):
+            afk_dur = slot["afk_duration"]
+            if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() > 0:
+                afk_time = f"({format_duration(afk_dur)})"
+
+        # Active time (use actual_duration if available, else duration)
+        active_duration = slot.get("actual_duration") or slot.get("duration")
+        if active_duration:
+            if isinstance(active_duration, timedelta):
+                active_time = format_duration(active_duration)
+            else:
+                active_time = str(active_duration)
+        else:
+            active_time = ""
+
+        # Productivity metric
+        productivity = ""
+        if slot.get("productive_duration"):
+            prod_dur = slot["productive_duration"]
+            if isinstance(prod_dur, timedelta) and isinstance(active_duration, timedelta):
+                if active_duration.total_seconds() > 0 and prod_dur.total_seconds() > 0:
+                    pct = (prod_dur.total_seconds() / active_duration.total_seconds()) * 100
+                    productivity = f"[prod {pct:>3.0f}%]"
+
+        return cls(
+            time_range=time_range,
+            project=project_display,
+            task=task_display,
+            offline_time=offline_time,
+            afk_time=afk_time,
+            active_time=active_time,
+            productivity=productivity,
+        )
+
 
 @dataclass
 class ReportTimelineSlot:
