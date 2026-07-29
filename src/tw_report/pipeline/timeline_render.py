@@ -1013,6 +1013,7 @@ def print_timeline_report(
 
             from tw_report.core.report_slot import DisplayColumns
             cols = DisplayColumns.from_slot_dict(slot_for_display, slot_start_local, slot_end_local)
+
             print(cols.format(width))
 
             # Render detail (categories/apps/titles for detail_level >= 3)
