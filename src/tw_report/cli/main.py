@@ -799,14 +799,31 @@ def main():
 
                     # Use canonical builder from OfflineTaskProcessor
                     # This ensures all offline_task slots are built consistently with proper
-                    # event_duration field (critical for TimelineSlot validation).
+                    # event_duration field (critical for identification via is_offline_task).
                     task_events_for_key = offline_event_groups.get(key, [])
                     if task_events_for_key:
-                        offline_slot_dict = offline_processor.get_synthetic_slot(
+                        offline_slot_rts = offline_processor.get_synthetic_slot(
                             key, task_events_for_key
                         )
-                        if offline_slot_dict:  # Builder returns {} if events is empty
-                            timeline.add_from_dict(offline_slot_dict)
+                        if offline_slot_rts and offline_slot_rts.duration > timedelta(0):
+                            # Convert ReportTimelineSlot back to TimelineSlot for Timeline compatibility
+                            # (temporary bridge during migration to new model)
+                            from tw_report.core.timeline import TimelineSlot
+
+                            ts = TimelineSlot(
+                                type="offline_task",
+                                start=offline_slot_rts.start,
+                                end=offline_slot_rts.end,
+                                duration=offline_slot_rts.duration,
+                                actual_duration=offline_slot_rts.actual_duration,
+                                productive_duration=offline_slot_rts.productive_duration,
+                                project=offline_slot_rts.project,
+                                task=offline_slot_rts.task,
+                                tags=offline_slot_rts.tags,
+                                categories=offline_slot_rts.categories,
+                                event_duration=offline_slot_rts.event_duration,
+                            )
+                            timeline.add_from_dict(ts.to_dict())
 
         # Timeline auto-sorts on insertion, no need to manually sort
 

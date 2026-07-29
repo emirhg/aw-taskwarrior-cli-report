@@ -56,6 +56,8 @@ from tw_report.core.categories import build_categories_from_window_events
 
 if TYPE_CHECKING:
     from tw_report.core.filtering import EventFilter
+    from tw_report.core.aw_events import TaskWarriorEvent
+    from tw_report.core.report_slot import ReportTimelineSlot
 
 
 class OfflineTaskProcessor:
@@ -743,15 +745,12 @@ class OfflineTaskProcessor:
 
         return window_covered_duration, categories
 
-    def get_synthetic_slot(self, key: Tuple[str, str], task_events_for_key: List[Event]) -> Dict:
+    def get_synthetic_slot(self, key: Tuple[str, str], task_events_for_key: List[Event]) -> "ReportTimelineSlot":
         """
-        Build a synthetic slot for an OFFLINE task.
+        Build a synthetic ReportTimelineSlot for an OFFLINE task.
 
         CANONICAL BUILDER: This is now the single source of truth for offline_task slots.
-        Previously, offline_task dicts were hand-built in multiple places (tw-report.py
-        and this method), leading to inconsistencies (missing actual_duration/event_duration).
-        Consolidating here ensures all offline_task slots are built consistently and pass
-        TimelineSlot validation.
+        Returns a properly-formed ReportTimelineSlot with all required fields set.
 
         SIGNATURE FIX: Changed from (project: str, task: str, ...) to (key: Tuple, ...).
         The old signature broke for split groups (3-tuple keys like (project, task, group_idx))
@@ -764,18 +763,26 @@ class OfflineTaskProcessor:
             task_events_for_key: List of task events for this (project, task)
 
         Returns:
-            Synthetic slot dictionary with all required TimelineSlot fields:
-            - type, start, end, duration, actual_duration, event_duration, project, task
-            The presence of actual_duration and event_duration is critical: without them,
-            TimelineSlot.__post_init__ validation fails, immediately surfacing data issues.
+            ReportTimelineSlot with is_offline_task predicate satisfied:
+            - event_duration must be set (to distinguish from regular/afk slots)
+            - task_event must be set (to identify the task/project)
 
-        HARDENING: Added actual_duration and event_duration fields. These were completely
-        absent from the original implementation, causing silent data loss. Now all
-        offline_task slots pass through TimelineSlot validation, preventing future bugs
-        from being hidden by "friendly" defaults.
+        HARDENING: Now returns typed ReportTimelineSlot with full validation.
+        The presence of event_duration is critical: it's the discriminator for is_offline_task.
         """
         if not task_events_for_key:
-            return {}
+            # Return empty slot or raise — for now, return None and let caller handle it
+            from tw_report.core.report_slot import ReportTimelineSlot
+
+            return ReportTimelineSlot(
+                start=datetime.now(),
+                end=datetime.now(),
+                duration=timedelta(0),
+                actual_duration=timedelta(0),
+            )
+
+        from tw_report.core.report_slot import ReportTimelineSlot
+        from tw_report.core.aw_events import TaskWarriorEvent
 
         project, task = key[0], key[1]
         start_times = [e.timestamp.astimezone() for e in task_events_for_key]
@@ -784,9 +791,20 @@ class OfflineTaskProcessor:
         slot_end = slot_start + slot_duration
         online_time = self.offline_event_durations.get(key, timedelta(0))
 
-        # Get tags from any event in this group
-        raw_tags = task_events_for_key[0].data.get("tags", [])
+        # Create task_event from the first task event
+        first_event = task_events_for_key[0]
+        raw_tags = first_event.data.get("tags", [])
         task_tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+
+        task_event = TaskWarriorEvent(
+            timestamp=slot_start,
+            duration=slot_duration,
+            data={
+                "project": project,
+                "title": task,
+                "tags": task_tags,
+            }
+        )
 
         # Use reconciled categories (window events + offline remainder) if available,
         # otherwise fall back to a flat "Offline" bucket for backward compatibility
@@ -799,16 +817,26 @@ class OfflineTaskProcessor:
             }
         ])
 
-        return {
-            "type": "offline_task",
-            "start": slot_start,
-            "end": slot_end,
-            "duration": slot_duration,
-            "actual_duration": online_time,
-            "event_duration": online_time,
-            "productive_duration": timedelta(0),
-            "project": project,
-            "task": task,
-            "tags": task_tags,
-            "categories": categories,
-        }
+        slot = ReportTimelineSlot(
+            start=slot_start,
+            end=slot_end,
+            duration=slot_duration,
+            actual_duration=online_time,
+            productive_duration=timedelta(0),
+            task_event=task_event,
+            window_events=[],
+            afk_events=[],
+            event_duration=online_time,  # CRITICAL: discriminator for is_offline_task
+            tags=task_tags,
+            categories=categories,
+        )
+
+        # Validate that offline_task predicate is satisfied
+        assert slot.is_offline_task, (
+            f"OfflineTaskProcessor.get_synthetic_slot: "
+            f"Slot does not satisfy is_offline_task predicate. "
+            f"task_event={slot.task_event is not None}, "
+            f"event_duration={slot.event_duration}"
+        )
+
+        return slot
