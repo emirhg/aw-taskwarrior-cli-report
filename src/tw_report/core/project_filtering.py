@@ -140,11 +140,14 @@ def should_skip_window_bucket(
 ) -> bool:
     """Determine if window bucket queries can be skipped.
 
-    Window bucket queries can be skipped when:
-    1. Filtering by project only (don't need app-level details)
-    2. Detail level is 1-2 (don't need category/app/title breakdown)
-    3. Not filtering by app (which requires window events)
-    4. Using timeline mode (day/week/month/year), not hierarchical (project)
+    Window bucket queries can be skipped when detail_level is 1-2 AND:
+    - Not filtering by app (which requires window events to check category match)
+    - Using timeline mode (day/week/month/year), not hierarchical (project grouping)
+
+    Window bucket queries MUST be fetched when:
+    - detail_level >= 3 (need category/app/title breakdown)
+    - Filtering by app (need window events to match against)
+    - Using hierarchical/project grouping mode
 
     Args:
         args: Parsed command-line arguments
@@ -155,32 +158,30 @@ def should_skip_window_bucket(
         True if window bucket can be safely skipped, False otherwise
 
     Examples:
-        >>> # Can skip window bucket: project filter + timeline mode + detail 1
+        >>> # Can skip: detail 1-2 + timeline mode + no app filter
         >>> should_skip_window_bucket(args, detail_level=1, grouping_mode="day")
         True
 
-        >>> # Cannot skip: filtering by app requires window events
+        >>> # Cannot skip: detail_level >= 3 always needs windows
+        >>> should_skip_window_bucket(args, detail_level=3, grouping_mode="day")
+        False
+
+        >>> # Cannot skip: app filter requires window events
         >>> should_skip_window_bucket(args, detail_level=1, grouping_mode="day")
         False  # if args.app is set
     """
-    # Can only skip if timeline mode (day/week/month/year), not hierarchical (project)
-    if grouping_mode == "project":
-        return False
-
-    # Can't skip if filtering by app (requires window events)
-    if args.app:
-        return False
-
     # Can't skip if detail level requires app-level data (3+)
     if detail_level >= 3:
         return False
 
-    # Can skip if:
-    # 1. Filtering by project (project-focused query)
-    # 2. OR filtering by task (task-focused query)
-    # 3. OR using search term on tasks
-    has_project_filter = args.project is not None
-    has_task_filter = args.task is not None
-    has_search = getattr(args, "search", None) is not None
+    # Can't skip if filtering by app (requires window events to evaluate category)
+    if args.app:
+        return False
 
-    return has_project_filter or has_task_filter or has_search
+    # Can't skip if using hierarchical/project grouping mode
+    # (may need to compute project tracking % across activities)
+    if grouping_mode == "project":
+        return False
+
+    # Can skip for detail_level 1-2 in timeline mode with no app filter
+    return True
