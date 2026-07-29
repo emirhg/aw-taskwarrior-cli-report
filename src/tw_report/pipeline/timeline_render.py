@@ -572,6 +572,14 @@ def print_timeline_report(
         header_line = header_left_section + "  " + header_right_section
     else:
         header_line = header_left_section + (" " * left_padding) + "  " + header_right_section
+
+    # Pad header to standard data line length (to ensure visual alignment)
+    # Data lines are typically 135+ bytes due to UTF-8 multi-byte characters
+    # Ensure header is at least as long as a typical data line for proper visual alignment
+    min_line_length = 135
+    if len(header_line) < min_line_length:
+        header_line = header_line + " " * (min_line_length - len(header_line))
+
     print(header_line)
 
     # Group slots by (iso_week_key, date)
