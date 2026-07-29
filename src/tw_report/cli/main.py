@@ -847,6 +847,15 @@ def main():
 
         # Timeline auto-sorts on insertion, no need to manually sort
 
+        # FIX: Fetch window events if not already loaded, needed for AFK false positive detection
+        # Even if optimization skipped windows earlier, we need them to detect offline periods
+        if not window_events and context.afk_events:
+            from tw_report.core.aw_events import WindowEvent
+            window_bucket = get_bucket_id("window")
+            window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
+            for event in window_events:
+                categorize_event(event, compiled_categories)
+
         # Generate AFK and OFFLINE slots from uncovered AFK events (not associated with any task)
         # Delegates false-positive detection (system offline vs. user idle) to AFKEvent.split_by_coverage()
         afk_offline_slots = generate_afk_and_offline_slots(

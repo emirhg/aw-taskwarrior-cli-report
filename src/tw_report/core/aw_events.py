@@ -100,6 +100,7 @@ class AFKEvent(Event):
             → offline_portion: (10:00-11:00)
             → online_afk_portions: []
         """
+        import sys
         if min_off_duration is None:
             min_off_duration = SYSTEM_OFF_MINIMUM_DURATION
 
@@ -156,13 +157,28 @@ class AFKEvent(Event):
             gaps.append((last_window_end, afk_end))
 
         # Check if complement is a single continuous block
+        import sys
         if len(gaps) != 1:
-            # Fragmented gaps: system was on, user was idle
-            return {
-                "is_false_positive": True,
-                "offline_portion": None,
-                "online_afk_portions": [(afk_start, afk_end)],
-            }
+            # Multiple gaps detected. Classify based on gap structure:
+            # - If gaps are small (< 5 min each): system was on, user was idle (fragmented work)
+            # - If there's ONE large gap (> 1 hour): system was off, came back online briefly
+            largest_gap_duration = max((g[1] - g[0] for g in gaps), default=timedelta(0))
+
+            if largest_gap_duration > timedelta(hours=1):
+                # System was off - use largest gap as offline period
+                offline_start, offline_end = max(gaps, key=lambda g: g[1] - g[0])
+                return {
+                    "is_false_positive": False,
+                    "offline_portion": (offline_start, offline_end),
+                    "online_afk_portions": [(g[0], g[1]) for g in gaps if (g[1] - g[0]) < timedelta(hours=1)],
+                }
+            else:
+                # All gaps small: system was on, user was idle (fragmented work periods)
+                return {
+                    "is_false_positive": True,
+                    "offline_portion": None,
+                    "online_afk_portions": [(afk_start, afk_end)],
+                }
 
         # Single continuous gap: check if it meets minimum duration
         gap_start, gap_end = gaps[0]
