@@ -566,8 +566,10 @@ def print_timeline_report(
 
     header_left_section = header_text + (" " * padding_to_left_section)
 
-    # Build right section with labels (same widths as DisplayColumns)
-    header_right_section = ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) + ljust_display("ACTIVE", 8)
+    # Build right section with labels (MUST match DisplayColumns widths exactly)
+    # DisplayColumns uses: OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 46
+    header_right_section = (ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) +
+                            ljust_display("ACTIVE", 8) + ljust_display("", 14))
 
     # Calculate dynamic padding to terminal width (SAME AS DisplayColumns)
     terminal_width = width
