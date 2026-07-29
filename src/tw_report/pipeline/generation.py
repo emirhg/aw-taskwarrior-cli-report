@@ -194,18 +194,17 @@ def generate_untracked_gap_events(
 
         if not overlapping_tasks:
             # Entire not-afk period is uncovered by any task
+            # Partition gap into ACTIVE/AFK portions
             if not_afk_event.duration >= MIN_EVENT_DURATION:
-                synthetic_event = Event(
-                    timestamp=not_afk_start,
-                    duration=not_afk_event.duration,
-                    data={},
-                )
-                result.append(ReportEvent(
-                    event=synthetic_event,
-                    project=NO_PROJECT,
-                    task=NO_TASK,
-                    active_task=None,
-                ))
+                partitioned = _partition_untracked_gap(not_afk_event, afk_events)
+                for gap_portion in partitioned:
+                    if gap_portion.duration >= MIN_EVENT_DURATION:
+                        result.append(ReportEvent(
+                            event=gap_portion,
+                            project=NO_PROJECT,
+                            task=NO_TASK,
+                            active_task=None,
+                        ))
             continue
 
         # Sort task events by start time
@@ -231,34 +230,42 @@ def generate_untracked_gap_events(
             if current_pos < covered_start:
                 gap_duration = covered_start - current_pos
                 if gap_duration >= MIN_EVENT_DURATION:
-                    synthetic_event = Event(
+                    gap_event = Event(
                         timestamp=current_pos,
                         duration=gap_duration,
                         data={},
                     )
-                    result.append(ReportEvent(
-                        event=synthetic_event,
-                        project=NO_PROJECT,
-                        task=NO_TASK,
-                        active_task=None,
-                    ))
+                    # Partition gap into ACTIVE/AFK portions
+                    partitioned = _partition_untracked_gap(gap_event, afk_events)
+                    for gap_portion in partitioned:
+                        if gap_portion.duration >= MIN_EVENT_DURATION:
+                            result.append(ReportEvent(
+                                event=gap_portion,
+                                project=NO_PROJECT,
+                                task=NO_TASK,
+                                active_task=None,
+                            ))
             current_pos = max(current_pos, covered_end)
 
         # Gap after all covered intervals
         if current_pos < not_afk_end:
             gap_duration = not_afk_end - current_pos
             if gap_duration >= MIN_EVENT_DURATION:
-                synthetic_event = Event(
+                gap_event = Event(
                     timestamp=current_pos,
                     duration=gap_duration,
                     data={},
                 )
-                result.append(ReportEvent(
-                    event=synthetic_event,
-                    project=NO_PROJECT,
-                    task=NO_TASK,
-                    active_task=None,
-                ))
+                # Partition gap into ACTIVE/AFK portions
+                partitioned = _partition_untracked_gap(gap_event, afk_events)
+                for gap_portion in partitioned:
+                    if gap_portion.duration >= MIN_EVENT_DURATION:
+                        result.append(ReportEvent(
+                            event=gap_portion,
+                            project=NO_PROJECT,
+                            task=NO_TASK,
+                            active_task=None,
+                        ))
 
     return result
 
