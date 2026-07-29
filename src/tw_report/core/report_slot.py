@@ -115,11 +115,12 @@ class DisplayColumns:
             project_name.replace(".", " > ") if project_name != NO_PROJECT else NO_PROJECT,
             task_name
         )
-        project_display = f"▶ {abbrev_project}"[:30] if abbrev_project else ""
+        # Project column: 28 chars (including ▶ prefix)
+        project_display = f"▶ {abbrev_project}"[:28] if abbrev_project else ""
 
-        # Task display (with space before for alignment)
+        # Task column: 35 chars (including ▶▶ prefix)
         if task_name and task_name != NO_TASK:
-            task_display = f"▶▶ {task_name}"[:32]
+            task_display = f"▶▶ {task_name}"[:35]
         else:
             task_display = " " if abbrev_project else ""
 

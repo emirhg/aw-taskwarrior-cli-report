@@ -549,25 +549,14 @@ def print_timeline_report(
     if not slots:
         print("No activity found for the specified period.")
 
-    # Print date/week header and duration column labels with proper alignment
-    print("Wk  Date       Day")
-    # Create label line using same alignment logic as DisplayColumns.format()
-    # Left section: same width as data rows (7 indent + 11 time + 2 sep + 28 project + 2 sep + 35 task)
-    left_label_section = " " * (7 + 11 + 2 + 28 + 2 + 35)  # 85 chars of padding
-    # Right section: duration labels with same column widths as data
-    offline_label = "OFFLINE".ljust(12)
-    afk_label = "AFK".ljust(12)
-    active_label = "ACTIVE".ljust(8)
-    productivity_label = " " * 14  # No label for productivity
-    right_label_section = offline_label + afk_label + active_label + productivity_label
-    # Right-align to terminal width like DisplayColumns.format()
-    terminal_width = width
-    left_padding = terminal_width - len(left_label_section) - len(right_label_section) - 2
-    if left_padding < 0:
-        label_line = left_label_section + "  " + right_label_section
-    else:
-        label_line = left_label_section + (" " * left_padding) + "  " + right_label_section
-    print(label_line)
+    # Print date/week header with duration column labels on same line
+    # Header: "Wk  Date       Day" (18 chars) + spacing + "OFFLINE  AFK  ACTIVE"
+    header_left = "Wk  Date       Day"
+    # Padding to reach the duration columns (7 indent + 11 time + 2 sep + 28 project + 2 sep + 35 task = 85)
+    header_padding = " " * (7 + 11 + 2 + 28 + 2 + 35 - len(header_left))
+    # Duration column labels
+    header_labels = "OFFLINE".ljust(12) + "AFK".ljust(12) + "ACTIVE".ljust(8)
+    print(header_left + header_padding + header_labels)
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
@@ -901,9 +890,10 @@ def print_timeline_report(
                 productivity_col = ("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]").ljust(14) if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else " " * 14
 
                 right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
-                left_part = f"{indent}{day_total_label}".ljust(70)
-                full_line = left_part + right_section
-                print(full_line.rstrip())
+                # Align day total line with data rows: 85 chars for left section (7 indent + 11 time + 2 sep + 28 project + 2 sep + 35 task)
+                left_part = f"{indent}{day_total_label}".ljust(85)
+                full_line = left_part + "  " + right_section
+                print(full_line)
                 print()
             daily_metrics = PeriodMetrics()
             date_str = group_date.strftime("%Y-%m-%d")
