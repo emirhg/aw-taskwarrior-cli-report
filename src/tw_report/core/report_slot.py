@@ -48,7 +48,7 @@ class DisplayColumns:
     productivity: str     # "[prod XXX%]" if present, else blank (12 chars)
 
     def format(self, terminal_width: int = 120) -> str:
-        """Format columns into a single line with fixed positions.
+        """Format columns into a single line with dynamic project/task sizing.
 
         CRITICAL: This format is the ONLY source of truth for column widths and structure.
         The timeline header in timeline_render.py MUST match these exact widths or columns
@@ -122,14 +122,12 @@ class DisplayColumns:
         """
         from tw_report.utils.formatting import display_width, ljust_display
 
-        # Build left section (identification) using display width
+        # Build left section (identification) using dynamic sizing (no fixed column widths)
         # Time range is always "HH:MM - HH:MM" = 13 characters
         indent = " " * 7
         time_part = ljust_display(self.time_range, 13)  # "HH:MM - HH:MM" = 13 chars
-        project_part = ljust_display(self.project, 28)
-        task_part = ljust_display(self.task, 35)
 
-        left_section = f"{indent}{time_part}  {project_part}  {task_part}"
+        left_section = f"{indent}{time_part}  {self.project}  {self.task}"
 
         # Build right section (duration breakdown)
         # Each column preserves its width even when empty
@@ -182,12 +180,12 @@ class DisplayColumns:
             project_name.replace(".", " > ") if project_name != NO_PROJECT else NO_PROJECT,
             task_name
         )
-        # Project column: 28 chars (including ▶ prefix)
-        project_display = f"▶ {abbrev_project}"[:28] if abbrev_project else ""
+        # Project display (no truncation cap)
+        project_display = f"▶ {abbrev_project}" if abbrev_project else ""
 
-        # Task column: 35 chars (including ▶▶ prefix)
+        # Task display (no truncation cap)
         if task_name and task_name != NO_TASK:
-            task_display = f"▶▶ {task_name}"[:35]
+            task_display = f"▶▶ {task_name}"
         else:
             task_display = " " if abbrev_project else ""
 
