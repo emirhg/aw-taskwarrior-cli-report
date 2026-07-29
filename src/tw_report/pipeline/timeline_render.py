@@ -975,6 +975,13 @@ def print_timeline_report(
                 # Calculation: 7 indent + "Day total:   " (13 chars) + dynamic padding to reach 87
                 left_part = ljust_display(f"{indent}{day_total_label}", 87)
                 # Use SAME dynamic padding formula as DisplayColumns.format() and header construction
+                # 2026-07-29 Bug Fix: This calculation was missing, causing misalignment on wide terminals
+                # On wide terminals (150+ chars), without this padding:
+                #   - Header labels appeared at position X based on terminal_width
+                #   - Day total values appeared at position Y (87+2+46=135) far from header labels
+                #   - Visual result: values appeared to the right of their column labels
+                # Solution: Calculate padding based on actual terminal width, same as DisplayColumns
+                # Formula: dynamic_padding = terminal_width - left_width - right_width - 2-char separator
                 left_part_width = display_width(left_part)
                 right_section_width = display_width(right_section)
                 dynamic_left_padding = width - left_part_width - right_section_width - 2
