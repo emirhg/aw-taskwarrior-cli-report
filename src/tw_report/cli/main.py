@@ -6,11 +6,14 @@ Handles all argument parsing, data fetching, processing, and report generation.
 
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from aw_client import ActivityWatchClient
 from aw_core.models import Event
 from aw_transform import filter_keyvals
+
+if TYPE_CHECKING:
+    from tw_report.core.aw_events import WindowEvent, AFKEvent, TaskWarriorEvent
 
 from tw_report.cli.args import parse_args, parse_positional_args
 from tw_report.core.categories import (
@@ -114,17 +117,21 @@ def _fetch_events_for_ranges(
     client: ActivityWatchClient,
     bucket_name: str,
     time_ranges: List[Tuple[datetime, datetime]],
+    event_cls: type = Event,
 ) -> List[Event]:
     """Fetch events from specified bucket for multiple time ranges.
 
     More efficient than fetching for entire period when events are sparse.
+
+    Args:
+        event_cls: Event subclass to use for re-wrapping events (WindowEvent, AFKEvent, TaskWarriorEvent)
     """
     events = []
     bucket_id = get_bucket_id(bucket_name)
     for start, end in time_ranges:
         # Add small buffer (1 second) to ensure boundary events are included
         buffer = timedelta(seconds=1)
-        range_events = get_events(client, bucket_id, start - buffer, end + buffer)
+        range_events = get_events(client, bucket_id, start - buffer, end + buffer, event_cls=event_cls)
         events.extend(range_events)
     return events
 
@@ -296,8 +303,9 @@ def main():
         # Fetch all AFK once (fast), then filter in-memory to task time windows (instant)
         # This gets best of both worlds: single fast query + small dataset to process
         window_events = []
+        from tw_report.core.aw_events import AFKEvent
         afk_bucket = get_bucket_id("afk")
-        afk_events = get_events(client, afk_bucket, start_time, end_time)
+        afk_events = get_events(client, afk_bucket, start_time, end_time, event_cls=AFKEvent)
 
         # Filter AFK to only events overlapping task time ranges (if available)
         if task_time_ranges:
@@ -315,15 +323,18 @@ def main():
         if task_time_ranges:
             # Smart optimization: only fetch windows/AFK for times when tasks exist
             # This dramatically reduces data volume for sparse task data (e.g., :year, :all)
-            window_events = _fetch_events_for_ranges(client, "window", task_time_ranges)
+            from tw_report.core.aw_events import WindowEvent
+            window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
             # Categorize all window events (including those during AFK periods)
             for event in window_events:
                 categorize_event(event, compiled_categories)
-            afk_events = _fetch_events_for_ranges(client, "afk", task_time_ranges)
+            from tw_report.core.aw_events import AFKEvent
+            afk_events = _fetch_events_for_ranges(client, "afk", task_time_ranges, event_cls=AFKEvent)
         else:
             # Normal: fetch for entire period
+            from tw_report.core.aw_events import WindowEvent
             window_bucket = get_bucket_id("window")
-            window_events = get_events(client, window_bucket, start_time, end_time)
+            window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
 
             # Categorize all window events (including those during AFK periods)
             # This ensures generate_gap_entries can extract categories for AFK slot details
@@ -432,8 +443,9 @@ def main():
         )
         if has_offline_tasks:
             # Fetch windows for OFFLINE validation
+            from tw_report.core.aw_events import WindowEvent
             window_bucket = get_bucket_id("window")
-            window_events = get_events(client, window_bucket, start_time, end_time)
+            window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
 
     # Special case: task-UUID mode or project/task-filter mode (skip window bucket)
     # Convert taskwarrior events directly to canonical events (skip window correlation)
@@ -499,7 +511,8 @@ def main():
             # Re-fetch windows for OFFLINE task reconciliation
             # Optimization: use task_time_ranges if available to avoid fetching entire period
             if task_time_ranges:
-                window_events = _fetch_events_for_ranges(client, "window", task_time_ranges)
+                from tw_report.core.aw_events import WindowEvent
+            window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
             else:
                 window_bucket = get_bucket_id("window")
                 window_events = get_events(client, window_bucket, start_time, end_time)
