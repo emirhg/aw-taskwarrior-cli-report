@@ -332,11 +332,21 @@ class ReportTimelineSlot:
 
     @property
     def is_afk_only(self) -> bool:
-        """True if this is a bare AFK gap: afk_duration==actual_duration and no event_duration."""
+        """True if this is a bare AFK gap: afk_duration==actual_duration, no event_duration, AND no task work.
+
+        A slot is only pure AFK if:
+        1. The AFK duration equals the entire slot duration (all time was idle)
+        2. There's no event_duration (no external recorded work)
+        3. There's NO task_event (this isn't work time with idle periods within it)
+
+        Slots with task_event represent work periods; even if the entire period was AFK,
+        they're "work with idle" not "pure idle", so they should be classified as "regular".
+        """
         return (
             self.afk_duration is not None
             and self.afk_duration == self.actual_duration
             and self.event_duration is None
+            and self.task_event is None  # NEW: Only mark as pure AFK if no work activity
         )
 
     @property
