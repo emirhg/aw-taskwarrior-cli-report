@@ -275,13 +275,13 @@ def format_timeslot_duration(
         - For AFK: "(HH:MM:SS AFK)  HH:MM:SS  [prod XX%]"
     """
     if slot_duration.has_offline() and not slot_duration.has_online():
-        # Offline-only slot (rare case)
+        # Offline-only slot (rare case): show gap with blank padding where duration would be
         offline_gap = slot_duration.offline_gap or timedelta(0)
         offline_str = format_duration(offline_gap)
         if productive_duration and productive_duration.total_seconds() > 0:
             label = "[prod   0%]"  # No online time to measure productivity against
-            return f"({offline_str} OFF)  --:--:--  {label:>11}"
-        return f"({offline_str} OFF)  --:--:--"
+            return f"({offline_str} OFF)  {' ' * 8}  {label:>11}"
+        return f"({offline_str} OFF)  {' ' * 8}"
 
     # Has online_duration (possibly with offline_gap and/or afk_portion)
     online_duration = slot_duration.online_duration or timedelta(0)
