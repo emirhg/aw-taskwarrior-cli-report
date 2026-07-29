@@ -323,11 +323,16 @@ def format_and_print_day_total(daily_metrics, width):
     indent = " " * 7
     day_total_label = "Day total:   "
 
+    # OFFLINE column: show offline_gap without parentheses
     offline_col = ljust_display(
-        (f"({format_duration(daily_metrics.offline_gap)})"
+        (format_duration(daily_metrics.offline_gap)
          if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0
          else ""), 12)
-    afk_col = ljust_display("", 12)
+    # AFK column: show total AFK time from daily_metrics
+    afk_col = ljust_display(
+        (format_duration(daily_metrics.afk_duration)
+         if daily_metrics.afk_duration and daily_metrics.afk_duration.total_seconds() > 0
+         else ""), 12)
     active_col = ljust_display(format_duration(total_day_with_afk), 8)
     productivity_col = ljust_display(
         "  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]"
