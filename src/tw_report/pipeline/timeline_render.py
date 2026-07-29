@@ -1327,8 +1327,8 @@ def print_timeline_report(
             if slot_type == "afk":
                 # AFK slots: pure idle time (100% AFK, still counts as online time)
                 # Online Time = Active Time + AFK Time, so AFK must be included in online total
-                # Display uses: actual_duration
-                afk_duration = s.get("actual_duration", s["duration"])
+                # Use wall-clock duration (same as regular slots) for consistency
+                afk_duration = s["duration"]
                 group_afk_duration += afk_duration
                 # Add to online total (AFK is online, just not active)
                 group_regular_duration += afk_duration
