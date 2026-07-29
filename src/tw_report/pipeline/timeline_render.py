@@ -912,9 +912,17 @@ def print_timeline_report(
         if slot_week != current_week_key:
             # Week changed: print previous week's closing totals
             if current_week_key is not None:
-                # Separator under the three duration columns (OFFLINE 12 + AFK 12 + ACTIVE 8 = 32 chars)
-                # Position: 87 left + 2 separator + 32 dashes = 121 chars
-                separator_line = " " * 89 + "-" * 32
+                # Separator under the three duration columns using SAME dynamic padding as DisplayColumns
+                # CRITICAL: Must account for PRODUCTIVITY column (14 chars) to match DisplayColumns total_right_width (46)
+                # Left section (87) + dynamic padding + separator (2) + dashes (32 for OFFLINE+AFK+ACTIVE) + spaces (14 for PRODUCTIVITY)
+                left_padding_width = 87
+                right_section_width = 46  # OFFLINE 12 + AFK 12 + ACTIVE 8 + PRODUCTIVITY 14 (must match DisplayColumns!)
+                dynamic_padding = width - left_padding_width - right_section_width - 2
+                dashes_for_columns = 32  # Only OFFLINE+AFK+ACTIVE get dashes, PRODUCTIVITY is spaces
+                if dynamic_padding < 0:
+                    separator_line = " " * left_padding_width + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
+                else:
+                    separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
                 print(separator_line)
                 if not prev_date_was_rollup:
                     format_and_print_day_total(daily_metrics, width)
@@ -946,9 +954,17 @@ def print_timeline_report(
         elif group_date != current_date:
             # Date changed within same week: close previous day
             if not prev_date_was_rollup and current_date is not None:
-                # Separator under the three duration columns (OFFLINE 12 + AFK 12 + ACTIVE 8 = 32 chars)
-                # Position: 87 left + 2 separator + 32 dashes = 121 chars
-                separator_line = " " * 89 + "-" * 32
+                # Separator under the three duration columns using SAME dynamic padding as DisplayColumns
+                # CRITICAL: Must account for PRODUCTIVITY column (14 chars) to match DisplayColumns total_right_width (46)
+                # Left section (87) + dynamic padding + separator (2) + dashes (32 for OFFLINE+AFK+ACTIVE) + spaces (14 for PRODUCTIVITY)
+                left_padding_width = 87
+                right_section_width = 46  # OFFLINE 12 + AFK 12 + ACTIVE 8 + PRODUCTIVITY 14 (must match DisplayColumns!)
+                dynamic_padding = width - left_padding_width - right_section_width - 2
+                dashes_for_columns = 32  # Only OFFLINE+AFK+ACTIVE get dashes, PRODUCTIVITY is spaces
+                if dynamic_padding < 0:
+                    separator_line = " " * left_padding_width + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
+                else:
+                    separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
                 print(separator_line)
                 format_and_print_day_total(daily_metrics, width)
                 print()
@@ -1223,8 +1239,16 @@ def print_timeline_report(
 
     # Print final totals
     if slots:
-        # Separator under the three duration columns (OFFLINE 12 + AFK 12 + ACTIVE 8 = 32 chars)
-        separator_line = " " * 89 + "-" * 32
+        # Separator under the three duration columns using SAME dynamic padding as DisplayColumns
+        # CRITICAL: Must account for PRODUCTIVITY column (14 chars) to match DisplayColumns total_right_width (46)
+        left_padding_width = 87
+        right_section_width = 46  # OFFLINE 12 + AFK 12 + ACTIVE 8 + PRODUCTIVITY 14 (must match DisplayColumns!)
+        dynamic_padding = width - left_padding_width - right_section_width - 2
+        dashes_for_columns = 32  # Only OFFLINE+AFK+ACTIVE get dashes, PRODUCTIVITY is spaces
+        if dynamic_padding < 0:
+            separator_line = " " * left_padding_width + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
+        else:
+            separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
         print(separator_line)
         if not prev_date_was_rollup:
             format_and_print_day_total(daily_metrics, width)
