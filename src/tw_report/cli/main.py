@@ -19,7 +19,13 @@ from tw_report.core.categories import (
     get_category_score,
     load_categories,
 )
-from tw_report.core.events import get_bucket_id, get_events
+from tw_report.core.events import (
+    get_bucket_id,
+    get_events,
+    get_afk_window_coverage,
+    classify_afk_slot,
+    split_afk_by_window_coverage,
+)
 from tw_report.core.filtering import EventFilter, NO_PROJECT, NO_TASK
 from tw_report.core.offline import OfflineTaskProcessor
 from tw_report.core.period import parse_period
@@ -787,6 +793,69 @@ def main():
         # FIX: --exclude-afk removes AFK period slots from the timeline
         if args.exclude_afk:
             gap_entries = [g for g in gap_entries if g.get("type") != "afk"]
+
+        # BUGFIX: Detect false-positive AFK (system was offline)
+        # Only for AFK longer than 10 minutes
+        AFK_FALSE_POSITIVE_THRESHOLD = timedelta(minutes=10)
+        false_positive_afk_periods = []
+
+        if context.afk_events:
+            for afk_event in context.afk_events:
+                if afk_event.data.get("status") != "afk":
+                    continue
+
+                # Only check AFK longer than threshold
+                if afk_event.duration < AFK_FALSE_POSITIVE_THRESHOLD:
+                    continue
+
+                # Calculate coverage against window events
+                # If no windows at all, coverage is 0% (system was offline)
+                if not window_events:
+                    coverage = 0.0
+                else:
+                    coverage = get_afk_window_coverage(afk_event, window_events)
+                classification = classify_afk_slot(coverage)
+
+                if classification == "OFFLINE":
+                    # Create offline_task for this false-positive AFK
+                    offline_entry = {
+                        "type": "offline_task",
+                        "start": afk_event.timestamp,
+                        "end": afk_event.timestamp + afk_event.duration,
+                        "duration": afk_event.duration,
+                        "actual_duration": timedelta(0),
+                        "event_duration": timedelta(0),
+                        "productive_duration": timedelta(0),
+                        "project": "No project assigned",
+                        "task": "System Offline",
+                        "tags": [],
+                        "categories": [],
+                    }
+                    gap_entries.append(offline_entry)
+                    false_positive_afk_periods.append((afk_event.timestamp, afk_event.timestamp + afk_event.duration))
+
+        # Filter out AFK slots that match false-positive periods
+        if false_positive_afk_periods and gap_entries:
+            filtered_gap_entries = []
+            for g in gap_entries:
+                if g.get("type") != "afk":
+                    filtered_gap_entries.append(g)
+                else:
+                    # Check if this AFK matches a false-positive period
+                    gap_start = g.get("start")
+                    gap_end = gap_start + g.get("duration", timedelta(0)) if gap_start else None
+
+                    is_false_positive = False
+                    for fp_start, fp_end in false_positive_afk_periods:
+                        if gap_start and abs((gap_start - fp_start).total_seconds()) < 1:
+                            if gap_end and abs((gap_end - fp_end).total_seconds()) < 1:
+                                is_false_positive = True
+                                break
+
+                    if not is_false_positive:
+                        filtered_gap_entries.append(g)
+
+            gap_entries = filtered_gap_entries
 
         # BUGFIX: Remove AFK slots for OFFLINE-tagged tasks to prevent overlap with OFFLINE synthetic slots
         # When a user is AFK during an OFFLINE-tagged task, the OFFLINE synthetic slot already

@@ -8,8 +8,8 @@ typed exceptions and structured logging.
 
 import logging
 import platform
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta
+from typing import List, Tuple
 
 from aw_core.models import Event
 from aw_client import ActivityWatchClient
@@ -69,3 +69,120 @@ def get_events(
             exc_info=True,
         )
         return []
+
+
+def get_afk_window_coverage(
+    afk_event: Event,
+    window_events: List[Event]
+) -> float:
+    """Calculate percentage of AFK period covered by window events.
+
+    Used to detect false-positive AFK: when system is powered off but
+    AFK watcher continues reporting idle time, window coverage will be
+    minimal (<5%). This indicates the system was actually offline.
+
+    Args:
+        afk_event: AFK bucket event to analyze
+        window_events: List of window bucket events to check for overlap
+
+    Returns:
+        float: Coverage percentage (0.0 to 100.0)
+            - 0.0: No window activity during AFK (system was offline)
+            - <5%: Minimal coverage, likely false positive (system was offline)
+            - ≥5%: Real online AFK time (user was idle but system was running)
+            - 100.0: Window activity for entire AFK period (pure idle)
+    """
+    if afk_event.duration == timedelta(0):
+        return 0.0
+
+    afk_start = afk_event.timestamp
+    afk_end = afk_event.timestamp + afk_event.duration
+
+    covered_time = timedelta(0)
+    for w in window_events:
+        w_start = w.timestamp
+        w_end = w_start + w.duration
+
+        # Calculate overlap between window event and AFK period
+        overlap_start = max(w_start, afk_start)
+        overlap_end = min(w_end, afk_end)
+
+        if overlap_start < overlap_end:
+            covered_time += overlap_end - overlap_start
+
+    return (covered_time.total_seconds() / afk_event.duration.total_seconds()) * 100
+
+
+def classify_afk_slot(coverage_percent: float, threshold: float = 5.0) -> str:
+    """Classify AFK slot as ONLINE_AFK or OFFLINE based on window coverage.
+
+    When a system comes online, window logger may record activity before
+    AFK tracker recognizes the system is back. This creates false-positive
+    AFK detection with low window coverage.
+
+    Args:
+        coverage_percent: Percentage of AFK period with window events (0-100)
+        threshold: Coverage % below which AFK is classified as OFFLINE (default 5%)
+
+    Returns:
+        "ONLINE_AFK": Real online idle time (coverage >= threshold)
+        "OFFLINE": False positive, system was powered off (coverage < threshold)
+    """
+    return "ONLINE_AFK" if coverage_percent >= threshold else "OFFLINE"
+
+
+def split_afk_by_window_coverage(
+    afk_event: Event,
+    window_events: List[Event]
+) -> Tuple[timedelta, timedelta]:
+    """Split AFK slot into offline and online-AFK portions based on window activity.
+
+    When system transitions from offline to online, window logger records
+    activity before AFK tracker recognizes the system is back. This splits
+    the AFK period at the first window event:
+
+    - Portion before first window = OFFLINE (system was powered off)
+    - Portion from first window onward = ONLINE_AFK (real idle time)
+
+    Example:
+    - AFK: 01:05:42 - 11:16:42 (10:11:00 total)
+    - First window event: 11:16:25
+    - Result: offline=10:10:43, online_afk=0:00:17
+
+    Args:
+        afk_event: AFK bucket event to split
+        window_events: List of window bucket events
+
+    Returns:
+        Tuple of (offline_duration, online_afk_duration)
+            - offline_duration: Time before any window activity (system was off)
+            - online_afk_duration: Time from first window onward (real idle)
+            - Sum always equals afk_event.duration
+    """
+    afk_start = afk_event.timestamp
+    afk_end = afk_event.timestamp + afk_event.duration
+
+    # Find earliest window event that overlaps or touches this AFK period
+    earliest_window = None
+    for w in window_events:
+        w_start = w.timestamp
+        if w_start < afk_end:  # Window overlaps or touches AFK
+            if earliest_window is None or w_start < earliest_window.timestamp:
+                earliest_window = w
+
+    if earliest_window is None:
+        # No windows during AFK = entire period is offline
+        return (afk_event.duration, timedelta(0))
+
+    # Split at first window event
+    first_window_start = earliest_window.timestamp
+
+    if first_window_start <= afk_start:
+        # Window started before or at AFK start, no pure-offline portion
+        return (timedelta(0), afk_event.duration)
+
+    # Normal split: pure-offline portion + online-AFK remainder
+    offline_duration = first_window_start - afk_start
+    online_afk_duration = afk_end - first_window_start
+
+    return (offline_duration, online_afk_duration)
