@@ -236,6 +236,8 @@ def main():
     # This dramatically reduces data volume for sparse task data.
     task_events_early = None
     task_time_ranges = None
+    task_events = None  # Will be populated later; used for window-fetch decision
+
     if task_uuid and not args.no_taskwarrior:
         # Fetch task events first to determine what time windows we care about
         task_bucket = get_bucket_id("taskwarrior")
@@ -246,16 +248,6 @@ def main():
             # Extract time ranges: only fetch AFK/window during these windows
             task_time_ranges = _get_time_ranges_from_events(task_events_early)
 
-    # Window/AFK fetching strategy
-    # CRITICAL: partition_task_duration() REQUIRES window events to properly distinguish
-    # ACTIVE vs OFFLINE vs AFK periods. Without windows, it cannot work correctly.
-    # Therefore, we MUST fetch windows when we have task events to partition.
-    #
-    # The ONLY cases where we skip windows are:
-    # - Task-UUID mode (single task, skip all window/AFK processing)
-    # - Project/Task filter modes with detail_level <= 2 (timesheet modes where we just sum durations)
-    #
-    # DEFAULT: fetch windows (required by partition_task_duration())
     window_events = []
     afk_events = []
 
@@ -297,8 +289,25 @@ def main():
             afk_events = filtered_afk
         # else: keep all AFK events if no tasks exist (showing untracked time)
 
-    # Fetch window events ONLY if explicitly required (opt-in, not default)
-    if requires_window_data:
+    # ============================================================================
+    # CRITICAL ARCHITECTURE: Window Bucket On-Demand Fetching (Phase 13)
+    # ============================================================================
+    # PRIMARY DATA SOURCE: AFK bucket (always fetched)
+    # - Used for: metrics, OFFLINE reconciliation, untracked time detection
+    # - Always available and sufficient for baseline reporting
+    #
+    # SECONDARY DATA SOURCE: Window bucket (ON-DEMAND ONLY)
+    # - Purpose: Refine task event knowledge by partitioning into ACTIVE/AFK/OFFLINE
+    # - Only fetched when: task_events exist AND we need detailed partitioning
+    # - NOT fetched when: no tasks exist (nothing to partition) or task-only modes
+    #
+    # ARCHITECTURAL RULE: Window events are expensive (~10K events per day).
+    # Do NOT fetch speculatively. Only fetch if we have TaskWarrior events
+    # to refine with partitioning. If task_events is None, skip windows entirely.
+    # ============================================================================
+
+    # Fetch window events ONLY if we expect to have task_events to partition
+    if requires_window_data and task_events_early is not None:
         from tw_report.core.aw_events import WindowEvent
 
         if task_time_ranges:
@@ -389,6 +398,9 @@ def main():
         if not task_events:
             task_events = None
             is_task_based_report = False
+            # CRITICAL: If we have no task_events to partition, don't use window data
+            # Window events are only for refining task knowledge. Without tasks, windows are wasted.
+            window_events = []
 
     # Calculate metrics (used by both report types)
     first_event_time = None
