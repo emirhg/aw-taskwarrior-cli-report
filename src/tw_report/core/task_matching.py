@@ -6,11 +6,14 @@ extracting task metadata, and detecting offline-tagged tasks.
 """
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
+
+if TYPE_CHECKING:
+    from tw_report.core.aw_events import TaskWarriorEvent
 
 
 def find_active_task(event: Event, task_events: List[Event]) -> Optional[Event]:
@@ -37,8 +40,8 @@ def find_active_task(event: Event, task_events: List[Event]) -> Optional[Event]:
     )
 
 
-def get_task_info(active_task: Event) -> Tuple[str, str]:
-    """Extract task name and project from an active taskwarrior event.
+def get_task_info(active_task: "TaskWarriorEvent") -> Tuple[str, str]:
+    """Extract task name and project from a TaskWarrior event.
 
     Extracts identifying information from a TaskWarrior task event.
     Task name falls back through multiple fields; project defaults to NO_PROJECT.
@@ -50,21 +53,11 @@ def get_task_info(active_task: Event) -> Tuple[str, str]:
         Tuple of (task_name, project) strings. Task name is extracted with
         priority: title > label > task > NO_TASK. Project defaults to NO_PROJECT.
     """
-    task_name = (
-        active_task.data.get("title")
-        or active_task.data.get("label")
-        or active_task.data.get("task")
-        or NO_TASK
-    )
-    project = active_task.data.get("project", NO_PROJECT)
-    return task_name, project
+    return active_task.task, active_task.project
 
 
-def task_has_offline_tag(task_event: Event) -> bool:
+def task_has_offline_tag(task_event: "TaskWarriorEvent") -> bool:
     """Check if a task event has the 'offline' tag (case-insensitive).
-
-    TaskWarrior tags are either a string (single tag) or list (multiple tags).
-    This function normalizes both forms and performs case-insensitive matching.
 
     Args:
         task_event: TaskWarrior task event to check for offline tag
@@ -72,9 +65,7 @@ def task_has_offline_tag(task_event: Event) -> bool:
     Returns:
         True if the event has an 'offline' tag (case-insensitive), False otherwise
     """
-    raw_tags = task_event.data.get("tags", [])
-    tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
-    return "offline" in (t.lower() for t in tags)
+    return task_event.has_offline_tag
 
 
 def build_offline_category_structure(

@@ -10,11 +10,14 @@ import logging
 import os
 import re
 from datetime import timedelta
-from typing import Dict, List, Optional, Pattern, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Pattern, Tuple
 
 from aw_core.models import Event
 
 from tw_report.exceptions import ConfigParsingError, CategoryValidationError
+
+if TYPE_CHECKING:
+    from tw_report.core.aw_events import WindowEvent
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +171,7 @@ def get_category_score(category: str, cat_score_map: Dict[str, float]) -> float:
 
 
 def categorize_event(
-    event: Event, categories: List[Tuple[List[str], Pattern, float]]
+    event: "WindowEvent", categories: List[Tuple[List[str], Pattern, float]]
 ) -> None:
     """Categorize a window event by matching against regex rules.
 
@@ -179,6 +182,7 @@ def categorize_event(
         event: Window event to categorize (mutated in-place)
         categories: Compiled category rules from compile_category_rules()
     """
+    # Preserve exact current default strings ("") for backward-compatible matching behavior
     app_name = event.data.get("app", "")
     title = event.data.get("title", "")
     match_strings = [
@@ -199,16 +203,16 @@ def categorize_event(
         # Sort by specificity (descending), then alphabetically
         matched_cats.sort(key=lambda x: (-x[0], x[1]))
         # Store the most specific matching category
-        event.data["$category"] = [matched_cats[0][1]]
+        event.category = [matched_cats[0][1]]
     else:
         # No matching category: assign "Uncategorized"
         # This ensures all window events contribute to coverage calculations
         # (e.g., OFFLINE task reconciliation), not just those with explicit rules
-        event.data["$category"] = ["Uncategorized"]
+        event.category = ["Uncategorized"]
 
 
 def build_categories_from_window_events(
-    window_events: List[Event],
+    window_events: List["WindowEvent"],
     period_start,
     period_end,
 ) -> List[Dict]:
