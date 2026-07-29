@@ -862,13 +862,25 @@ def print_timeline_report(
     # Sort slots by start time to maintain chronological order
     sorted_slots = sorted(slots, key=lambda s: s["start"])
 
+    # Convert to single-slot groups: each slot is its own group
+    # This avoids combining different activity types on the same line
+    slot_groups = [
+        (slot.get("project"), slot_date(slot), [slot])
+        for slot in sorted_slots
+    ]
+
+    # Pre-compute total slot entries per date (always 1 per slot now)
+    date_total_entries = {}
+    for gp, gd, gs in slot_groups:
+        date_total_entries[gd] = date_total_entries.get(gd, 0) + len(gs)
+
     # Rollup state: track whether prev day was rolled up to skip its day total
     prev_date_was_rollup = False
     pending_date_prefix = None  # Date header held until we know if we render inline
     last_slot_end = None  # Track end time of last rendered slot (for gap detection)
     gap_threshold = timedelta(minutes=5)  # Minimum gap to display separator
 
-    # Now process each group
+    # Process each slot individually (each is a group of 1)
     for group_project, group_date, group_slots in slot_groups:
         # Sort slots chronologically; secondary key by end time for same-second starts
         group_slots = sorted(
