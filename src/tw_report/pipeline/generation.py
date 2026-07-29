@@ -50,8 +50,9 @@ def _merge_overlapping_events(events: List[Event]) -> List[Event]:
         current_end = current.timestamp + current.duration
         if event.timestamp <= current_end:
             # Overlapping or adjacent: merge by extending current
+            # Use type(current) to preserve the subclass (WindowEvent, AFKEvent, TaskWarriorEvent, etc.)
             new_end = max(current_end, event.timestamp + event.duration)
-            current = Event(
+            current = type(current)(
                 timestamp=current.timestamp,
                 duration=new_end - current.timestamp,
                 data=current.data,
@@ -224,16 +225,19 @@ def generate_gap_entries(
             task_name = NO_TASK
             project = NO_PROJECT
 
-        # HARDENING: AFK slots now require explicit actual_duration.
-        # For AFK time, actual_duration == duration (AFK is always "actual" tracked time).
+        # HARDENING: AFK slots now require explicit actual_duration and afk_duration.
+        # For AFK time, actual_duration == duration == afk_duration (AFK is always "actual" tracked time).
         # Previously, this was silently defaulted in TimelineSlot.__post_init__, which
         # masked bugs in other slot types. Now all slots must be explicit.
+        # Note: afk_duration is critical for the is_afk_only structural predicate:
+        # a bare AFK gap is identified when afk_duration == actual_duration and event_duration is None
         slot = {
             "type": "afk",
             "start": afk_event.timestamp.astimezone(),
             "end": (afk_event.timestamp + afk_event.duration).astimezone(),
             "duration": afk_event.duration,
             "actual_duration": afk_event.duration,  # Required: afk time is always actual
+            "afk_duration": afk_event.duration,  # Required for is_afk_only predicate
             "project": project,
             "task": task_name,
         }
