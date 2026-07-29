@@ -53,7 +53,22 @@ def get_task_info(active_task: "TaskWarriorEvent") -> Tuple[str, str]:
         Tuple of (task_name, project) strings. Task name is extracted with
         priority: title > label > task > NO_TASK. Project defaults to NO_PROJECT.
     """
-    return active_task.task, active_task.project
+    from tw_report.core.filtering import NO_PROJECT, NO_TASK
+
+    # Handle both TaskWarriorEvent (with properties) and plain Event (with .data dict)
+    if hasattr(active_task, 'task'):
+        # TaskWarriorEvent with properties
+        return active_task.task, active_task.project
+    else:
+        # Plain Event: extract from .data dict
+        task_name = (
+            active_task.data.get("title")
+            or active_task.data.get("label")
+            or active_task.data.get("task")
+            or NO_TASK
+        )
+        project = active_task.data.get("project", NO_PROJECT)
+        return task_name, project
 
 
 def task_has_offline_tag(task_event: "TaskWarriorEvent") -> bool:
@@ -65,7 +80,15 @@ def task_has_offline_tag(task_event: "TaskWarriorEvent") -> bool:
     Returns:
         True if the event has an 'offline' tag (case-insensitive), False otherwise
     """
-    return task_event.has_offline_tag
+    # Handle both TaskWarriorEvent (with properties) and plain Event (with .data dict)
+    if hasattr(task_event, 'has_offline_tag'):
+        # TaskWarriorEvent with properties
+        return task_event.has_offline_tag
+    else:
+        # Plain Event: extract tags from .data dict and check
+        raw_tags = task_event.data.get("tags", [])
+        tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+        return "offline" in (t.lower() for t in tags)
 
 
 def build_offline_category_structure(

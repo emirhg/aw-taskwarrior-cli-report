@@ -311,6 +311,40 @@ class ReportTimelineSlot:
             and self.event_duration is None
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dict format for backward compatibility.
+
+        Returns a dict representation matching the old TimelineSlot.to_dict() format.
+        """
+        slot_dict = {
+            "start": self.start,
+            "end": self.end,
+            "duration": self.duration,
+            "actual_duration": self.actual_duration,
+            "productive_duration": self.productive_duration,
+            "project": self.project,
+            "task": self.task,
+            "tags": self.tags,
+            "categories": self.categories,
+            "apps": self.apps or [],
+        }
+        # Add optional fields only if they have values
+        if self.afk_duration:
+            slot_dict["afk_duration"] = self.afk_duration
+        if self.offline_extension_duration:
+            slot_dict["offline_extension_duration"] = self.offline_extension_duration
+        if self.event_duration:
+            slot_dict["event_duration"] = self.event_duration
+
+        # Add type discriminator for legacy code paths
+        if self.is_offline_task:
+            slot_dict["type"] = "offline_task"
+        elif self.is_afk_only:
+            slot_dict["type"] = "afk"
+        else:
+            slot_dict["type"] = "regular"
+
+        return slot_dict
 
     @classmethod
     def from_timeline_slot(cls, slot: TimelineSlot) -> "ReportTimelineSlot":
@@ -1258,6 +1292,49 @@ class ReportEntries:
     def slots(self) -> List[ReportTimelineSlot]:
         """Get the internal slots list."""
         return self.slots_list
+
+    def as_dicts(self) -> List[Dict[str, Any]]:
+        """Convert all slots to dict format for backward compatibility.
+
+        This is a bridge for code paths that still expect dicts rather than
+        ReportTimelineSlot objects. Convert each ReportTimelineSlot to a dict
+        that mimics the old TimelineSlot.to_dict() format.
+
+        Returns:
+            List of slot dicts with all fields from ReportTimelineSlot
+        """
+        result = []
+        for slot in self.slots_list:
+            slot_dict = {
+                "start": slot.start,
+                "end": slot.end,
+                "duration": slot.duration,
+                "actual_duration": slot.actual_duration,
+                "productive_duration": slot.productive_duration,
+                "project": slot.project,
+                "task": slot.task,
+                "tags": slot.tags,
+                "categories": slot.categories,
+                "apps": slot.apps or [],
+            }
+            # Add optional fields only if they have values
+            if slot.afk_duration:
+                slot_dict["afk_duration"] = slot.afk_duration
+            if slot.offline_extension_duration:
+                slot_dict["offline_extension_duration"] = slot.offline_extension_duration
+            if slot.event_duration:
+                slot_dict["event_duration"] = slot.event_duration
+
+            # Add type discriminator for legacy code paths
+            if slot.is_offline_task:
+                slot_dict["type"] = "offline_task"
+            elif slot.is_afk_only:
+                slot_dict["type"] = "afk"
+            else:
+                slot_dict["type"] = "regular"
+
+            result.append(slot_dict)
+        return result
 
 
 

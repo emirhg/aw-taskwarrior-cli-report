@@ -821,8 +821,6 @@ def main():
                         if offline_slot_rts and offline_slot_rts.duration > timedelta(0):
                             # Convert ReportTimelineSlot back to TimelineSlot for Timeline compatibility
                             # (temporary bridge during migration to new model)
-                            from tw_report.core.timeline import TimelineSlot
-
                             ts = TimelineSlot(
                                 type="offline_task",
                                 start=offline_slot_rts.start,
