@@ -27,6 +27,69 @@ from tw_report.core.timeline import TimelineSlot, TimelineSlotValidationError
 
 
 @dataclass
+class DisplayColumns:
+    """Fixed-width columns for consistent timeline display.
+
+    Each duration type has its own reserved column to avoid offset issues
+    and make it easy to spot what type of time is recorded:
+    - OFFLINE: System was powered off (untracked wall-clock time)
+    - AFK: User was idle/away (system recorded but user not active)
+    - ACTIVE: User was actively working (keyboard/mouse activity)
+    - PRODUCTIVITY: Quality metric derived from app categories
+
+    Empty columns are left blank (no offset) when data doesn't exist.
+    """
+    time_range: str       # "HH:MM - HH:MM" (11 chars)
+    project: str          # "▶ Project name" (variable width, truncated)
+    task: str             # "▶▶ Task name" (variable width, truncated)
+    offline_time: str     # "(HH:MM:SS)" if present, else blank (12 chars)
+    afk_time: str         # "(HH:MM:SS)" if present, else blank (12 chars)
+    active_time: str      # "HH:MM:SS" (8 chars)
+    productivity: str     # "[prod XXX%]" if present, else blank (12 chars)
+
+    def format(self, terminal_width: int = 120) -> str:
+        """Format columns into a single line with fixed positions.
+
+        Layout (columns are right-aligned to terminal width):
+        - Indent (7) + time_range (11) = 18 chars left
+        - project (28) + task (35) = 63 chars middle
+        - [right-aligned to terminal width]
+          - offline_time (12) + afk_time (12) = 24 chars
+          - active_time (8) + space (2) + productivity (12) = 22 chars
+        """
+        # Build left section (identification)
+        indent = " " * 7
+        time_part = self.time_range.ljust(11)
+        project_part = self.project.ljust(28)
+        task_part = self.task.ljust(35)
+
+        left_section = f"{indent}{time_part}  {project_part}  {task_part}"
+
+        # Build right section (duration breakdown)
+        # Each column preserves its width even when empty
+        offline_col = self.offline_time.ljust(12)
+        afk_col = self.afk_time.ljust(12)
+        active_col = self.active_time.ljust(8)
+        # Add 2 spaces separator before productivity
+        productivity_col = ("  " + self.productivity).ljust(14) if self.productivity else " " * 14
+
+        right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+
+        # Right-align the duration section to terminal width
+        # Leave 2-space separator between left and right
+        total_right_width = len(right_section)
+        left_padding = terminal_width - len(left_section) - total_right_width - 2
+
+        # Ensure we don't create negative padding
+        if left_padding < 0:
+            full_line = left_section + "  " + right_section
+        else:
+            full_line = left_section + (" " * left_padding) + "  " + right_section
+
+        return full_line.rstrip()
+
+
+@dataclass
 class ReportTimelineSlot:
     """
     Report-optimized timeline slot representing a single granular or consolidated activity.
@@ -112,6 +175,62 @@ class ReportTimelineSlot:
     @property
     def apps(self) -> Optional[List[Dict[str, Any]]]:
         return self.slot.apps
+
+    def get_display_columns(self) -> DisplayColumns:
+        """Format slot data into fixed-width display columns.
+
+        Returns DisplayColumns with each duration type in its own column,
+        empty columns left blank (no offset) when data doesn't exist.
+        """
+        from tw_report.utils.formatting import format_duration
+        from datetime import timezone
+
+        # Format time range
+        def to_local(dt: datetime) -> datetime:
+            if dt.tzinfo is None or dt.tzinfo == timezone.utc:
+                return dt.replace(tzinfo=timezone.utc).astimezone()
+            return dt
+
+        start_local = to_local(self.start)
+        end_local = to_local(self.start + self.duration)
+        time_range = f"{start_local.strftime('%H:%M')} - {end_local.strftime('%H:%M')}"
+
+        # Format project and task (truncate if too long)
+        project_name = self.project.replace(".", " > ") if self.project else "No project"
+        project_display = f"▶ {project_name}"[:30]  # Truncate to fit column
+
+        task_name = self.task if self.task else ""
+        task_display = (f"▶▶ {task_name}" if task_name else "")[:32]  # Truncate to fit column
+
+        # Format duration columns - each type gets its own space
+        offline_time = ""
+        if self.offline_extension_duration and self.offline_extension_duration.total_seconds() > 0:
+            offline_time = f"({format_duration(self.offline_extension_duration)})"
+
+        afk_time = ""
+        if self.afk_duration and self.afk_duration.total_seconds() > 0:
+            afk_time = f"({format_duration(self.afk_duration)})"
+
+        # Active time is always shown (actual work duration)
+        active_duration = self.actual_duration if self.actual_duration else self.duration
+        active_time = format_duration(active_duration)
+
+        # Productivity metric (if applicable)
+        productivity = ""
+        if self.productive_duration and self.productive_duration.total_seconds() > 0:
+            if active_duration.total_seconds() > 0:
+                pct = (self.productive_duration.total_seconds() / active_duration.total_seconds()) * 100
+                productivity = f"[prod {pct:>3.0f}%]"
+
+        return DisplayColumns(
+            time_range=time_range,
+            project=project_display,
+            task=task_display,
+            offline_time=offline_time,
+            afk_time=afk_time,
+            active_time=active_time,
+            productivity=productivity,
+        )
 
     @classmethod
     def from_timeline_slot(cls, slot: TimelineSlot) -> "ReportTimelineSlot":
