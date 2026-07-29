@@ -42,7 +42,6 @@ from tw_report.core.task_uuid_filtering import (
 from tw_report.core.project_filtering import (
     _is_uuid_like,
     get_events_by_project,
-    should_skip_window_bucket,
     resolve_project_filter_value,
 )
 from tw_report.core.task_filtering import (
@@ -247,29 +246,41 @@ def main():
             # Extract time ranges: only fetch AFK/window during these windows
             task_time_ranges = _get_time_ranges_from_events(task_events_early)
 
-    # Determine if window bucket queries can be skipped for general filtering
-    skip_window = should_skip_window_bucket(args, args.detail_level, grouping_mode)
+    # Window/AFK fetching strategy
+    # CRITICAL: partition_task_duration() REQUIRES window events to properly distinguish
+    # ACTIVE vs OFFLINE vs AFK periods. Without windows, it cannot work correctly.
+    # Therefore, we MUST fetch windows when we have task events to partition.
+    #
+    # The ONLY cases where we skip windows are:
+    # - Task-UUID mode (single task, skip all window/AFK processing)
+    # - Project/Task filter modes with detail_level <= 2 (timesheet modes where we just sum durations)
+    #
+    # DEFAULT: fetch windows (required by partition_task_duration())
+    window_events = []
+    afk_events = []
 
-    # AFK-based optimization for detail_level <= 2:
-    # When we don't need category/app/title detail, skip expensive window bucket fetch
-    # and use AFK events for OFFLINE task reconciliation (much faster).
-    # Only apply to timesheet modes (--by-day/week/month/year), NOT hierarchical (--by-project)
-    # because hierarchical mode needs windows to show "No project assigned" unassigned activity.
-    use_afk_optimization = args.detail_level <= 2 and grouping_mode in ["day", "week", "month", "year"]
+    # Determine if we can SKIP windows (opt-out pattern, but constrained)
+    is_filtered_task_mode = task_uuid or (args.project and not args.app) or (args.task and not args.app)
+    can_skip_window = is_filtered_task_mode and args.detail_level <= 2 and grouping_mode in ["day", "week", "month", "year"]
 
-    # Fetch events based on optimization and filtering strategy
-    if skip_window and not use_afk_optimization:
-        # Skip both windows and AFK (extreme filtering case, not OFFLINE reconciliation needed)
-        window_events = []
-        afk_events = []
-    elif use_afk_optimization:
-        # AFK optimization: skip windows, fetch AFK for OFFLINE reconciliation
-        # Fetch all AFK once (fast), then filter in-memory to task time windows (instant)
-        # This gets best of both worlds: single fast query + small dataset to process
-        window_events = []
+    # For opt-out: fetch windows by default, skip only in constrained cases
+    requires_window_data = not can_skip_window
+
+    # AFK data is always needed for metrics and OFFLINE reconciliation
+    requires_afk_data = True
+
+    # Fetch AFK events (always required for metrics and OFFLINE reconciliation)
+    if requires_afk_data:
         from tw_report.core.aw_events import AFKEvent
-        afk_bucket = get_bucket_id("afk")
-        afk_events = get_events(client, afk_bucket, start_time, end_time, event_cls=AFKEvent)
+
+        if task_time_ranges:
+            # Smart optimization: only fetch AFK for times when tasks exist
+            # This dramatically reduces data volume for sparse task data (e.g., :year, :all)
+            afk_events = _fetch_events_for_ranges(client, "afk", task_time_ranges, event_cls=AFKEvent)
+        else:
+            # No task time ranges: fetch entire period
+            afk_bucket = get_bucket_id("afk")
+            afk_events = get_events(client, afk_bucket, start_time, end_time, event_cls=AFKEvent)
 
         # Filter AFK to only events overlapping task time ranges (if available)
         # CRITICAL: Only filter if task_time_ranges is non-empty. If no tasks exist,
@@ -285,32 +296,23 @@ def main():
                         break
             afk_events = filtered_afk
         # else: keep all AFK events if no tasks exist (showing untracked time)
-    else:
-        # Normal case: fetch both windows and AFK for category detail
+
+    # Fetch window events ONLY if explicitly required (opt-in, not default)
+    if requires_window_data:
+        from tw_report.core.aw_events import WindowEvent
+
         if task_time_ranges:
-            # Smart optimization: only fetch windows/AFK for times when tasks exist
-            # This dramatically reduces data volume for sparse task data (e.g., :year, :all)
-            from tw_report.core.aw_events import WindowEvent
+            # Smart optimization: only fetch windows for times when tasks exist
             window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
-            # Categorize all window events (including those during AFK periods)
-            for event in window_events:
-                categorize_event(event, compiled_categories)
-            from tw_report.core.aw_events import AFKEvent
-            afk_events = _fetch_events_for_ranges(client, "afk", task_time_ranges, event_cls=AFKEvent)
         else:
-            # Normal: fetch for entire period
-            from tw_report.core.aw_events import WindowEvent
+            # No task time ranges: fetch entire period
             window_bucket = get_bucket_id("window")
             window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
 
-            # Categorize all window events (including those during AFK periods)
-            # This ensures generate_gap_entries can extract categories for AFK slot details
-            for event in window_events:
-                categorize_event(event, compiled_categories)
-
-            # Fetch AFK events (needed for filtering AFK time or for --timesheet)
-            afk_bucket = get_bucket_id("afk")
-            afk_events = get_events(client, afk_bucket, start_time, end_time)
+        # Categorize all window events (including those during AFK periods)
+        # This ensures generate_gap_entries can extract categories for AFK slot details
+        for event in window_events:
+            categorize_event(event, compiled_categories)
 
     # Filter AFK events to only those that START within the requested period
     # (ActivityWatch sometimes returns events from outside the range if they overlap it)
@@ -371,13 +373,13 @@ def main():
         if task_uuid:
             # Task UUID mode: filter by UUID (already fetched early, skip)
             task_events = task_events_early
-        elif skip_window and args.project:
-            # Project filter mode (window skipped): filter by project at bucket level
+        elif not requires_window_data and args.project:
+            # Project filter mode (window not required): filter by project at bucket level
             task_events = get_events_by_project(
                 client, task_bucket, start_time, end_time, args.project[0]
             )
-        elif skip_window and args.task:
-            # Task filter mode (window skipped): filter by task name at bucket level
+        elif not requires_window_data and args.task:
+            # Task filter mode (window not required): filter by task name at bucket level
             task_events = get_events_by_task(
                 client, task_bucket, start_time, end_time, args.task[0]
             )
@@ -398,10 +400,9 @@ def main():
         )
 
 
-    # Special case: task-UUID mode or project/task-filter mode (skip window bucket)
+    # Special case: window data not required or not fetched
     # Convert taskwarrior events directly to canonical events (skip window correlation)
-    # Also handles AFK optimization mode where window_events are intentionally empty
-    if (skip_window or not window_events):
+    if not requires_window_data or not window_events:
         from tw_report.pipeline.models import ReportEvent
 
         canonical_events = []
@@ -457,7 +458,7 @@ def main():
     # OFFLINE-tagged tasks and re-fetch windows if needed.
     # Unless --exclude-online is set, in which case we intentionally skip online time reporting.
     exclude_online = getattr(args, "exclude_online", False)
-    if skip_window and task_events and not window_events and not exclude_online:
+    if not requires_window_data and task_events and not window_events and not exclude_online:
         has_offline_tasks = any(
             any('offline' in t.lower() for t in e.data.get('tags', []))
             for e in task_events
@@ -488,7 +489,7 @@ def main():
             afk_events=afk_events,
             event_filter=event_filter,
             end_time=end_time,
-            use_afk_for_reconciliation=use_afk_optimization,
+            use_afk_for_reconciliation=not requires_window_data,
             tail_tolerance_seconds=args.tail_tolerance,
             afk_validation_tolerance_seconds=args.afk_validation_tolerance,
         )
@@ -695,7 +696,7 @@ def main():
 
         # Task-only modes: taskwarrior events (no window events, no AFK correlation)
         # This includes: task UUID mode (--task-id) and project filter mode
-        if skip_window:
+        if not requires_window_data:
             # Build slots directly from taskwarrior events (simpler format)
             initial_slots = []
             for rep in context.canonical_events:
