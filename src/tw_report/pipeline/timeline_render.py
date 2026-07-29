@@ -350,7 +350,7 @@ def format_and_print_day_total(daily_metrics, width):
     """
     from tw_report.utils.formatting import ljust_display, display_width
 
-    total_day_with_afk = daily_metrics.online_duration
+    total_day_online = daily_metrics.online_duration
     indent = " " * 7
     day_total_label = "Day total:   "
 
@@ -364,9 +364,11 @@ def format_and_print_day_total(daily_metrics, width):
         (format_duration(daily_metrics.afk_duration)
          if daily_metrics.afk_duration and daily_metrics.afk_duration.total_seconds() > 0
          else ""), 12)
-    active_col = ljust_display(format_duration(total_day_with_afk), 8)
+    # ACTIVE column: online_duration minus afk_duration (ACTIVE = ONLINE - AFK)
+    active_duration = total_day_online - (daily_metrics.afk_duration or timedelta(0))
+    active_col = ljust_display(format_duration(active_duration) if active_duration.total_seconds() > 0 else "", 8)
     productivity_col = ljust_display(
-        "  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]"
+        "  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_online.total_seconds() * 100) if total_day_online.total_seconds() > 0 else 0:>3.0f}%]"
         if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0
         else "", 14)
 
@@ -1093,8 +1095,8 @@ def print_timeline_report(
             group_total_duration, group_productive_duration, group_afk_duration
         )
 
-        if detail_level == 1:
-            # Level 1: Project only — collapse entire (date, project) group to one line
+        if detail_level == 1 and len(group_slots) == 1:
+            # Level 1 with single slot: Project only — show inline
             content = f"▶ {project_name}"
             if group_is_rollup:
                 left = f"{pending_date_prefix}  {start_str}-{end_str}  {content}"
@@ -1107,26 +1109,86 @@ def print_timeline_report(
                 left = f"             {start_str}  {content}"
                 print(format_timeline_line(left, duration_str, max_left_width=95))
 
+        elif detail_level == 1 and len(group_slots) > 1:
+            # Level 1 with multiple slots: Print each slot individually (project only)
+            if pending_date_prefix is not None:
+                print(pending_date_prefix)
+                pending_date_prefix = None
+
+            for slot in group_slots:
+                # Check for gap before rendering
+                if last_slot_end is not None:
+                    gap = slot["start"] - last_slot_end
+                    if gap > gap_threshold:
+                        _render_system_shutdown_separator()
+
+                task_name = slot["task"]
+                abbrev_project = abbreviate_project_path(project_name, task_name)
+
+                # Format with fixed-width columns
+                from tw_report.core.report_slot import DisplayColumns
+                slot_start_local = _to_local_time(slot["start"])
+                slot_end_local = _to_local_time(slot["start"] + slot["duration"])
+                cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
+                print(cols.format(width))
+
+                # Update last_slot_end for gap detection
+                last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
+
         elif group_is_rollup:
-            # Single-entry day: date + time on same line with project ▶▶ task
-            # (Skip rollup for AFK slots — they display as regular slots)
-            slot = group_slots[0]
-            if slot.get("type") != "afk":
+            # Single-project day (rollup): may contain multiple slots
+            # (Skip rollup for AFK-only groups — they display as regular slots)
+            if pending_date_prefix is not None:
+                print(pending_date_prefix)
+                pending_date_prefix = None
+
+            if len(group_slots) == 1 and group_slots[0].get("type") != "afk":
+                # Single non-AFK slot: inline format
+                slot = group_slots[0]
                 task_name = slot["task"]
                 abbrev_project = abbreviate_project_path(project_name, task_name)
                 # Format with fixed-width columns
-                if pending_date_prefix is not None:
-                    print(pending_date_prefix)
-                    pending_date_prefix = None
                 from tw_report.core.report_slot import DisplayColumns
                 slot_start_local = _to_local_time(group_slots[0]["start"])
                 slot_end_local = _to_local_time(group_slots[0]["start"] + group_total_duration)
                 cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
                 print(cols.format(width))
                 _render_slot_detail(slot, detail_level, width)
+
+                # Render embedded AFK slots as indented sub-entries
+                embedded_afk = slot.get("embedded_afk_slots", [])
+                if embedded_afk:
+                    _render_embedded_afk_slots(embedded_afk, width)
+
+                # Update last_slot_end for gap detection
+                last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
             else:
-                # AFK slot on rollup day: render as regular slot
-                group_is_rollup = False
+                # Multiple slots or AFK slot on rollup day: print each individually
+                for slot in group_slots:
+                    # Check for gap before rendering
+                    if last_slot_end is not None:
+                        gap = slot["start"] - last_slot_end
+                        if gap > gap_threshold:
+                            _render_system_shutdown_separator()
+
+                    task_name = slot["task"]
+                    abbrev_project = abbreviate_project_path(project_name, task_name)
+
+                    # Format with fixed-width columns
+                    from tw_report.core.report_slot import DisplayColumns
+                    slot_start_local = _to_local_time(slot["start"])
+                    slot_end_local = _to_local_time(slot["start"] + slot["duration"])
+                    cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
+                    print(cols.format(width))
+                    _render_slot_detail(slot, detail_level, width)
+
+                    # Render embedded AFK slots as indented sub-entries
+                    embedded_afk = slot.get("embedded_afk_slots", [])
+                    if embedded_afk:
+                        _render_embedded_afk_slots(embedded_afk, width)
+
+                    # Update last_slot_end for gap detection
+                    last_slot_end = slot["start"] + slot.get("actual_duration", slot["duration"])
                 if pending_date_prefix is not None:
                     print(pending_date_prefix)
                     pending_date_prefix = None

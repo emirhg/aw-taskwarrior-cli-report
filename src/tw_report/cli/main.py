@@ -308,6 +308,8 @@ def main():
         afk_events = get_events(client, afk_bucket, start_time, end_time, event_cls=AFKEvent)
 
         # Filter AFK to only events overlapping task time ranges (if available)
+        # CRITICAL: Only filter if task_time_ranges is non-empty. If no tasks exist,
+        # we still need all AFK events to display untracked time and detect system state.
         if task_time_ranges:
             filtered_afk = []
             for afk_event in afk_events:
@@ -318,6 +320,7 @@ def main():
                         filtered_afk.append(afk_event)
                         break
             afk_events = filtered_afk
+        # else: keep all AFK events if no tasks exist (showing untracked time)
     else:
         # Normal case: fetch both windows and AFK for category detail
         if task_time_ranges:

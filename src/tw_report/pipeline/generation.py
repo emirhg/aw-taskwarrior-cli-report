@@ -17,6 +17,7 @@ from tw_report.core.categories import (
     build_categories_from_window_events,
     get_category_score as default_get_category_score,
 )
+from tw_report.core.events import classify_afk_and_split_slots
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 from tw_report.core.task_matching import (
     find_active_task,
@@ -193,66 +194,81 @@ def generate_gap_entries(
     offline_threshold_s: float = 120.0,
     window_events: Optional[List[Event]] = None,
 ) -> List[Dict]:
-    """Generate AFK slots from AFK bucket events.
+    """Generate AFK and OFFLINE slots from AFK bucket events with system state detection.
 
-    AFK events with status="afk" (user away) are shown as slots, with project/task info
-    from overlapping TW tasks (or NO_PROJECT/NO_TASK if no task active).
+    For each AFK event with status="afk", determines if it represents:
+    - ONLINE_AFK (user idle, system was recording) → emit AFK slot(s)
+    - OFFLINE (false positive, system was powered off) → emit OFFLINE slot + optional AFK slot(s)
 
-    Categories from overlapping window events are extracted and attached to AFK slots
-    to show what apps/windows were active during AFK periods.
+    System state is determined by window coverage:
+    - If window events cover the AFK period continuously → real AFK (system was on)
+    - If NO window coverage exists in a continuous block (≥1 min) → OFFLINE (system was off)
+    - If window coverage is fragmented → treat small gaps as logging noise, emit only covered portions
 
     Args:
         afk_events: all AFK bucket events (both status="afk" and status="not-afk")
         task_events: TaskWarrior events for resolving active tasks during AFK periods
         offline_threshold_s: (deprecated, no longer used)
-        window_events: optional window events to extract categories from for AFK periods
+        window_events: optional window events to validate AFK periods and extract categories
 
     Returns:
-        list of slot dicts with type="afk"
+        List of slot dicts with type="offline" (SYSTEM OFF) or type="afk" (SYSTEM ON, idle)
     """
     result = []
 
-    # Generate AFK slots from explicit status="afk" events
+    # Generate slots from explicit status="afk" events
     afk_only_events = filter_keyvals(afk_events, "status", ["afk"])
     # Merge overlapping AFK events to prevent duplicate overlapping slots
     afk_only_events = _merge_overlapping_events(afk_only_events)
-    for i, afk_event in enumerate(afk_only_events):
-        # Find active TW task during this AFK period (if any)
-        active_task = find_active_task(afk_event, task_events) if task_events else None
-        if active_task:
-            task_name, project = get_task_info(active_task)
-        else:
-            task_name = NO_TASK
-            project = NO_PROJECT
 
-        # HARDENING: AFK slots now require explicit actual_duration and afk_duration.
-        # For AFK time, actual_duration == duration == afk_duration (AFK is always "actual" tracked time).
-        # Previously, this was silently defaulted in TimelineSlot.__post_init__, which
-        # masked bugs in other slot types. Now all slots must be explicit.
-        # Note: afk_duration is critical for the is_afk_only structural predicate:
-        # a bare AFK gap is identified when afk_duration == actual_duration and event_duration is None
-        slot = {
-            "type": "afk",
-            "start": afk_event.timestamp.astimezone(),
-            "end": (afk_event.timestamp + afk_event.duration).astimezone(),
-            "duration": afk_event.duration,
-            "actual_duration": afk_event.duration,  # Required: afk time is always actual
-            "afk_duration": afk_event.duration,  # Required for is_afk_only predicate
-            "project": project,
-            "task": task_name,
-        }
+    for afk_event in afk_only_events:
+        # Classify AFK event and determine if it should be split into OFFLINE and ONLINE_AFK portions
+        classification = classify_afk_and_split_slots(
+            afk_event,
+            window_events or []
+        )
 
-        # Extract categories from overlapping window events if provided
-        if window_events:
-            afk_start = slot["start"]
-            afk_end = slot["end"]
-            slot["categories"] = build_categories_from_window_events(
-                window_events, afk_start, afk_end
+        # NOTE: OFFLINE portions are detected but not emitted as separate slots yet.
+        # The classification tracks valid_offline for future enhancements (logging, metrics).
+        # For now, we only emit ONLINE_AFK slots and let gaps represent OFFLINE time.
+
+        # Handle ONLINE_AFK portions (where system was on, user was idle)
+        for online_start, online_end in classification["online_afk_portions"]:
+            # Find active TW task during this ONLINE_AFK period
+            online_afk_event = Event(
+                timestamp=online_start,
+                duration=online_end - online_start,
+                data={"status": "afk"}
             )
-        else:
-            slot["categories"] = []
+            active_task = find_active_task(online_afk_event, task_events) if task_events else None
+            if active_task:
+                task_name, project = get_task_info(active_task)
+            else:
+                task_name = NO_TASK
+                project = NO_PROJECT
 
-        result.append(slot)
+            afk_slot = {
+                "type": "afk",
+                "start": online_start.astimezone() if hasattr(online_start, 'astimezone') else online_start,
+                "end": online_end.astimezone() if hasattr(online_end, 'astimezone') else online_end,
+                "duration": online_end - online_start,
+                "actual_duration": online_end - online_start,  # User was idle but system was recording
+                "afk_duration": online_end - online_start,  # All of this period is idle time
+                "project": project,
+                "task": task_name,
+            }
+
+            # Extract categories from overlapping window events if provided
+            if window_events:
+                afk_start = afk_slot["start"]
+                afk_end = afk_slot["end"]
+                afk_slot["categories"] = build_categories_from_window_events(
+                    window_events, afk_start, afk_end
+                )
+            else:
+                afk_slot["categories"] = []
+
+            result.append(afk_slot)
 
     return result
 

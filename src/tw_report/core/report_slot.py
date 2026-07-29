@@ -206,13 +206,21 @@ class DisplayColumns:
             if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() > 0:
                 afk_time = format_duration(afk_dur)
 
-        # Active time (use actual_duration if available, else duration)
-        active_duration = slot.get("actual_duration") or slot.get("duration")
-        if active_duration:
-            if isinstance(active_duration, timedelta):
-                active_time = format_duration(active_duration)
+        # Active time = ONLINE time - AFK time
+        # (actual_duration is online time when system was recording)
+        online_duration = slot.get("actual_duration") or slot.get("duration")
+        afk_duration_slot = slot.get("afk_duration") or timedelta(0)
+
+        if online_duration:
+            if isinstance(online_duration, timedelta):
+                # Calculate active as online minus afk
+                active_duration = online_duration - afk_duration_slot
+                if active_duration.total_seconds() > 0:
+                    active_time = format_duration(active_duration)
+                else:
+                    active_time = ""
             else:
-                active_time = str(active_duration)
+                active_time = str(online_duration)
         else:
             active_time = ""
 
