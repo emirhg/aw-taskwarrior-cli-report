@@ -961,7 +961,7 @@ def print_timeline_report(
 
                 cols = DisplayColumns.from_slot_dict(day_total_slot, day_start_aware, day_end_aware)
                 # Override the formatted output for day total line
-                from tw_report.utils.formatting import ljust_display
+                from tw_report.utils.formatting import ljust_display, display_width
                 indent = " " * 7
                 day_total_label = "Day total:   "
                 offline_col = ljust_display((f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else ""), 12)
@@ -970,10 +970,18 @@ def print_timeline_report(
                 productivity_col = ljust_display("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]" if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else "", 14)
 
                 right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+                # CRITICAL: Day total MUST use dynamic terminal_width padding like DisplayColumns and header
                 # Align day total line with data rows: 87 display width for left section
-                # Calculation: 7 indent + "Day total:   " (13 chars) + 67 spaces = 87 total
+                # Calculation: 7 indent + "Day total:   " (13 chars) + dynamic padding to reach 87
                 left_part = ljust_display(f"{indent}{day_total_label}", 87)
-                full_line = left_part + "  " + right_section
+                # Use SAME dynamic padding formula as DisplayColumns.format() and header construction
+                left_part_width = display_width(left_part)
+                right_section_width = display_width(right_section)
+                dynamic_left_padding = width - left_part_width - right_section_width - 2
+                if dynamic_left_padding < 0:
+                    full_line = left_part + "  " + right_section
+                else:
+                    full_line = left_part + (" " * dynamic_left_padding) + "  " + right_section
                 print(full_line)
                 print()
             daily_metrics = PeriodMetrics()
