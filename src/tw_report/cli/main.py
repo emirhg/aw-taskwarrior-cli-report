@@ -846,8 +846,14 @@ def main():
         # Use the standard timeline rendering which shows chronological slots
         # Each slot renders independently: no combining of work slots with embedded AFK
 
-        # Sort by start time for chronological rendering
-        final_dicts = sorted(all_slot_entries, key=lambda s: s["start"])
+        # Add all slot entries to timeline (auto-sorts on insertion)
+        timeline.add_slots([TimelineSlot.from_dict(g) for g in all_slot_entries])
+
+        # Convert timeline to ReportEntries for type normalization
+        # CRITICAL: This converts "active_task"/"afk_task" types to standard "regular"/"afk" types
+        # that the rendering code understands. Do NOT combine work with embedded AFK here.
+        report_timeline = timeline.to_report_timeline()
+        final_dicts = report_timeline.as_dicts()
 
         TimelineReport(print_timeline_report).present(
             slots=final_dicts,
