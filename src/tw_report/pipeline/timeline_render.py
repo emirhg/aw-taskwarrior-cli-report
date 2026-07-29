@@ -550,32 +550,24 @@ def print_timeline_report(
         print("No activity found for the specified period.")
 
     # Print date/week header with duration column labels on same line
-    # Use same alignment logic as DisplayColumns.format() for consistency
+    # Header should have NO indent (unlike data rows which have 7-space indent)
+    # Labels must align with data duration columns at byte positions 89, 101, 113
     from tw_report.utils.formatting import display_width, ljust_display
 
-    # Header must match data row structure: 7-space indent + header text + padding to 87 chars
-    indent = " " * 7
     header_text = "Wk  Date       Day"
-    header_left = indent + header_text
-    # Build header left section to match DisplayColumns structure (87 display width)
-    # = 7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task
-    header_left_width = display_width(header_left)
-    header_left_section = header_left + " " * (87 - header_left_width)
+    # Header text (18 chars) + padding to reach position 89 where durations start
+    # Position 0-17: header text
+    # Position 18-88: padding (71 spaces)
+    # Position 89+: duration labels
+    padding_to_durations = 89 - len(header_text)
+
     # Build header right section with labels (same widths as DisplayColumns)
     header_right_section = ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) + ljust_display("ACTIVE", 8)
-    # Apply same dynamic padding as DisplayColumns using display width
-    terminal_width = width
-    left_section_width = display_width(header_left_section)
-    right_section_width = display_width(header_right_section)
-    left_padding = terminal_width - left_section_width - right_section_width - 2
-    if left_padding < 0:
-        header_line = header_left_section + "  " + header_right_section
-    else:
-        header_line = header_left_section + (" " * left_padding) + "  " + header_right_section
 
-    # Pad header to standard data line length (to ensure visual alignment)
-    # Data lines are typically 135+ bytes due to UTF-8 multi-byte characters
-    # Ensure header is at least as long as a typical data line for proper visual alignment
+    # Assemble header: text + padding + labels + trailing padding to match data line length (135 bytes)
+    header_line = header_text + (" " * padding_to_durations) + header_right_section
+
+    # Pad to standard data line length for visual alignment
     min_line_length = 135
     if len(header_line) < min_line_length:
         header_line = header_line + " " * (min_line_length - len(header_line))
