@@ -400,6 +400,66 @@ def format_and_print_day_total(daily_metrics, width):
     print(full_line)
 
 
+def format_and_print_day_total_displayed(
+    displayed_offline: timedelta,
+    displayed_afk: timedelta,
+    displayed_active: timedelta,
+    productive_duration: Optional[timedelta],
+    width: int = 120
+) -> None:
+    """Format and print day total using actual displayed column values.
+
+    This is the accurate version that sums the actual values displayed in the timeline,
+    rather than relying on potentially inflated accumulated metrics.
+
+    Args:
+        displayed_offline: Sum of OFFLINE column values displayed for the day
+        displayed_afk: Sum of AFK column values displayed for the day
+        displayed_active: Sum of ACTIVE column values displayed for the day
+        productive_duration: Productive time in the day
+        width: Terminal width for formatting
+    """
+    from tw_report.utils.formatting import ljust_display, display_width
+
+    indent = " " * 7
+    day_total_label = "Day total:   "
+
+    # Format each column using the actual displayed values
+    offline_col = ljust_display(
+        format_duration(displayed_offline) if displayed_offline and displayed_offline.total_seconds() > 0 else "",
+        12
+    )
+    afk_col = ljust_display(
+        format_duration(displayed_afk) if displayed_afk and displayed_afk.total_seconds() > 0 else "",
+        12
+    )
+    active_col = ljust_display(
+        format_duration(displayed_active) if displayed_active and displayed_active.total_seconds() > 0 else "",
+        8
+    )
+
+    # Calculate online time as sum of afk + active
+    total_online = (displayed_afk or timedelta(0)) + (displayed_active or timedelta(0))
+    productivity_col = ljust_display(
+        "  " + f"[prod {(productive_duration.total_seconds() / total_online.total_seconds() * 100) if total_online.total_seconds() > 0 else 0:>3.0f}%]"
+        if productive_duration and productive_duration.total_seconds() > 0
+        else "",
+        14
+    )
+
+    right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+    left_part = ljust_display(f"{indent}{day_total_label}", 87)
+    left_part_width = display_width(left_part)
+    right_section_width = display_width(right_section)
+    dynamic_left_padding = width - left_part_width - right_section_width - 2
+
+    if dynamic_left_padding < 0:
+        full_line = left_part + "  " + right_section
+    else:
+        full_line = left_part + (" " * dynamic_left_padding) + "  " + right_section
+    print(full_line)
+
+
 def print_timeline_report(
     slots: List[Union[Dict, "ReportTimelineSlot"]],
     period: str,
@@ -870,6 +930,15 @@ def print_timeline_report(
     daily_metrics = PeriodMetrics()
     weekly_metrics = PeriodMetrics()
 
+    # Track displayed column values separately by summing the actual rendered values
+    # This avoids metric calculation bugs and uses the source of truth: what's actually displayed
+    daily_displayed_offline = timedelta(0)
+    daily_displayed_afk = timedelta(0)
+    daily_displayed_active = timedelta(0)
+    weekly_displayed_offline = timedelta(0)
+    weekly_displayed_afk = timedelta(0)
+    weekly_displayed_active = timedelta(0)
+
     # Slots are already sorted and filtered by this point (line 729).
     # Render each slot individually — no grouping.
     last_slot_end = None  # Track end time of last rendered slot (for gap detection)
@@ -897,7 +966,11 @@ def print_timeline_report(
                 else:
                     separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
                 print(separator_line)
-                format_and_print_day_total(daily_metrics, width)
+                # Use displayed values for accurate day totals instead of accumulated metrics
+                format_and_print_day_total_displayed(
+                    daily_displayed_offline, daily_displayed_afk, daily_displayed_active,
+                    daily_metrics.productive_duration, width
+                )
                 if not is_single_day:
                     # Use online_duration only (not total_duration) since offline_gap is displayed separately
                     total_week_with_afk = weekly_metrics.online_duration
@@ -937,9 +1010,16 @@ def print_timeline_report(
                 else:
                     separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
                 print(separator_line)
-                format_and_print_day_total(daily_metrics, width)
+                # Use displayed values for accurate day totals instead of accumulated metrics
+                format_and_print_day_total_displayed(
+                    daily_displayed_offline, daily_displayed_afk, daily_displayed_active,
+                    daily_metrics.productive_duration, width
+                )
                 print()
             daily_metrics = PeriodMetrics()
+            daily_displayed_offline = timedelta(0)
+            daily_displayed_afk = timedelta(0)
+            daily_displayed_active = timedelta(0)
             date_str = slot_date_val.strftime("%Y-%m-%d")
             day_str = slot_date_val.strftime("%a")
             # Align same-week dates: 4 spaces + date + day
@@ -995,6 +1075,11 @@ def print_timeline_report(
             daily_metrics.add_timeslot(slot_duration, productive=None)
             weekly_metrics.add_timeslot(slot_duration, productive=None)
 
+            # Track displayed values for accurate day/week totals
+            if offline_ext and offline_ext.total_seconds() > 0:
+                daily_displayed_offline += offline_ext
+                weekly_displayed_offline += offline_ext
+
             # Update last_slot_end for gap detection
             last_slot_end = slot.start + wall_clock_duration
         else:
@@ -1036,14 +1121,30 @@ def print_timeline_report(
             slot_afk = slot.afk_duration if isinstance(slot, dict) else slot.afk_duration
             slot_productive = slot.productive_duration if isinstance(slot, dict) else slot.productive_duration
 
+            # Track displayed column values (what actually appears in timeline)
+            # These are the source of truth for day/week totals
             if slot_type == "afk":
-                # AFK slots: pure idle time
+                # AFK slots: pure idle time (entire slot is AFK)
                 daily_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
                 weekly_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
+                if slot_online and slot_online.total_seconds() > 0:
+                    daily_displayed_afk += slot_online
+                    weekly_displayed_afk += slot_online
             else:
-                # Regular slots
+                # Regular slots: may have afk_duration and active time
                 daily_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
                 weekly_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
+
+                # Track displayed values from the slot's fields (NOT offline_extension - that's only for offline_tasks)
+                if slot_afk and slot_afk.total_seconds() > 0:
+                    daily_displayed_afk += slot_afk
+                    weekly_displayed_afk += slot_afk
+
+                # Active time is what's left after AFK
+                slot_active = (slot_online or timedelta(0)) - (slot_afk or timedelta(0))
+                if slot_active and slot_active.total_seconds() > 0:
+                    daily_displayed_active += slot_active
+                    weekly_displayed_active += slot_active
 
     # Print final totals
     if slots:
@@ -1058,7 +1159,11 @@ def print_timeline_report(
         else:
             separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
         print(separator_line)
-        format_and_print_day_total(daily_metrics, width)
+        # Use displayed values for accurate day totals instead of accumulated metrics
+        format_and_print_day_total_displayed(
+            daily_displayed_offline, daily_displayed_afk, daily_displayed_active,
+            daily_metrics.productive_duration, width
+        )
         # Use online_duration only (not total_duration) since offline_gap is displayed separately
         total_week_with_afk = weekly_metrics.online_duration
         if not is_single_day:
