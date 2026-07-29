@@ -1072,47 +1072,12 @@ def print_timeline_report(
                     task_name = slot["task"]
                     abbrev_project = abbreviate_project_path(project_name, task_name)
 
-                    # Separate gaps from duration for column alignment
-                    if slot.get("type") == "afk":
-                        slot_dur_str = format_afk_label(
-                            slot.get("actual_duration", slot["duration"])
-                        )
-                        gaps_str = ""
-                        base_duration = slot_dur_str
-                    elif slot.get("type") == "offline_task":
-                        # For OFFLINE slots, display the actual_duration (online/tracked time)
-                        # The duration field is the wall-clock span (offline+online)
-                        # If --exclude-online is set, show 00:00:00 (omit online time reporting)
-                        if exclude_online:
-                            display_duration = timedelta(0)
-                        else:
-                            display_duration = slot.get("actual_duration", timedelta(0))
-                        gaps_str, base_duration = split_gaps_and_duration(
-                            display_duration,
-                            slot.get("productive_duration", timedelta(0)),
-                            slot.get("afk_duration"),
-                        )
-                    else:
-                        # For regular slots, display the wall-clock duration (not TaskWarrior duration)
-                        # This ensures the displayed duration matches the time range
-                        display_duration = slot["duration"]
-                        gaps_str, base_duration = split_gaps_and_duration(
-                            display_duration,
-                            slot.get("productive_duration", timedelta(0)),
-                            slot.get("afk_duration"),
-                        )
-
-                    time_range = f"{s_start} - {s_end}"
-                    # Add space before task name to preserve alignment with offline tasks (which use *)
-                    formatted_task = f" {task_name}" if task_name != NO_TASK else task_name
-                    line = format_timeline_columns(
-                        time_range=time_range,
-                        project=abbrev_project,
-                        task=formatted_task,
-                        gaps=gaps_str,
-                        duration=base_duration,
-                    )
-                    print(line)
+                    # Format with fixed-width columns (offline, afk, active, productivity)
+                    from tw_report.core.report_slot import DisplayColumns
+                    slot_start_local = _to_local_time(slot["start"])
+                    slot_end_local = _to_local_time(slot["start"] + slot["duration"])
+                    cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
+                    print(cols.format(width))
                     _render_slot_detail(slot, detail_level, width)
 
                     # Render embedded AFK slots as indented sub-entries
