@@ -453,27 +453,31 @@ def main():
     # Special case: task-UUID mode or project/task-filter mode (skip window bucket)
     # Convert taskwarrior events directly to canonical events (skip window correlation)
     # Also handles AFK optimization mode where window_events are intentionally empty
-    if (skip_window or not window_events) and task_events:
+    if (skip_window or not window_events):
         from tw_report.pipeline.models import ReportEvent
 
         canonical_events = []
-        for task_event in task_events:
-            task_name, project = get_task_info(task_event)
-            rep = ReportEvent(
-                event=task_event,
-                project=project,
-                task=task_name,
-                active_task=task_event,
-            )
-            # Apply user filters to ensure correctness (e.g., when --task filtering is set)
-            if matches_user_filters(rep, args, _matches_any, _excluded):
-                canonical_events.append(rep)
+
+        # Add taskwarrior events if they exist
+        if task_events:
+            for task_event in task_events:
+                task_name, project = get_task_info(task_event)
+                rep = ReportEvent(
+                    event=task_event,
+                    project=project,
+                    task=task_name,
+                    active_task=task_event,
+                )
+                # Apply user filters to ensure correctness (e.g., when --task filtering is set)
+                if matches_user_filters(rep, args, _matches_any, _excluded):
+                    canonical_events.append(rep)
 
         # Add untracked (NO_PROJECT) time gaps from uncovered not-afk periods
         # Only when window_events are skipped (using task-only path)
         # This fills the visibility gap when window events can't be fetched due to optimization
+        # This now works even when there are NO task_events (just untracked window activity)
         if not window_events and not_afk_events:
-            untracked_events = generate_untracked_gap_events(not_afk_events, task_events)
+            untracked_events = generate_untracked_gap_events(not_afk_events, task_events or [])
             # Apply filters to synthetic NO_PROJECT events (same as for task events)
             for untracked_rep in untracked_events:
                 if matches_user_filters(untracked_rep, args, _matches_any, _excluded):
@@ -736,6 +740,8 @@ def main():
             }
             for rep in context.canonical_events
         ]
+
+
         # Use Timeline for internal slot management (Phase 3 migration)
         timeline = Timeline()
 
@@ -915,10 +921,12 @@ def main():
         # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
         # Use the standard timeline rendering which shows chronological slots
         # Combine work slots with embedded AFK periods for clearer visualization
+
         final = report_timeline.combine_work_with_embedded_afk()
+        final_dicts = final.as_dicts()
 
         TimelineReport(print_timeline_report).present(
-            slots=final.as_dicts(),
+            slots=final_dicts,
             period=period,
             start_time=start_time,
             end_time=end_time,
