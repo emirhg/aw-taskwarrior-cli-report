@@ -878,7 +878,7 @@ def main():
         # Add gap entries to timeline (auto-sorts on insertion)
         timeline.add_slots([TimelineSlot.from_dict(g) for g in gap_entries])
 
-        # Convert timeline to ReportTimeline for unified consolidation/bucketing
+        # Convert timeline to ReportEntries for unified consolidation/bucketing
         report_timeline = timeline.to_report_timeline()
 
         # All timeline-based modes (--by-day/week/month/year and hierarchical/project)

@@ -64,16 +64,16 @@ class TimelineSlotManager:
         """
         Consolidate timeline slots by merging same (date, project, task).
 
-        NOW DELEGATES TO ReportTimeline.consolidate_consecutive() for unified merge logic.
+        NOW DELEGATES TO ReportEntries.consolidate_consecutive() for unified merge logic.
         See core/report_slot.py for the actual implementation.
 
         Returns:
             List of consolidated slots as dicts (for backward compatibility)
         """
-        from tw_report.core.report_slot import ReportTimeline
+        from tw_report.core.report_slot import ReportEntries
 
-        # Convert to ReportTimeline, consolidate, and convert back to dicts
-        report_timeline = ReportTimeline.from_timeline(self.timeline)
+        # Convert to ReportEntries, consolidate, and convert back to dicts
+        report_timeline = ReportEntries.from_timeline(self.timeline)
         consolidated_report = report_timeline.consolidate_consecutive()
         return consolidated_report.as_dicts()
 
@@ -529,7 +529,7 @@ def collapse_tasks_to_project(rows: List[Dict]) -> List[Dict]:
 def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
     """Group slots into (period_bucket, project, task) totals with category data.
 
-    NOW DELEGATES TO ReportTimeline.bucket() for unified bucketing and merging logic.
+    NOW DELEGATES TO ReportEntries.bucket() for unified bucketing and merging logic.
     See core/report_slot.py for the actual implementation.
 
     Args:
@@ -544,7 +544,6 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
     Raises:
         ValueError: If period is not one of the recognized values
     """
-    from tw_report.core.report_slot import ReportTimeline
     from tw_report.core.timeline import Timeline, TimelineSlot
 
     # Convert dicts back to TimelineSlots, build a Timeline
@@ -557,7 +556,7 @@ def consolidate_by_period(slots: List[Dict], period: str) -> List[Dict]:
             # Backward compatibility: skip malformed slots
             continue
 
-    # Convert to ReportTimeline, bucket, and convert back to dicts
+    # Convert to ReportEntries, bucket, and convert back to dicts
     report_timeline = timeline.to_report_timeline()
     bucketed = report_timeline.bucket(period)
     return bucketed.as_dicts()

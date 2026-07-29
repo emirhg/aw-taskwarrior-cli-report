@@ -1,7 +1,7 @@
 """
 ReportTimelineSlot: unified model for consolidation, bucketing, and reporting.
 
-This module provides ReportTimelineSlot and ReportTimeline classes that centralize
+This module provides ReportTimelineSlot and ReportEntries classes that centralize
 all slot-merging, period-bucketing, and multi-bucket-spanning logic in one place,
 replacing the three divergent implementations currently scattered across:
   - TimelineSlotManager.consolidate()
@@ -11,7 +11,7 @@ replacing the three divergent implementations currently scattered across:
 Key design:
 - ReportTimelineSlot wraps TimelineSlot by composition (not inheritance), reusing
   TimelineSlot.__post_init__ validation for free on every merge/split.
-- ReportTimeline provides grouping/bucketing/collapsing operations as pure methods.
+- ReportEntries provides grouping/bucketing/collapsing operations as pure methods.
 - All slot merging fixes (tags preservation, offline-gap-handling consistency,
   event_duration position-independence, AFK duration field uniformity, fuller
   category merging) are implemented once here.
@@ -723,7 +723,7 @@ class ReportTimelineSlot:
 
 
 @dataclass
-class ReportTimeline:
+class ReportEntries:
     """
     Collection of ReportTimelineSlots with grouping/bucketing/consolidation operations.
 
@@ -733,7 +733,7 @@ class ReportTimeline:
     slots_list: List[ReportTimelineSlot] = field(default_factory=list)
 
     @classmethod
-    def from_timeline(cls, timeline) -> "ReportTimeline":
+    def from_timeline(cls, timeline) -> "ReportEntries":
         """
         Wrap every TimelineSlot as a singleton ReportTimelineSlot.
 
@@ -741,7 +741,7 @@ class ReportTimeline:
             timeline: A Timeline instance
 
         Returns:
-            ReportTimeline with each atomic slot wrapped
+            ReportEntries with each atomic slot wrapped
         """
         report_slots = [
             ReportTimelineSlot.from_timeline_slot(slot)
@@ -749,7 +749,7 @@ class ReportTimeline:
         ]
         return cls(slots_list=report_slots)
 
-    def combine_work_with_embedded_afk(self) -> "ReportTimeline":
+    def combine_work_with_embedded_afk(self) -> "ReportEntries":
         """
         Combine work slots with embedded AFK periods for the same (project, task).
 
@@ -769,7 +769,7 @@ class ReportTimeline:
         5. Keep non-overlapping AFK slots as standalone
 
         Returns:
-            ReportTimeline with combined work+AFK slots
+            ReportEntries with combined work+AFK slots
         """
         # First, merge overlapping work slots for the same (project, task)
         work_slots_raw = [rs for rs in self.slots_list if rs.slot.type == "regular"]
@@ -821,7 +821,7 @@ class ReportTimeline:
         # Sort by start time to preserve chronological order
         result_report_slots.sort(key=lambda rs: rs.start)
 
-        return ReportTimeline(slots_list=result_report_slots)
+        return ReportEntries(slots_list=result_report_slots)
 
     def _merge_overlapping_work_slots(self, work_slots_raw: List["ReportTimelineSlot"]) -> List["ReportTimelineSlot"]:
         """
@@ -938,7 +938,7 @@ class ReportTimeline:
 
         return result
 
-    def consolidate_consecutive(self) -> "ReportTimeline":
+    def consolidate_consecutive(self) -> "ReportEntries":
         """
         Fine-grain consolidation: merge CONSECUTIVE slots sharing (project, task, date).
 
@@ -948,10 +948,10 @@ class ReportTimeline:
         consolidate_by_period() — both now uniformly exclude bare offline gaps.
 
         Returns:
-            ReportTimeline with consecutive-same-task runs merged
+            ReportEntries with consecutive-same-task runs merged
         """
         if not self.slots_list:
-            return ReportTimeline()
+            return ReportEntries()
 
         consolidated = []
         current_group = []
@@ -996,7 +996,7 @@ class ReportTimeline:
             )
             consolidated.append(merged_report_slot)
 
-        return ReportTimeline(slots_list=consolidated)
+        return ReportEntries(slots_list=consolidated)
 
     def grouped_by_project_date(
         self,
@@ -1034,7 +1034,7 @@ class ReportTimeline:
 
         return groups
 
-    def bucket(self, mode: Literal["day", "week", "month", "year"]) -> "ReportTimeline":
+    def bucket(self, mode: Literal["day", "week", "month", "year"]) -> "ReportEntries":
         """
         Period bucketing: split all slots at boundaries, then global-groupby (bucket, project, task).
 
@@ -1045,7 +1045,7 @@ class ReportTimeline:
             mode: "day", "week", "month", or "year"
 
         Returns:
-            ReportTimeline with slots split at boundaries and grouped by period bucket,
+            ReportEntries with slots split at boundaries and grouped by period bucket,
             sorted by (bucket_start_date, -project_total, -task_total)
         """
         # Split all slots at boundaries
@@ -1077,18 +1077,18 @@ class ReportTimeline:
         # (simplified: just bucket_date for now; render layer can further sort by project/task if needed)
         bucketed.sort(key=lambda s: s.bucket_start_date)
 
-        return ReportTimeline(slots_list=bucketed)
+        return ReportEntries(slots_list=bucketed)
 
-    def collapse_to_project(self) -> "ReportTimeline":
+    def collapse_to_project(self) -> "ReportEntries":
         """
         Collapse (bucket, project, task) rows to (bucket, project) totals.
 
-        For use with bucketed ReportTimeline (post bucket() call).
+        For use with bucketed ReportEntries (post bucket() call).
         Sums actual_duration, productive_duration, afk_duration, offline_extension_duration.
         Drops task and categories.
 
         Returns:
-            ReportTimeline with one row per (bucket, project), durations summed
+            ReportEntries with one row per (bucket, project), durations summed
         """
         by_bucket_project = {}
 
@@ -1107,7 +1107,7 @@ class ReportTimeline:
             merged.bucket_mode = group[0].bucket_mode if group else None
             collapsed.append(merged)
 
-        return ReportTimeline(slots_list=collapsed)
+        return ReportEntries(slots_list=collapsed)
 
     def slots(self) -> List[ReportTimelineSlot]:
         """Get the internal slots list."""

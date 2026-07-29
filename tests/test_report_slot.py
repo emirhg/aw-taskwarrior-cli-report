@@ -1,9 +1,9 @@
 """
-Comprehensive tests for ReportTimelineSlot and ReportTimeline.
+Comprehensive tests for ReportTimelineSlot and ReportEntries.
 
 Tests the unified merge implementation and bug fixes:
 1. Tags preservation (previously dropped)
-2. Offline gap handling consistency (will be tested in ReportTimeline layer)
+2. Offline gap handling consistency (will be tested in ReportEntries layer)
 3. N/A: merge_by_project_date() dead code retirement
 4. split_slots_spanning_days divergence resolution (tested separately)
 5. Mixed-type merge rejection
@@ -18,7 +18,7 @@ import pytest
 from datetime import datetime, timedelta, timezone, date
 
 from tw_report.core.timeline import TimelineSlot, TimelineSlotValidationError
-from tw_report.core.report_slot import ReportTimelineSlot, ReportTimeline
+from tw_report.core.report_slot import ReportTimelineSlot, ReportEntries
 
 
 # Fixtures for common test data
@@ -509,7 +509,7 @@ class TestReportTimelineEmbeddedAFK:
         timeline.add_slots([work, afk1, afk2])
 
         # Convert to ReportTimeline and combine
-        report_timeline = ReportTimeline.from_timeline(timeline)
+        report_timeline = ReportEntries.from_timeline(timeline)
         combined = report_timeline.combine_work_with_embedded_afk()
 
         # Should have 1 slot (combined work + embedded AFK)
@@ -563,7 +563,7 @@ class TestReportTimelineEmbeddedAFK:
         timeline = Timeline()
         timeline.add_slots([work, afk_before, afk_overlaps])
 
-        report_timeline = ReportTimeline.from_timeline(timeline)
+        report_timeline = ReportEntries.from_timeline(timeline)
         combined = report_timeline.combine_work_with_embedded_afk()
 
         # Should have 2 slots: standalone AFK before + combined work
@@ -581,8 +581,8 @@ class TestReportTimelineEmbeddedAFK:
         assert work_slot.embedded_afk_slots[0].start == afk_overlaps.start
 
 
-class TestReportTimeline:
-    """Test ReportTimeline collection operations."""
+class TestReportEntries:
+    """Test ReportEntries collection operations."""
 
     def test_from_timeline_wraps_all_slots(self, basic_slot, afk_slot):
         """from_timeline should wrap every slot as a singleton ReportTimelineSlot."""
@@ -592,7 +592,7 @@ class TestReportTimeline:
         timeline.add_slot(basic_slot)
         timeline.add_slot(afk_slot)
 
-        report_timeline = ReportTimeline.from_timeline(timeline)
+        report_timeline = ReportEntries.from_timeline(timeline)
         assert len(report_timeline.slots()) == 2
         assert all(not s.is_consolidated for s in report_timeline.slots())
 
@@ -617,7 +617,7 @@ class TestReportTimeline:
             project="P", task="T", categories=[], tags=["b"],
         )
 
-        report_timeline = ReportTimeline(
+        report_timeline = ReportEntries(
             slots_list=[
                 ReportTimelineSlot.from_timeline_slot(slot1),
                 ReportTimelineSlot.from_timeline_slot(slot2),
@@ -661,7 +661,7 @@ class TestReportTimeline:
             project="P", task="T", categories=[], tags=[],
         )
 
-        report_timeline = ReportTimeline(
+        report_timeline = ReportEntries(
             slots_list=[
                 ReportTimelineSlot.from_timeline_slot(slot1),
                 ReportTimelineSlot.from_timeline_slot(gap_slot),
@@ -690,7 +690,7 @@ class TestReportTimeline:
             project="P", task="T", categories=[], tags=[],
         )
 
-        report_timeline = ReportTimeline(
+        report_timeline = ReportEntries(
             slots_list=[ReportTimelineSlot.from_timeline_slot(slot)]
         )
 
@@ -702,7 +702,7 @@ class TestReportTimeline:
 
     def test_slots_and_as_dicts(self, basic_slot):
         """slots() and as_dicts() should return the list and dict conversions."""
-        report_timeline = ReportTimeline(
+        report_timeline = ReportEntries(
             slots_list=[ReportTimelineSlot.from_timeline_slot(basic_slot)]
         )
 
