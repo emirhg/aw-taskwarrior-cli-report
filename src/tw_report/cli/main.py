@@ -392,22 +392,6 @@ def main():
             (event.timestamp + event.duration).astimezone() for event in not_afk_events
         )
 
-    # Check if there are OFFLINE-tagged tasks that need window validation
-    # If so, fetch windows even in AFK optimization mode (needed for validation)
-    if use_afk_optimization and not window_events and task_events:
-        has_offline_tasks = any(
-            any('offline' in t.lower() for t in (
-                e.data.get("tags", [])
-                if isinstance(e.data.get("tags", []), list)
-                else [e.data.get("tags", "")]
-            ))
-            for e in task_events
-        )
-        if has_offline_tasks:
-            # Fetch windows for OFFLINE validation
-            from tw_report.core.aw_events import WindowEvent
-            window_bucket = get_bucket_id("window")
-            window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
 
     # Special case: task-UUID mode or project/task-filter mode (skip window bucket)
     # Convert taskwarrior events directly to canonical events (skip window correlation)
