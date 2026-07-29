@@ -1,25 +1,48 @@
 # Step 6-11 Handoff: Merge TimelineSlot into ReportTimelineSlot
 
-## Current Status ✅
+## Current Status ✅ Step 6.1 COMPLETE
 
-**Completed**: Steps 1-5 (all committed, 41 tests passing)
+**Completed**: Steps 1-5 + Step 6.1 (all committed, 37/67 tests passing)
 
 1. ✅ Fixed broken test imports (ReportTimeline → ReportEntries)
 2. ✅ Created core/aw_events.py with typed Event subclasses (32 tests)
 3. ✅ Created structural predicate tests (9 tests, spec-first validation)
 4. ✅ Threaded event_cls through event fetching
 5. ✅ Replaced duck-typing with typed properties in task_matching.py and categories.py
+6. ✅ **Step 6.1**: Merged TimelineSlot into ReportTimelineSlot class definition
 
 **Clean commit state**: `git log --oneline | head -5`
 ```
-48213b8 refactor: Step 5 — replace duck-typing with typed property access
-0493d82 refactor: Step 4 — thread event_cls through event fetching
-fdb488b refactor: Step 1-3 — create typed Event subclasses and structural predicate tests
+ec7f3fa refactor: Step 6.1 — Merge TimelineSlot into ReportTimelineSlot class definition
+[earlier steps]
 ```
+
+**Test Status After Step 6.1:**
+- ✅ 9 structural predicate tests (safety net) — 9/9 passing
+- ✅ 32 aw_events unit tests — passing
+- ✅ 1 report_slot construction test — passing
+- ❌ 30 tests failing (mostly test_timeline.py using old TimelineSlot, ReportEntries methods need fixing)
 
 ---
 
-## Step 6: Merge TimelineSlot into ReportTimelineSlot (CRITICAL)
+## Step 6.1 COMPLETED ✅
+
+All class-level structural changes are done:
+- ✅ Class definition merged (direct fields, no more `slot=` wrapping)
+- ✅ Properties added (project, task, is_offline_task, is_afk_only)
+- ✅ Factory methods updated (from_timeline_slot, from_timeline_slots, from_work_slot_with_embedded_afk, split_at_boundaries)
+- ✅ Backward-compat methods deleted (to_dict, to_timeline_slot, get_display_columns)
+- ✅ Structural predicate tests passing (9/9)
+
+**What broke:** 30 tests in test_report_slot.py and test_timeline.py need updates because:
+1. Tests using `.type` property need to use `.is_offline_task` / `.is_afk_only` instead
+2. Tests checking `.slot` attribute no longer have it
+3. Tests using `.embedded_afk_slots` need updating (now just tracking via afk_events)
+4. ReportEntries methods (`from_timeline`, `combine_work_with_embedded_afk`, etc.) still reference old structure
+
+---
+
+## Step 6.2-6.6: Complete factory methods and test migration (IN PROGRESS)
 
 This is the structural core. **All downstream refactoring depends on this step being completed correctly.**
 
@@ -106,7 +129,28 @@ class ReportTimelineSlot:
         )
 ```
 
-### 6.2: Update factory methods
+### Immediate Next Steps (Resume from this point)
+
+**Priority 1 (Blocking everything):**
+1. Fix ReportEntries.from_timeline() — update to construct ReportTimelineSlot directly from Timeline
+2. Fix ReportEntries.combine_work_with_embedded_afk() — still references embedded_afk_slots
+3. Update test_report_slot.py assertions that check `.type` → use predicates
+4. Update test_report_slot.py assertions that check `.embedded_afk_slots` → check `.afk_events` instead
+5. Delete test_to_dict() and test_to_timeline_slot() (methods don't exist anymore)
+
+**Priority 2 (Unblocks timeline tests):**
+6. Decide: Keep Timeline/TimelineSlot for internal use, or delete it?
+   - Currently test_timeline.py tests only TimelineSlot/Timeline (not ReportTimelineSlot)
+   - Option A: Leave TimelineSlot/Timeline alone for now, ReportTimelineSlot is the new model
+   - Option B: Delete TimelineSlot/Timeline since ReportTimelineSlot replaces it
+   - **Recommendation**: Option A (keep both for now, easier migration path)
+
+**Priority 3 (Fixes remaining 30 test failures):**
+7. Update test_timeline.py and test_report_slot.py to use new predicate structure
+8. Search for `.type ==` checks in tests → replace with predicates
+9. Search for `.embedded_afk_slots` → replace with field access or comments explaining the change
+
+### 6.2: Update factory methods (COMPLETED IN CODE, needs test fixes)
 
 **Key changes**:
 1. `from_timeline_slot(slot: TimelineSlot)` → Delete (no longer needed; `Timeline.to_report_timeline` just builds list directly)
