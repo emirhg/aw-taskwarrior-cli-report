@@ -86,7 +86,7 @@ class DisplayColumns:
         else:
             full_line = left_section + (" " * left_padding) + "  " + right_section
 
-        return full_line.rstrip()
+        return full_line
 
     @classmethod
     def from_slot_dict(cls, slot: Dict[str, Any], start_time: datetime, end_time: datetime) -> "DisplayColumns":

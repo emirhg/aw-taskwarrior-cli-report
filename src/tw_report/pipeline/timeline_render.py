@@ -567,8 +567,7 @@ def print_timeline_report(
         label_line = left_label_section + "  " + right_label_section
     else:
         label_line = left_label_section + (" " * left_padding) + "  " + right_label_section
-    # Match DisplayColumns.format() by stripping trailing whitespace
-    print(label_line.rstrip())
+    print(label_line)
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
