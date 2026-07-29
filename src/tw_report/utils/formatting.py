@@ -27,6 +27,46 @@ def _get_timeslot_duration_class() -> type:
 def display_width(text: str) -> int:
     """Calculate visual display width of text, accounting for multi-byte UTF-8 characters.
 
+    CRITICAL FUNCTION for timeline alignment (2026-07-28):
+    ======================================================
+    Terminal columns are based on VISUAL WIDTH, not byte count. Multi-byte UTF-8
+    characters (like ▶, ñ, é, emoji) occupy multiple bytes but take up only 1-2
+    visual columns. Using len() instead of display_width() causes alignment to break.
+
+    Real-world examples from tw-report:
+    - "▶ Mercado" uses 9 bytes but displays in 9 columns (▶ is 3 bytes, 1 visual)
+    - "diseño" uses 7 bytes but displays in 6 columns (ñ is 2 bytes, 1 visual)
+    - If you pad with ljust() to 28 bytes, it may only be 27 visual columns
+    - Result: columns misaligned by 1+ positions
+
+    How it works:
+    - East Asian Width property ('F'=Fullwidth, 'W'=Wide) → 2 visual columns
+    - Everything else ('A', 'H', 'N', default) → 1 visual column
+    - This matches terminal rendering behavior (xterm, iTerm, VS Code, etc.)
+
+    USAGE:
+    - Always use display_width() to calculate visual column count
+    - Always pair with ljust_display() for padding (never ljust())
+    - For alignment calculations: use display_width() not len()
+
+    DO NOT:
+    - Use len(text) for column width calculations
+    - Mix display_width() with ljust() padding
+    - Assume UTF-8 bytes == visual columns
+
+    Example of bug that display_width() prevents:
+    ```python
+    # Wrong: Uses byte length (11), but ▶ takes 3 bytes, 1 column
+    text = "▶ Mercado"  # 9 bytes, 9 visual columns
+    ljust(text, 28)     # Pads to 28 bytes, but only ~27 visual columns
+    # Result: Column misaligned by 1 position
+
+    # Right: Uses visual width (9), accounting for ▶
+    display_width(text)  # Returns 9 (correct visual)
+    ljust_display(text, 28)  # Pads to 28 visual columns
+    # Result: Proper alignment
+    ```
+
     Wide characters (e.g., CJK, emoji) count as 2. Normal characters count as 1.
     This is essential for proper column alignment when strings contain Unicode.
 
@@ -53,12 +93,58 @@ def display_width(text: str) -> int:
 def ljust_display(text: str, width: int, fillchar: str = ' ') -> str:
     """Left-justify string to visual display width, padding with fillchar.
 
+    CRITICAL FUNCTION for timeline alignment (2026-07-28):
+    ======================================================
+    This is the ONLY safe way to pad strings when aligning terminal columns.
+    Never use str.ljust() when alignment depends on visual column positions.
+
+    Why ljust() is broken for alignment:
+    - str.ljust() counts BYTES, not VISUAL COLUMNS
+    - With UTF-8, bytes ≠ visual columns (multi-byte chars like ▶, ñ take 2-3 bytes, 1 visual column)
+    - Result: ljust(text, 28) may create 28 bytes but only 27 visual columns
+    - This breaks column alignment, causing misaligned headers/data rows
+
+    CRITICAL DEPENDENCY in DisplayColumns.format():
+    - DisplayColumns uses ljust_display() for ALL padding
+    - Header construction in timeline_render.py MUST use ljust_display()
+    - Day total formatting MUST use ljust_display()
+    - If you use ljust() anywhere, columns WILL be misaligned
+
+    Example of the alignment failure ljust_display() prevents:
+    ```python
+    # Using ljust() (WRONG):
+    text = "▶ Project"  # 9 bytes, 9 visual columns
+    padded = text.ljust(28)  # 28 bytes total, but only ~27 visual columns
+    # When rendered in terminal column width 28:
+    #   Visual: [▶ Project____________]  (17 padding spaces, 27 visual total)
+    #   Next column starts at visual position 28, but padded string ends at ~27
+    #   Result: 1-column misalignment
+
+    # Using ljust_display() (CORRECT):
+    padded = ljust_display(text, 28)  # 28 visual columns
+    # When rendered:
+    #   Visual: [▶ Project________________]  (18 padding spaces, 28 visual total)
+    #   Next column starts at visual position 29 (correct)
+    #   Result: Proper alignment
+    ```
+
+    USAGE RULES:
+    1. Whenever padding text for column alignment, use ljust_display()
+    2. Always pass the TARGET VISUAL WIDTH (not byte count)
+    3. For column construction (DisplayColumns, headers), ALWAYS ljust_display()
+    4. Never mix ljust() and display_width() — use ljust_display() for both
+
+    DO NOT:
+    - Use str.ljust() for anything related to terminal columns
+    - Mix ljust() and display_width() in alignment calculations
+    - Assume padding_width is correct if you calculated it with len()
+
     Unlike str.ljust() which counts bytes, this accounts for multi-byte UTF-8
     characters to ensure proper visual alignment.
 
     Args:
         text: String to pad
-        width: Target display width
+        width: Target display width (in columns, not bytes)
         fillchar: Character to pad with (default space)
 
     Returns:

@@ -50,14 +50,75 @@ class DisplayColumns:
     def format(self, terminal_width: int = 120) -> str:
         """Format columns into a single line with fixed positions.
 
-        Uses display width (not byte length) to handle multi-byte UTF-8 characters.
-        This ensures proper visual alignment regardless of character encoding.
+        CRITICAL: This format is the ONLY source of truth for column widths and structure.
+        The timeline header in timeline_render.py MUST match these exact widths or columns
+        will be misaligned.
 
-        Layout (columns are right-aligned to terminal width):
-        - Indent (7) + time_range (13 for "HH:MM - HH:MM") + sep (2)
-        - project (28) + sep (2) + task (35)
-        - [right-aligned to terminal width]
-          - offline_time (12) + afk_time (12) + active_time (8) + productivity (14)
+        ALIGNMENT ARCHITECTURE (2026-07-28):
+        ====================================
+        This method defines the MASTER column structure that all rendering must follow:
+
+        Left Section (Identification): 87 display width total
+        - Indent: 7 spaces
+        - Time range: 13 chars (always "HH:MM - HH:MM" format)
+        - Separator: 2 spaces
+        - Project: 28 chars (left-justified, truncated)
+        - Separator: 2 spaces
+        - Task: 35 chars (left-justified, truncated)
+        Calculation: 7 + 13 + 2 + 28 + 2 + 35 = 87
+
+        Right Section (Duration Breakdown): 46 display width total
+        - OFFLINE column: 12 chars (empty or "(HH:MM:SS)")
+        - AFK column: 12 chars (empty or "(HH:MM:SS)")
+        - ACTIVE column: 8 chars (empty or "HH:MM:SS")
+        - PRODUCTIVITY column: 14 chars (empty or "  [prod XXX%]")
+        Calculation: 12 + 12 + 8 + 14 = 46
+
+        Dynamic Padding: terminal_width - 87 - 46 - 2 (separator) = left_padding
+        Formula: left_section + (left_padding spaces) + "  " + right_section
+
+        PAST BUGS & LESSONS (why the design matters):
+        =============================================
+        Bug 1: Missing PRODUCTIVITY column in header
+        - Header had 32-width right section (12+12+8)
+        - DisplayColumns has 46-width right section (12+12+8+14)
+        - Result: 14-char misalignment on ALL terminal widths
+        - Fix: Always include all columns, even if empty
+
+        Bug 2: Using fixed positions instead of dynamic terminal_width
+        - Initial header used fixed math assuming terminal_width
+        - On wider terminals (150+ chars), labels stayed at position 89
+        - But durations right-aligned to actual terminal width (e.g., 150)
+        - Result: columns appeared completely misaligned
+        - Fix: Always use get_terminal_width() and recalculate for every line
+
+        Bug 3: Using ljust() instead of ljust_display()
+        - ljust() counts bytes, not visual columns
+        - Multi-byte UTF-8 chars (▶, ñ, é, emoji) are 2+ bytes but 1-2 visual width
+        - Result: columns drifted by 1-3 positions depending on content
+        - Fix: Use ljust_display() everywhere for visual (not byte) alignment
+
+        CRITICAL DEPENDENCIES:
+        ======================
+        1. timeline_render.py header (lines 552-586) MUST use:
+           - Left section: 87 width
+           - Right section: 46 width (WITH 14-char productivity column)
+           - SAME dynamic terminal_width calculation
+
+        2. All ljust() calls must be ljust_display() to handle UTF-8
+
+        3. If you ADD or RESIZE a duration column here, you MUST update:
+           - timeline_render.py header (line 573-577)
+           - Day total formatting (line 893+)
+           - Consolidation report headers
+           - Anything else that tries to match these positions
+
+        DO NOT:
+        - Use fixed positions (e.g., column starts at position 89)
+        - Forget the productivity column (even if empty, 14 chars)
+        - Use len() instead of display_width() for Unicode
+        - Use ljust() instead of ljust_display() for padding
+        - Change column widths without updating ALL rendering locations
         """
         from tw_report.utils.formatting import display_width, ljust_display
 

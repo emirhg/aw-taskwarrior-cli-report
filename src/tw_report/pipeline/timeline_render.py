@@ -549,35 +549,60 @@ def print_timeline_report(
     if not slots:
         print("No activity found for the specified period.")
 
-    # Print date/week header with duration column labels on same line
-    # Must use SAME terminal_width calculation as DisplayColumns to align columns
+    # CRITICAL: Print date/week header with duration column labels on same line
+    # ============================================================================
+    # ALIGNMENT ISSUES FIXED (2026-07-28):
+    # 1. Header must use IDENTICAL structure to DisplayColumns.format()
+    # 2. Terminal width must be dynamic, not fixed positions
+    # 3. Right section width MUST include ALL columns (even empty ones)
+    #
+    # PAST BUGS (lessons learned):
+    # - Bug 1: Using fixed byte positions (89, 101, 113) instead of dynamic
+    #   terminal_width padding. On wider terminals (150+ chars), columns
+    #   appeared completely misaligned because labels stayed at 89 but
+    #   durations moved to position 150+.
+    #   Fix: Use same terminal_width calculation as DisplayColumns
+    #
+    # - Bug 2: Header missing PRODUCTIVITY column (14 chars) that DisplayColumns
+    #   includes. This caused 14-char difference in right_section_width:
+    #   - DisplayColumns: 46 width (12+12+8+14)
+    #   - Header (broken): 32 width (12+12+8)
+    #   Result: Different left_padding calculations = misalignment on all widths
+    #   Fix: Include productivity column (14 empty spaces) in header
+    #
+    # - Bug 3: Using ljust() instead of ljust_display() for multi-byte UTF-8.
+    #   ljust() counts bytes, not display width. With UTF-8 chars (▶, ñ, etc.),
+    #   columns drifted. Fix: Use ljust_display() everywhere.
+    # ============================================================================
+
     from tw_report.utils.formatting import display_width, ljust_display
 
     header_text = "Wk  Date       Day"
 
-    # Match DisplayColumns.format() structure exactly:
-    # - Left section: 87 display width
-    # - 2-space separator
-    # - Right section: duration labels with display_width padding
-
-    header_left_visual_width = 87  # Same as data row left section
+    # Match DisplayColumns.format() structure EXACTLY:
+    # Left section: 7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task = 87
+    header_left_visual_width = 87
     header_text_width = display_width(header_text)
     padding_to_left_section = header_left_visual_width - header_text_width
 
     header_left_section = header_text + (" " * padding_to_left_section)
 
-    # Build right section with labels (MUST match DisplayColumns widths exactly)
-    # DisplayColumns uses: OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 46
+    # CRITICAL: Right section MUST include ALL columns DisplayColumns uses
+    # Format: OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 46 total
+    # If you add/remove/resize any duration column in DisplayColumns, update here too!
     header_right_section = (ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) +
                             ljust_display("ACTIVE", 8) + ljust_display("", 14))
 
-    # Calculate dynamic padding to terminal width (SAME AS DisplayColumns)
+    # CRITICAL: Use SAME terminal_width as DisplayColumns for all calculations
+    # Both header and data rows use this formula:
+    #   left_padding = terminal_width - left_section_width - right_section_width - 2
+    # If terminal_width differs between header and data, columns WILL NOT align.
     terminal_width = width
     left_section_width = display_width(header_left_section)
     right_section_width = display_width(header_right_section)
     left_padding = terminal_width - left_section_width - right_section_width - 2
 
-    # Build header with same logic as DisplayColumns
+    # Build header using IDENTICAL logic to DisplayColumns.format()
     if left_padding < 0:
         header_line = header_left_section + "  " + header_right_section
     else:
@@ -891,7 +916,34 @@ def print_timeline_report(
                 # Use online_duration only (not total_duration) since offline_gap is displayed separately
                 total_day_with_afk = daily_metrics.online_duration
                 # Format offline time in gap notation if present
-                # Day total using DisplayColumns-style alignment
+                # CRITICAL: Day total line alignment (2026-07-29)
+                # ====================================================
+                # Day total MUST use IDENTICAL column structure to:
+                # 1. DisplayColumns.format() (the data row format)
+                # 2. Header construction above (line 552-586)
+                #
+                # Left section: 87 display width
+                #   7 indent + "Day total:   " (13) = 20 visual width
+                #   Remaining: 67 spaces to reach 87 total
+                #
+                # Right section: 46 display width (MUST include ALL columns)
+                #   12 OFFLINE + 12 AFK + 8 ACTIVE + 14 PRODUCTIVITY = 46
+                #
+                # Dynamic padding: terminal_width - 87 - 46 - 2 = left_padding
+                #   (Same formula as DisplayColumns.format() and header!)
+                #
+                # If day total columns don't align with data rows:
+                # - Check left_part reaches exactly 87 visual width
+                # - Check right_section has all 4 columns (46 total)
+                # - Check ljust_display() is used for all padding (never ljust())
+                # - Verify terminal_width calculation is identical to DisplayColumns
+                #
+                # Example alignment:
+                #   Data:      [87 visual]  [2 sep]  [12 OFF][12 AFK][8 ACT][14 PROD]
+                #   Day total: [87 visual]  [2 sep]  [12 OFF][12 AFK][8 ACT][14 PROD]
+                #   Header:    [87 visual]  [2 sep]  [12 OFF][12 AFK][8 ACT][14 PROD]
+                # All three must match exactly or columns will be misaligned.
+
                 from tw_report.core.report_slot import DisplayColumns
                 day_total_slot = {
                     "offline_extension_duration": daily_metrics.offline_gap if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else None,
@@ -918,7 +970,8 @@ def print_timeline_report(
                 productivity_col = ljust_display("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]" if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else "", 14)
 
                 right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
-                # Align day total line with data rows: 87 chars for left section (7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task)
+                # Align day total line with data rows: 87 display width for left section
+                # Calculation: 7 indent + "Day total:   " (13 chars) + 67 spaces = 87 total
                 left_part = ljust_display(f"{indent}{day_total_label}", 87)
                 full_line = left_part + "  " + right_section
                 print(full_line)
