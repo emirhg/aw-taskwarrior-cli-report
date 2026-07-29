@@ -1079,12 +1079,20 @@ def print_timeline_report(
         group_start = group_slots[0]["start"]
         group_end = max(s["start"] + s["duration"] for s in group_slots)
 
-        # CRITICAL FIX: Trim slot durations that extend past period end_time
-        # Slots crossing day boundaries (e.g., 23:48-00:00) must be trimmed to not
-        # count time from the next day.
+        # CRITICAL FIX: Use wall-clock duration (slot["duration"]) not actual_duration
+        # actual_duration is the sum of potentially overlapping window events (can inflate)
+        # For display and metrics, use duration (wall-clock span) to avoid double-counting
         group_total_duration = timedelta(0)
         for s in group_slots:
-            slot_duration = s.get("actual_duration", s["duration"])
+            slot_type = s.get("type", "regular")
+            # Use appropriate duration based on slot type
+            if slot_type == "offline_task":
+                # Offline tasks: use actual_duration (event duration, no wall-clock inflation)
+                slot_duration = s.get("actual_duration", s["duration"])
+            else:
+                # Regular/AFK slots: use duration (wall-clock, consistent with metrics)
+                slot_duration = s["duration"]
+
             slot_start = s.get("start")
             slot_end = slot_start + slot_duration if slot_start else None
 
@@ -1095,11 +1103,19 @@ def print_timeline_report(
             else:
                 group_total_duration += slot_duration
         # Also trim productive and AFK durations proportionally
+        # Use wall-clock duration consistently (not actual_duration which can inflate)
         group_productive_duration = timedelta(0)
         group_afk_duration = timedelta(0)
         for s in group_slots:
             slot_start = s.get("start")
-            slot_duration = s.get("actual_duration", s["duration"])
+            slot_type = s.get("type", "regular")
+
+            # Use same logic as above: actual_duration for offline_task, duration for others
+            if slot_type == "offline_task":
+                slot_duration = s.get("actual_duration", s["duration"])
+            else:
+                slot_duration = s["duration"]
+
             slot_end = slot_start + slot_duration if slot_start else None
 
             # Calculate trim ratio if slot extends past end_time
