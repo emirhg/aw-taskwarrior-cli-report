@@ -551,14 +551,20 @@ def print_timeline_report(
 
     # Print date/week header with duration column labels on same line
     # Use same alignment logic as DisplayColumns.format() for consistency
+    from tw_report.utils.formatting import display_width, ljust_display
+
     header_left = "Wk  Date       Day"
-    # Build header left section to match DisplayColumns structure (85 chars total)
-    header_left_section = header_left + " " * (7 + 11 + 2 + 28 + 2 + 35 - len(header_left))
+    # Build header left section to match DisplayColumns structure (87 display width)
+    # = 7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task
+    header_left_width = display_width(header_left)
+    header_left_section = header_left + " " * (87 - header_left_width)
     # Build header right section with labels (same widths as DisplayColumns)
-    header_right_section = "OFFLINE".ljust(12) + "AFK".ljust(12) + "ACTIVE".ljust(8)
-    # Apply same dynamic padding as DisplayColumns
+    header_right_section = ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) + ljust_display("ACTIVE", 8)
+    # Apply same dynamic padding as DisplayColumns using display width
     terminal_width = width
-    left_padding = terminal_width - len(header_left_section) - len(header_right_section) - 2
+    left_section_width = display_width(header_left_section)
+    right_section_width = display_width(header_right_section)
+    left_padding = terminal_width - left_section_width - right_section_width - 2
     if left_padding < 0:
         header_line = header_left_section + "  " + header_right_section
     else:

@@ -24,6 +24,53 @@ def _get_timeslot_duration_class() -> type:
     return TimeslotDuration
 
 
+def display_width(text: str) -> int:
+    """Calculate visual display width of text, accounting for multi-byte UTF-8 characters.
+
+    Wide characters (e.g., CJK, emoji) count as 2. Normal characters count as 1.
+    This is essential for proper column alignment when strings contain Unicode.
+
+    Args:
+        text: String to measure
+
+    Returns:
+        Visual display width in columns
+    """
+    width = 0
+    for char in text:
+        # Get East Asian Width property
+        char_width = unicodedata.east_asian_width(char)
+        if char_width in ('F', 'W'):  # Fullwidth or Wide
+            width += 2
+        elif char_width in ('A', 'H'):  # Ambiguous or Halfwidth
+            # Treat ambiguous/halfwidth as single width in terminal context
+            width += 1
+        else:  # Narrow, Not East Asian
+            width += 1
+    return width
+
+
+def ljust_display(text: str, width: int, fillchar: str = ' ') -> str:
+    """Left-justify string to visual display width, padding with fillchar.
+
+    Unlike str.ljust() which counts bytes, this accounts for multi-byte UTF-8
+    characters to ensure proper visual alignment.
+
+    Args:
+        text: String to pad
+        width: Target display width
+        fillchar: Character to pad with (default space)
+
+    Returns:
+        String padded to specified display width
+    """
+    current_width = display_width(text)
+    if current_width >= width:
+        return text
+    padding_needed = width - current_width
+    return text + (fillchar * padding_needed)
+
+
 def format_duration(duration: timedelta) -> str:
     """Format timedelta as HH:MM:SS string.
 

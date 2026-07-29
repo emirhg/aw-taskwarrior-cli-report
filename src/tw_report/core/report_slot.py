@@ -50,35 +50,41 @@ class DisplayColumns:
     def format(self, terminal_width: int = 120) -> str:
         """Format columns into a single line with fixed positions.
 
+        Uses display width (not byte length) to handle multi-byte UTF-8 characters.
+        This ensures proper visual alignment regardless of character encoding.
+
         Layout (columns are right-aligned to terminal width):
-        - Indent (7) + time_range (11) = 18 chars left
-        - project (28) + task (35) = 63 chars middle
+        - Indent (7) + time_range (13 for "HH:MM - HH:MM") + sep (2)
+        - project (28) + sep (2) + task (35)
         - [right-aligned to terminal width]
-          - offline_time (12) + afk_time (12) = 24 chars
-          - active_time (8) + space (2) + productivity (12) = 22 chars
+          - offline_time (12) + afk_time (12) + active_time (8) + productivity (14)
         """
-        # Build left section (identification)
+        from tw_report.utils.formatting import display_width, ljust_display
+
+        # Build left section (identification) using display width
+        # Time range is always "HH:MM - HH:MM" = 13 characters
         indent = " " * 7
-        time_part = self.time_range.ljust(11)
-        project_part = self.project.ljust(28)
-        task_part = self.task.ljust(35)
+        time_part = ljust_display(self.time_range, 13)  # "HH:MM - HH:MM" = 13 chars
+        project_part = ljust_display(self.project, 28)
+        task_part = ljust_display(self.task, 35)
 
         left_section = f"{indent}{time_part}  {project_part}  {task_part}"
 
         # Build right section (duration breakdown)
         # Each column preserves its width even when empty
-        offline_col = self.offline_time.ljust(12)
-        afk_col = self.afk_time.ljust(12)
-        active_col = self.active_time.ljust(8)
+        offline_col = ljust_display(self.offline_time, 12)
+        afk_col = ljust_display(self.afk_time, 12)
+        active_col = ljust_display(self.active_time, 8)
         # Add 2 spaces separator before productivity
-        productivity_col = ("  " + self.productivity).ljust(14) if self.productivity else " " * 14
+        productivity_col = ljust_display("  " + self.productivity, 14) if self.productivity else " " * 14
 
         right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
 
-        # Right-align the duration section to terminal width
+        # Right-align the duration section to terminal width using display width
         # Leave 2-space separator between left and right
-        total_right_width = len(right_section)
-        left_padding = terminal_width - len(left_section) - total_right_width - 2
+        total_right_width = display_width(right_section)
+        left_section_width = display_width(left_section)
+        left_padding = terminal_width - left_section_width - total_right_width - 2
 
         # Ensure we don't create negative padding
         if left_padding < 0:
