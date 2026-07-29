@@ -855,22 +855,6 @@ def main():
                     # Mark this AFK period as false-positive for filtering
                     false_positive_afk_periods.add((afk_event.timestamp, afk_event.timestamp + afk_event.duration))
 
-                    # Create OFFLINE synthetic slot
-                    offline_entry = {
-                        "type": "offline_task",
-                        "start": afk_event.timestamp,
-                        "end": afk_event.timestamp + afk_event.duration,
-                        "duration": afk_event.duration,
-                        "actual_duration": timedelta(0),
-                        "event_duration": timedelta(0),
-                        "productive_duration": timedelta(0),
-                        "project": "No project assigned",
-                        "task": "System Offline",
-                        "tags": [],
-                        "categories": [],
-                    }
-                    gap_entries.append(offline_entry)
-
         # Filter out AFK entries that correspond to detected false-positive periods
         if false_positive_afk_periods:
             gap_entries = _filter_false_positive_afk(gap_entries, false_positive_afk_periods)
