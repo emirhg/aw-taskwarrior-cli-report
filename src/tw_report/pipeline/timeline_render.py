@@ -85,14 +85,18 @@ from tw_report.utils.formatting import (
 )
 
 
-def _get_slot_type(slot: "ReportTimelineSlot") -> str:
-    """Get slot type from ReportTimelineSlot."""
-    if slot.is_offline_task:
-        return "offline_task"
-    elif slot.is_afk_only:
-        return "afk"
+def _get_slot_type(slot: Union[Dict, "ReportTimelineSlot"]) -> str:
+    """Get slot type from either dict or ReportTimelineSlot."""
+    if isinstance(slot, dict):
+        return slot.get("type", "regular")
     else:
-        return "regular"
+        # ReportTimelineSlot uses predicates instead of type field
+        if slot.is_offline_task:
+            return "offline_task"
+        elif slot.is_afk_only:
+            return "afk"
+        else:
+            return "regular"
 
 
 def _to_local_time(dt: datetime) -> datetime:
@@ -201,7 +205,7 @@ def _format_project_task_columns(project_name: str, task_name: str) -> str:
         return f"▶ {project_name} ▶▶ {task_name}"
 
 
-def _get_displayed_duration(slot: "ReportTimelineSlot") -> timedelta:
+def _get_displayed_duration(slot: Union[Dict, "ReportTimelineSlot"]) -> timedelta:
     """Return the duration that's actually displayed for this slot.
 
     Matches the exact logic used in rendering code to ensure totals are consistent:
@@ -212,20 +216,33 @@ def _get_displayed_duration(slot: "ReportTimelineSlot") -> timedelta:
     This ensures day/week/report totals sum to the displayed entries.
 
     Args:
-        slot: A ReportTimelineSlot object
+        slot: A timeline slot (dict or ReportTimelineSlot object)
 
     Returns:
         The duration as displayed in the output
     """
-    if slot.is_afk_only:
-        # AFK slots: prefer actual_duration
-        return slot.actual_duration if slot.actual_duration else slot.duration
-    elif slot.is_offline_task:
-        # OFFLINE tasks: prefer actual_duration
-        return slot.actual_duration or timedelta(0)
+    if isinstance(slot, dict):
+        slot_type = slot.get("type")
+        if slot_type == "afk":
+            # AFK slots: prefer actual_duration
+            return slot.get("actual_duration", slot.get("duration", timedelta(0)))
+        elif slot_type == "offline_task":
+            # OFFLINE tasks: prefer actual_duration
+            return slot.get("actual_duration", timedelta(0))
+        else:
+            # Regular slots: use wall-clock duration
+            return slot.get("duration", timedelta(0))
     else:
-        # Regular slots: use wall-clock duration
-        return slot.duration
+        # ReportTimelineSlot object
+        if slot.is_afk_only:
+            # AFK slots: prefer actual_duration
+            return slot.actual_duration if slot.actual_duration else slot.duration
+        elif slot.is_offline_task:
+            # OFFLINE tasks: prefer actual_duration
+            return slot.actual_duration or timedelta(0)
+        else:
+            # Regular slots: use wall-clock duration
+            return slot.duration
 
 
 def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]]) -> List[Union[Dict, "ReportTimelineSlot"]]:
