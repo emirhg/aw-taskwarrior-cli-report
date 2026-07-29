@@ -553,7 +553,10 @@ def print_timeline_report(
     # Use same alignment logic as DisplayColumns.format() for consistency
     from tw_report.utils.formatting import display_width, ljust_display
 
-    header_left = "Wk  Date       Day"
+    # Header must match data row structure: 7-space indent + header text + padding to 87 chars
+    indent = " " * 7
+    header_text = "Wk  Date       Day"
+    header_left = indent + header_text
     # Build header left section to match DisplayColumns structure (87 display width)
     # = 7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task
     header_left_width = display_width(header_left)
