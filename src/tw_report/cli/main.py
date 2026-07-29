@@ -307,22 +307,23 @@ def main():
     # to refine with partitioning. If task_events is None, skip windows entirely.
     # ============================================================================
 
-    # Fetch window events ONLY if we expect to have task_events to partition
-    if requires_window_data and task_events_early is not None:
-        from tw_report.core.aw_events import WindowEvent
+    # Fetch window events for AFK false positive detection via split_by_coverage()
+    # Window events are needed to validate which AFK periods are real (have window coverage)
+    # vs false positives (system was off). This is critical for accurate AFK/OFFLINE reporting.
+    from tw_report.core.aw_events import WindowEvent
 
-        if task_time_ranges:
-            # Smart optimization: only fetch windows for times when tasks exist
-            window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
-        else:
-            # No task time ranges: fetch entire period
-            window_bucket = get_bucket_id("window")
-            window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
+    if task_time_ranges:
+        # Smart optimization: only fetch windows for times when tasks exist
+        window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
+    else:
+        # No task time ranges: fetch entire period
+        window_bucket = get_bucket_id("window")
+        window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
 
-        # Categorize all window events (including those during AFK periods)
-        # This ensures generate_afk_and_offline_slots can extract categories for AFK slot details
-        for event in window_events:
-            categorize_event(event, compiled_categories)
+    # Categorize all window events (including those during AFK periods)
+    # This ensures generate_afk_and_offline_slots can extract categories for AFK slot details
+    for event in window_events:
+        categorize_event(event, compiled_categories)
 
     # Filter AFK events to only those that START within the requested period
     # (ActivityWatch sometimes returns events from outside the range if they overlap it)
@@ -399,9 +400,9 @@ def main():
         if not task_events:
             task_events = None
             is_task_based_report = False
-            # CRITICAL: If we have no task_events to partition, don't use window data
-            # Window events are only for refining task knowledge. Without tasks, windows are wasted.
-            window_events = []
+            # CRITICAL: Always keep window events for AFK false positive detection via split_by_coverage()
+            # Even without tasks, we need windows to validate which AFK periods are real (have coverage)
+            # vs false positives (system was off). Don't clear window_events here.
 
     # Calculate metrics (used by both report types)
     first_event_time = None

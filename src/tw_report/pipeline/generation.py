@@ -414,18 +414,32 @@ def generate_afk_and_offline_slots(
         if partitions["offline_portion"]:
             offline_start, offline_end = partitions["offline_portion"]
             offline_duration = offline_end - offline_start
-            offline_slot = {
-                "type": "offline",
-                "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
-                "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
-                "duration": offline_duration,
-                "actual_duration": timedelta(0),  # No online activity during OFFLINE period
-                "afk_duration": timedelta(0),
-                "offline_extension_duration": offline_duration,  # Display the entire period in OFFLINE column
-                "project": NO_PROJECT,
-                "task": NO_TASK,
-            }
-            result.append(offline_slot)
+
+            # Only emit OFFLINE slot if there's a TaskWarrior task during this OFFLINE period
+            # If the system was off but no task was being worked, it's just dead time and should be discarded
+            has_task_during_offline = False
+            if task_events:
+                for task in task_events:
+                    task_start = task.timestamp
+                    task_end = task_start + task.duration
+                    # Check if task overlaps with OFFLINE period
+                    if task_start < offline_end and task_end > offline_start:
+                        has_task_during_offline = True
+                        break
+
+            if has_task_during_offline:
+                offline_slot = {
+                    "type": "offline",
+                    "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
+                    "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
+                    "duration": offline_duration,
+                    "actual_duration": timedelta(0),  # No online activity during OFFLINE period
+                    "afk_duration": timedelta(0),
+                    "offline_extension_duration": offline_duration,  # Display the entire period in OFFLINE column
+                    "project": NO_PROJECT,
+                    "task": NO_TASK,
+                }
+                result.append(offline_slot)
 
         # Handle ONLINE_AFK portions (where system was on, user was idle)
         for online_start, online_end in partitions["online_afk_portions"]:
