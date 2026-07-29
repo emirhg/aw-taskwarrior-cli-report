@@ -551,10 +551,13 @@ def print_timeline_report(
 
     # Print date/week header and duration column labels
     print("Wk  Date       Day")
-    # Labels for duration columns only - positioned above their actual columns
-    # Based on DisplayColumns layout: 70 char left section + offshore(12) + afk(12) + active(8)
-    duration_labels = " " * 70 + "OFFLINE        AFK          ACTIVE"
-    print(duration_labels)
+    # Labels for duration columns - positioned at exact column boundaries
+    # DisplayColumns layout: 70 left + offline(12:70-82) + afk(12:82-94) + active(8:94-102)
+    labels_line = " " * 70  # Position 0-70
+    labels_line += "OFFLINE".ljust(12)  # Position 70-82
+    labels_line += "AFK".ljust(12)      # Position 82-94
+    labels_line += "ACTIVE"              # Position 94+
+    print(labels_line)
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
