@@ -74,15 +74,11 @@ from tw_report.utils.formatting import (
     format_duration_tracked_prod,
     format_duration_with_afk,
     format_duration_with_gaps,
-    format_offline_task_duration,
-    format_timeslot_duration,
     format_afk_label,
     abbreviate_project_path,
     get_terminal_width,
     format_timeline_line,
-    format_timeline_columns,
     truncate_title,
-    split_gaps_and_duration,
 )
 
 
@@ -1006,24 +1002,15 @@ def print_timeline_report(
             if slot.get("type") != "afk":
                 task_name = slot["task"]
                 abbrev_project = abbreviate_project_path(project_name, task_name)
-                # Separate gaps from duration for column alignment
-                gaps_str, base_duration = split_gaps_and_duration(
-                    group_total_duration, group_productive_duration, group_afk_duration
-                )
-                time_range = f"{start_str}-{end_str}".ljust(15)  # Pad for column alignment
-                # Print date prefix on separate line if available, then content below
+                # Format with fixed-width columns
                 if pending_date_prefix is not None:
                     print(pending_date_prefix)
                     pending_date_prefix = None
-                # Add space before task name to preserve alignment with offline tasks (which use *)
-                formatted_task = f" {task_name}" if task_name != NO_TASK else task_name
-                print(format_timeline_columns(
-                    time_range=time_range,
-                    project=abbrev_project,
-                    task=formatted_task,
-                    gaps=gaps_str,
-                    duration=base_duration,
-                ))
+                from tw_report.core.report_slot import DisplayColumns
+                slot_start_local = _to_local_time(group_slots[0]["start"])
+                slot_end_local = _to_local_time(group_slots[0]["start"] + group_total_duration)
+                cols = DisplayColumns.from_slot_dict(slot, slot_start_local, slot_end_local)
+                print(cols.format(width))
                 _render_slot_detail(slot, detail_level, width)
             else:
                 # AFK slot on rollup day: render as regular slot
