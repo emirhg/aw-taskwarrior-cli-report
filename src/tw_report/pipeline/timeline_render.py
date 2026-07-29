@@ -1317,35 +1317,57 @@ def print_timeline_report(
         # This is passed to daily_metrics as the "online" parameter
         # AFK time is tracked separately in group_afk_duration (a subset of online time)
         # Later: active_duration = online_duration - afk_duration
+        # CRITICAL: Apply same boundary trimming as display code (lines 1109-1131)
         group_regular_duration = timedelta(0)
         group_regular_productive = timedelta(0)
         group_afk_duration = timedelta(0)
 
         for s in group_slots:
             slot_type = s.get("type")
+            slot_start = s.get("start")
+
+            # Use same duration logic as display code for consistency
+            if slot_type == "offline_task":
+                slot_duration = s.get("actual_duration", s["duration"])
+            else:
+                slot_duration = s["duration"]
+
+            slot_end = slot_start + slot_duration if slot_start else None
+
+            # Calculate trim ratio for period boundaries (same as display code)
+            trim_ratio = 1.0
+            if slot_end and slot_end > end_time:
+                trimmed_duration = end_time - slot_start
+                trim_ratio = trimmed_duration.total_seconds() / slot_duration.total_seconds() if slot_duration.total_seconds() > 0 else 0
 
             if slot_type == "afk":
                 # AFK slots: pure idle time (100% AFK, still counts as online time)
                 # Online Time = Active Time + AFK Time, so AFK must be included in online total
                 # Use wall-clock duration (same as regular slots) for consistency
                 afk_duration = s["duration"]
-                group_afk_duration += afk_duration
+                # Apply trim ratio for boundary crossing
+                trimmed_afk = timedelta(seconds=afk_duration.total_seconds() * trim_ratio)
+                group_afk_duration += trimmed_afk
                 # Add to online total (AFK is online, just not active)
-                group_regular_duration += afk_duration
+                group_regular_duration += trimmed_afk
             elif slot_type == "offline_task":
                 # OFFLINE slots: display uses actual_duration
                 offline_duration = s.get("actual_duration", timedelta(0))
-                group_regular_duration += offline_duration
+                trimmed_offline = timedelta(seconds=offline_duration.total_seconds() * trim_ratio)
+                group_regular_duration += trimmed_offline
                 afk_portion = s.get("afk_duration")  # May be None
                 if afk_portion and afk_portion.total_seconds() > 0:
-                    group_afk_duration += afk_portion
+                    trimmed_afk_portion = timedelta(seconds=afk_portion.total_seconds() * trim_ratio)
+                    group_afk_duration += trimmed_afk_portion
                 productive_duration = s.get("productive_duration", timedelta(0))
-                group_regular_productive += productive_duration
+                trimmed_prod = timedelta(seconds=productive_duration.total_seconds() * trim_ratio)
+                group_regular_productive += trimmed_prod
             else:
                 # Regular (work) slots: display uses slot["duration"] (wall-clock)
                 # Match what's displayed in rendering (line 983)
                 displayed_duration = s["duration"]
-                group_regular_duration += displayed_duration
+                trimmed_duration = timedelta(seconds=displayed_duration.total_seconds() * trim_ratio)
+                group_regular_duration += trimmed_duration
                 afk_portion = s.get("afk_duration")  # May be None
                 productive_duration = s.get("productive_duration", timedelta(0))
 
@@ -1354,8 +1376,10 @@ def print_timeline_report(
                 # the afk_duration field contains the total AFK time during that work period.
                 # These must be accumulated separately to prevent undercounting AFK in metrics.
                 if afk_portion and afk_portion.total_seconds() > 0:
-                    group_afk_duration += afk_portion
-                group_regular_productive += productive_duration
+                    trimmed_afk = timedelta(seconds=afk_portion.total_seconds() * trim_ratio)
+                    group_afk_duration += trimmed_afk
+                trimmed_prod = timedelta(seconds=productive_duration.total_seconds() * trim_ratio)
+                group_regular_productive += trimmed_prod
 
         # Accumulate group totals to daily and weekly metrics
         daily_metrics.add(
