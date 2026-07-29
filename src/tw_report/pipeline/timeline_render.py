@@ -507,6 +507,7 @@ def print_timeline_report(
     width = get_terminal_width()
     is_single_day = start_time.date() == end_time.date()
 
+
     # Use actual_duration for merged slots, duration for others
     # Exclude OFFLINE gap markers from totals (informational only)
     # Keep offline_task slots (actual work sessions) and AFK slots in totals
@@ -1077,18 +1078,41 @@ def print_timeline_report(
         project_name = group_project.replace(".", " > ")
         group_start = group_slots[0]["start"]
         group_end = max(s["start"] + s["duration"] for s in group_slots)
-        group_total_duration = sum(
-            (s.get("actual_duration", s["duration"]) for s in group_slots), timedelta(0)
-        )
-        group_productive_duration = sum(
-            (s.get("productive_duration", timedelta(0)) for s in group_slots),
-            timedelta(0),
-        )
-        # Track AFK duration from consolidated slots
-        group_afk_duration = sum(
-            (s.get("afk_duration", timedelta(0)) for s in group_slots),
-            timedelta(0),
-        )
+
+        # CRITICAL FIX: Trim slot durations that extend past period end_time
+        # Slots crossing day boundaries (e.g., 23:48-00:00) must be trimmed to not
+        # count time from the next day.
+        group_total_duration = timedelta(0)
+        for s in group_slots:
+            slot_duration = s.get("actual_duration", s["duration"])
+            slot_start = s.get("start")
+            slot_end = slot_start + slot_duration if slot_start else None
+
+            # If slot extends past period end, trim it to end_time
+            if slot_end and slot_end > end_time:
+                trimmed_duration = end_time - slot_start
+                group_total_duration += max(trimmed_duration, timedelta(0))
+            else:
+                group_total_duration += slot_duration
+        # Also trim productive and AFK durations proportionally
+        group_productive_duration = timedelta(0)
+        group_afk_duration = timedelta(0)
+        for s in group_slots:
+            slot_start = s.get("start")
+            slot_duration = s.get("actual_duration", s["duration"])
+            slot_end = slot_start + slot_duration if slot_start else None
+
+            # Calculate trim ratio if slot extends past end_time
+            trim_ratio = 1.0
+            if slot_end and slot_end > end_time:
+                trimmed_duration = end_time - slot_start
+                trim_ratio = trimmed_duration.total_seconds() / slot_duration.total_seconds() if slot_duration.total_seconds() > 0 else 0
+
+            # Apply trim ratio to productive and AFK durations
+            prod_dur = s.get("productive_duration", timedelta(0))
+            afk_dur = s.get("afk_duration", timedelta(0))
+            group_productive_duration += timedelta(seconds=prod_dur.total_seconds() * trim_ratio)
+            group_afk_duration += timedelta(seconds=afk_dur.total_seconds() * trim_ratio)
         start_str = _to_local_time(group_start).strftime("%H:%M")
         end_str = _to_local_time(group_end).strftime("%H:%M")
         duration_str = format_duration_with_afk(
