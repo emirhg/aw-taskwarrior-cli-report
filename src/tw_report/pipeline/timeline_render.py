@@ -553,8 +553,14 @@ def print_timeline_report(
     if not slots:
         print("No activity found for the specified period.")
 
-    # Print column header
+    # Print column headers
     print("Wk  Date       Day")
+    # Column header with markers for each column position
+    col_header = (
+        "       TIME           PROJECT                  TASK                             "
+        "OFFLINE            AFK            ACTIVE   PRODUCTIVITY"
+    )
+    print(col_header[:width] if len(col_header) > width else col_header.ljust(width))
 
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
@@ -862,15 +868,32 @@ def print_timeline_report(
                 # Use online_duration only (not total_duration) since offline_gap is displayed separately
                 total_day_with_afk = daily_metrics.online_duration
                 # Format offline time in gap notation if present
-                if daily_metrics.offline_gap and daily_metrics.offline_gap > timedelta(0):
-                    gaps_str = f"({format_duration(daily_metrics.offline_gap)} OFF)"
-                else:
-                    gaps_str = ""
-                base_duration = format_duration_tracked_prod(total_day_with_afk, daily_metrics.productive_duration)
-                right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                # Day total indented like entries (7 spaces) for pyramid shape
-                left_part = "       Day total:   "
-                full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
+                # Day total using DisplayColumns-style alignment
+                from tw_report.core.report_slot import DisplayColumns
+                day_total_slot = {
+                    "offline_extension_duration": daily_metrics.offline_gap if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else None,
+                    "afk_duration": None,
+                    "actual_duration": total_day_with_afk,
+                    "productive_duration": daily_metrics.productive_duration,
+                }
+                # Create a fake start/end for the day total line
+                day_start = current_date.replace(hour=0, minute=0, second=0)
+                day_end = current_date.replace(hour=23, minute=59, second=59)
+                day_start_aware = day_start.replace(tzinfo=timezone.utc).astimezone()
+                day_end_aware = day_end.replace(tzinfo=timezone.utc).astimezone()
+
+                cols = DisplayColumns.from_slot_dict(day_total_slot, day_start_aware, day_end_aware)
+                # Override the formatted output for day total line
+                indent = " " * 7
+                day_total_label = "Day total:   "
+                offline_col = (f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else "").ljust(12)
+                afk_col = "".ljust(12)
+                active_col = format_duration(total_day_with_afk).ljust(8)
+                productivity_col = ("  " + f"[prod {(daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds() * 100) if total_day_with_afk.total_seconds() > 0 else 0:>3.0f}%]").ljust(14) if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 else " " * 14
+
+                right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+                left_part = f"{indent}{day_total_label}".ljust(70)
+                full_line = left_part + right_section
                 print(full_line.rstrip())
                 print()
             daily_metrics = PeriodMetrics()
@@ -1152,16 +1175,21 @@ def print_timeline_report(
         if not prev_date_was_rollup:
             # Use online_duration only (not total_duration) since offline_gap is displayed separately
             total_day_with_afk = daily_metrics.online_duration
-            # Format offline time in gap notation if present
-            if daily_metrics.offline_gap and daily_metrics.offline_gap > timedelta(0):
-                gaps_str = f"({format_duration(daily_metrics.offline_gap)} OFF)"
+            # Day total using DisplayColumns-style alignment (no OFF label)
+            indent = " " * 7
+            day_total_label = "Day total:   "
+            offline_col = (f"({format_duration(daily_metrics.offline_gap)})" if daily_metrics.offline_gap and daily_metrics.offline_gap.total_seconds() > 0 else "").ljust(12)
+            afk_col = "".ljust(12)
+            active_col = format_duration(total_day_with_afk).ljust(8)
+            # Productivity percentage
+            if daily_metrics.productive_duration and daily_metrics.productive_duration.total_seconds() > 0 and total_day_with_afk.total_seconds() > 0:
+                pct = (daily_metrics.productive_duration.total_seconds() / total_day_with_afk.total_seconds()) * 100
+                productivity_col = (f"  [prod {pct:>3.0f}%]").ljust(14)
             else:
-                gaps_str = ""
-            base_duration = format_duration_tracked_prod(total_day_with_afk, daily_metrics.productive_duration)
-            right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-            # Day total indented like entries (7 spaces) for pyramid shape
-            left_part = "       Day total:   "
-            full_line = left_part.ljust(width - len(right_part) - 9) + "  " + right_part
+                productivity_col = " " * 14
+            right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+            left_part = f"{indent}{day_total_label}".ljust(70)
+            full_line = left_part + right_section
             print(full_line.rstrip())
         # Use online_duration only (not total_duration) since offline_gap is displayed separately
         total_week_with_afk = weekly_metrics.online_duration
