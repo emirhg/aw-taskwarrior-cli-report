@@ -58,13 +58,16 @@ This approach was chosen over fixed-column padding because:
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
 from itertools import groupby
 import re
 from aw_transform import filter_keyvals
 from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
+
+if TYPE_CHECKING:
+    from tw_report.core.report_slot import ReportTimelineSlot
 from tw_report.core.consolidation import collapse_tasks_to_project
 from tw_report.pipeline.generation import MIN_EVENT_DURATION
 from tw_report.pipeline.models import TimeslotDuration, PeriodMetrics
@@ -80,6 +83,34 @@ from tw_report.utils.formatting import (
     format_timeline_line,
     truncate_title,
 )
+
+
+def _get_slot_type(slot: Union[Dict, "ReportTimelineSlot"]) -> str:
+    """Get slot type from either dict or ReportTimelineSlot."""
+    if isinstance(slot, dict):
+        return slot.get("type", "")
+    else:
+        # ReportTimelineSlot uses predicates instead of type field
+        if hasattr(slot, 'is_offline_task') and slot.is_offline_task:
+            return "offline_task"
+        elif hasattr(slot, 'is_afk_only') and slot.is_afk_only:
+            return "afk"
+        else:
+            return "regular"
+
+
+def _get_slot_field(slot: Union[Dict, "ReportTimelineSlot"], field: str, default: Any = None) -> Any:
+    """Get field from either dict or ReportTimelineSlot."""
+    if isinstance(slot, dict):
+        return slot.get(field, default)
+    else:
+        # ReportTimelineSlot: use property access or data dict
+        if hasattr(slot, field):
+            return getattr(slot, field)
+        elif hasattr(slot, 'data') and field in slot.data:
+            return slot.data[field]
+        else:
+            return default
 
 
 def _to_local_time(dt: datetime) -> datetime:
@@ -353,7 +384,7 @@ def format_and_print_day_total(daily_metrics, width):
 
 
 def print_timeline_report(
-    slots: List[Dict],
+    slots: Union[List[Dict], List["ReportTimelineSlot"]],
     period: str,
     start_time: datetime,
     end_time: datetime,
