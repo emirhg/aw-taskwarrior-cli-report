@@ -750,7 +750,7 @@ def print_timeline_report(
     all_offline_periods = []
     for offline_slots in offline_slots_by_task.values():
         for offline_slot in offline_slots:
-            all_offline_periods.append((offline_slot.start, offline_slot.start + offline_slot["duration"]))
+            all_offline_periods.append((offline_slot.start, offline_slot.start + offline_slot.duration))
 
 
     for slot in slots:
@@ -777,7 +777,7 @@ def print_timeline_report(
                 if key in offline_slots_by_task:
                     for offline_slot in offline_slots_by_task[key]:
                         offline_start = offline_slot.start
-                        offline_end = offline_start + offline_slot["duration"]
+                        offline_end = offline_start + offline_slot.duration
                         if slot_start < offline_end and slot_end > offline_start:
                             overlaps_offline = True
                             break
@@ -943,7 +943,7 @@ def print_timeline_report(
 
             # Format OFFLINE task entries with fixed-width columns
             # OFFLINE tasks show only OFFLINE duration type (wall-clock time untracked)
-            offline_task_name = f"*{slot.get('task', NO_TASK)}"
+            offline_task_name = f"*{slot.task}"
             slot_with_name = {
                 "project": slot.project,
                 "task": offline_task_name,
