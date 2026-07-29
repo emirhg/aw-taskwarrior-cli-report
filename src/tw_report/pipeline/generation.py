@@ -488,6 +488,76 @@ def generate_afk_and_offline_slots(
     return result
 
 
+def _partition_active_by_task_coverage(
+    active_event: Event,
+    task_events: List[Event],
+) -> List[tuple]:
+    """Partition a not-afk event by overlapping task events.
+
+    When a not-afk period (keyboard/mouse active) overlaps with TaskWarrior tasks,
+    partition it to identify uncovered portions. Covered portions will be handled by
+    generate_partitioned_task_slots (which partitions tasks by AFK events to find
+    ACTIVE/AFK/OFFLINE portions). Uncovered portions are returned here for further
+    processing by _partition_untracked_gap.
+
+    System State Tracking:
+    - Uncovered active_portions → partitioned by AFK events to find active/AFK distinctions
+    - Covered portions → handled by generate_partitioned_task_slots (AFK false-positive detection)
+
+    Args:
+        active_event: The not-afk event (keyboard/mouse active period)
+        task_events: TaskWarrior events to partition by
+
+    Returns:
+        List of (start, end) datetime tuples for uncovered portions that need slot generation
+    """
+    active_start = active_event.timestamp
+    active_end = active_start + active_event.duration
+
+    # Find all task events that overlap this active period
+    overlapping_tasks = []
+    for task in task_events:
+        task_start = task.timestamp
+        task_end = task_start + task.duration
+        if task_start < active_end and task_end > active_start:
+            # Clamp overlap to active period boundaries
+            overlap_start = max(task_start, active_start)
+            overlap_end = min(task_end, active_end)
+            overlapping_tasks.append((overlap_start, overlap_end))
+
+    if not overlapping_tasks:
+        # No task coverage, entire active_period is uncovered
+        return [(active_start, active_end)]
+
+    # Sort overlapping tasks by start time
+    overlapping_tasks.sort()
+
+    # Merge overlapping/touching task periods to find combined coverage
+    merged_tasks = []
+    current_start, current_end = overlapping_tasks[0]
+    for task_start, task_end in overlapping_tasks[1:]:
+        if task_start <= current_end:
+            current_end = max(current_end, task_end)
+        else:
+            merged_tasks.append((current_start, current_end))
+            current_start, current_end = task_start, task_end
+    merged_tasks.append((current_start, current_end))
+
+    # Extract uncovered portions: gaps before/between/after task coverage
+    uncovered = []
+    current_pos = active_start
+
+    for task_start, task_end in merged_tasks:
+        if current_pos < task_start:
+            uncovered.append((current_pos, task_start))
+        current_pos = max(current_pos, task_end)
+
+    if current_pos < active_end:
+        uncovered.append((current_pos, active_end))
+
+    return uncovered
+
+
 def convert_active_periods_to_slots(
     active_events: List[Event],
     task_events: Optional[List[Event]] = None,
@@ -496,64 +566,43 @@ def convert_active_periods_to_slots(
     """Convert status="not-afk" events to ACTIVE slots for uncovered periods only.
 
     Takes AFKEvents with status="not-afk" (keyboard/mouse active periods) and converts
-    them to timeline slots, but ONLY for periods NOT already covered by TaskWarrior events.
-    This prevents duplicate slots when a task's active period overlaps with an AFK not-afk event.
+    them to timeline slots. For periods covered by TaskWarrior tasks, partitions to emit
+    slots only for uncovered portions. Each uncovered portion is further partitioned by
+    AFK events to distinguish between active (not-afk + not-idle) and AFK portions.
 
-    When afk_events are provided, partitions each active period by overlapping AFK events,
-    creating separate slots for AFK and pure ACTIVE portions.
+    System State Identification:
+    - Active + not-afk = ACTIVE slot (keyboard/mouse active)
+    - Active + AFK = AFK slot (idle during untracked time)
+    - Covered by task = handled by generate_partitioned_task_slots (includes offline detection)
 
     Args:
-        active_events: AFKEvents with status="not-afk" (from AFK bucket)
-        task_events: TaskWarrior events for exclusion (periods covered by tasks are skipped)
-        afk_events: Optional AFK events to partition active periods into AFK/ACTIVE portions
+        active_events: AFKEvents with status="not-afk" from AFK bucket
+        task_events: TaskWarrior events for identifying covered portions (overlap detection only)
+        afk_events: AFK events (status='afk') for partitioning active periods into ACTIVE/AFK
 
     Returns:
-        List of slot dicts with type="active" (no project assigned, no AFK) or "afk"
+        List of slot dicts with type="active" or "afk" (no project assigned since untracked)
     """
     result = []
     afk_events = afk_events or []
+    task_events = task_events or []
 
-    # If no task events, all active periods are uncovered
-    if not task_events:
-        for active_event in active_events:
-            # Partition by AFK events if provided
-            partitioned = _partition_untracked_gap(active_event, afk_events)
-
-            for portion in partitioned:
-                if portion.duration >= MIN_EVENT_DURATION:
-                    gap_type = portion.data.get("gap_type", "untracked_active")
-                    slot_type = "afk" if gap_type == "untracked_afk" else "active"
-                    afk_duration = portion.duration if gap_type == "untracked_afk" else timedelta(0)
-
-                    slot = {
-                        "type": slot_type,
-                        "start": portion.timestamp.astimezone() if hasattr(portion.timestamp, 'astimezone') else portion.timestamp,
-                        "end": (portion.timestamp + portion.duration).astimezone() if hasattr(portion.timestamp, 'astimezone') else (portion.timestamp + portion.duration),
-                        "duration": portion.duration,
-                        "actual_duration": portion.duration,
-                        "afk_duration": afk_duration,
-                        "project": NO_PROJECT,
-                        "task": NO_TASK,
-                        "categories": [],
-                    }
-                    result.append(slot)
-        return result
-
-    # For each active period, check if it's covered by any task event
     for active_event in active_events:
-        active_start = active_event.timestamp
-        active_end = active_start + active_event.duration
+        # Partition active_event by task coverage, finding uncovered portions
+        # Covered portions are handled by generate_partitioned_task_slots
+        uncovered_portions = _partition_active_by_task_coverage(active_event, task_events)
 
-        # Check if this active period overlaps with any task event
-        has_task_coverage = any(
-            task_event.timestamp < active_end and (task_event.timestamp + task_event.duration) > active_start
-            for task_event in task_events
-        )
+        for portion_start, portion_end in uncovered_portions:
+            # Create synthetic event for this uncovered portion
+            uncovered_event = Event(
+                timestamp=portion_start,
+                duration=portion_end - portion_start,
+                data=active_event.data.copy() if hasattr(active_event, 'data') else {}
+            )
 
-        # Only emit ACTIVE slot if this period is NOT covered by any task
-        if not has_task_coverage:
-            # Partition by AFK events if provided
-            partitioned = _partition_untracked_gap(active_event, afk_events)
+            # Partition uncovered portion by AFK events to distinguish ACTIVE from AFK time
+            # This identifies when system was recording but user was idle (AFK)
+            partitioned = _partition_untracked_gap(uncovered_event, afk_events)
 
             for portion in partitioned:
                 if portion.duration >= MIN_EVENT_DURATION:
