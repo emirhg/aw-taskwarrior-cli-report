@@ -78,7 +78,7 @@ def _partition_untracked_gap(
 
     Args:
         gap_event: The not_afk event representing untracked time
-        afk_events: List of AFK events to find overlaps
+        afk_events: List of AFK events to find overlaps (should only contain status='afk')
 
     Returns:
         List of Event objects (gap_event split by AFK overlaps, or original if no overlap)
@@ -86,9 +86,16 @@ def _partition_untracked_gap(
     gap_start = gap_event.timestamp
     gap_end = gap_event.timestamp + gap_event.duration
 
+    # CRITICAL: Filter to only afk=true events (status='afk'), not afk=false (status='not-afk')
+    # The afk_events list from context may contain both, but we only want to partition by idle periods
+    idle_events = [
+        afk for afk in afk_events
+        if afk.data.get('status') == 'afk'
+    ]
+
     # Find AFK events that overlap this gap
     overlapping_afk = [
-        afk for afk in afk_events
+        afk for afk in idle_events
         if afk.timestamp < gap_end and (afk.timestamp + afk.duration) > gap_start
     ]
 
