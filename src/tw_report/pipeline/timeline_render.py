@@ -925,15 +925,20 @@ def print_timeline_report(
             end_str = _to_local_time(offline_task_slot["start"] + wall_clock_duration).strftime("%H:%M")
 
             # Format OFFLINE task entries with fixed-width columns
-            # Each duration type (offline, afk, active) gets its own reserved column
+            # OFFLINE tasks show only OFFLINE duration type (wall-clock time untracked)
+            # Don't show ACTIVE time to avoid double-counting
             offline_task_name = f"*{task_name}"
-            slot_with_name = dict(offline_task_slot)  # Copy offline_task_slot dict
-            slot_with_name["task"] = offline_task_name
-            # Set offline gap (wall-clock minus event time)
-            offline_gap = wall_clock_duration - event_duration
-            slot_with_name["offline_extension_duration"] = offline_gap if offline_gap.total_seconds() > 0 else None
-            # Set actual_duration to the tracked/online time (not wall-clock)
-            slot_with_name["actual_duration"] = event_duration if event_duration.total_seconds() > 0 else None
+            slot_with_name = {
+                "project": offline_task_slot.get("project"),
+                "task": offline_task_name,
+                "type": "offline_task",
+                "start": offline_task_slot.get("start"),
+                "duration": None,  # Don't use duration for active time fallback
+                "offline_extension_duration": wall_clock_duration,  # Show only offline type
+                "afk_duration": None,
+                "actual_duration": None,  # Don't show active to avoid double-count
+                "productive_duration": offline_task_slot.get("productive_duration"),
+            }
 
             from tw_report.core.report_slot import DisplayColumns
             cols = DisplayColumns.from_slot_dict(slot_with_name, _to_local_time(offline_task_slot["start"]), _to_local_time(offline_task_slot["start"] + wall_clock_duration))
