@@ -384,54 +384,35 @@ def classify_afk_and_split_slots(
 
 def partition_task_duration(
     task_event: "Event",
-    window_events: List["WindowEvent"],
     afk_events: List["AFKEvent"],
 ) -> dict:
-    """Partition a TaskWarrior task duration into ACTIVE, AFK, and OFFLINE portions.
+    """Partition a TaskWarrior task duration into ACTIVE and AFK portions.
 
-    For each TaskWarrior task, determines what actually happened during its claimed
-    duration by correlating with window and AFK events:
-    - ACTIVE: time when window events show user was working
-    - AFK: time when AFK events show user was idle (but task was active)
-    - OFFLINE: time with no window or AFK coverage (system was off)
+    For each TaskWarrior task, correlates with AFK events to determine
+    what the user was actually doing:
+    - ACTIVE: time when task was active (not covered by AFK)
+    - AFK: time when user was idle during the task (covered by AFK)
 
-    This provides complete accountability for every second of a task's duration,
-    similar to how AFK events are partitioned via classify_afk_and_split_slots().
+    Note: Window events are NOT used for partitioning. They are only used
+    separately for AFK false-positive detection after partitioning is complete.
 
     Args:
         task_event: TaskWarrior task event with duration
-        window_events: Window bucket events (activity tracking)
         afk_events: AFK bucket events (idle time tracking)
 
     Returns:
         dict with:
-            "active_portions": [(start, end), ...] - Times with window activity
-            "afk_portions": [(start, end), ...] - Times with AFK (idle during task)
-            "offline_portions": [(start, end), ...] - Times with no coverage
-            "unaccounted_duration": timedelta - Gap between claimed task duration and actual coverage
+            "active_portions": [(start, end), ...] - Task time not covered by AFK
+            "afk_portions": [(start, end), ...] - Task time covered by AFK
 
     Example:
         Task: 14:00-15:30 (90 min claimed)
-        Windows: [14:05-14:20], [14:30-14:50]  (40 min total activity)
-        AFK: [14:20-14:30], [14:50-15:00]  (20 min total idle)
-        → active_portions: [(14:05-14:20), (14:30-14:50)]
+        AFK: [14:20-14:30], [14:50-15:00]  (20 min idle during task)
+        → active_portions: [(14:00-14:20), (14:30-14:50), (15:00-15:30)]
         → afk_portions: [(14:20-14:30), (14:50-15:00)]
-        → offline_portions: [(14:00-14:05), (15:00-15:30)]  (30 min unaccounted)
-        → unaccounted_duration: 30 min
     """
     task_start = task_event.timestamp
     task_end = task_start + task_event.duration
-
-    # Find windows that overlap this task
-    overlapping_windows = []
-    for w in window_events:
-        w_start = w.timestamp
-        w_end = w_start + w.duration
-        if w_start < task_end and w_end > task_start:
-            # Clamp to task boundaries
-            clamped_start = max(w_start, task_start)
-            clamped_end = min(w_end, task_end)
-            overlapping_windows.append((clamped_start, clamped_end))
 
     # Find AFK periods that overlap this task
     overlapping_afk = []
@@ -445,21 +426,6 @@ def partition_task_duration(
             clamped_start = max(a_start, task_start)
             clamped_end = min(a_end, task_end)
             overlapping_afk.append((clamped_start, clamped_end))
-
-    # Sort and merge overlapping windows
-    if overlapping_windows:
-        overlapping_windows.sort()
-        merged_windows = []
-        current_start, current_end = overlapping_windows[0]
-        for w_start, w_end in overlapping_windows[1:]:
-            if w_start <= current_end:
-                current_end = max(current_end, w_end)
-            else:
-                merged_windows.append((current_start, current_end))
-                current_start, current_end = w_start, w_end
-        merged_windows.append((current_start, current_end))
-    else:
-        merged_windows = []
 
     # Sort and merge overlapping AFK periods
     if overlapping_afk:
@@ -476,30 +442,18 @@ def partition_task_duration(
     else:
         merged_afk = []
 
-    # Calculate offline portions (gaps with no coverage)
-    # Start with full task duration, subtract windows and AFK
-    all_coverage = sorted(merged_windows + merged_afk)
-    offline_portions = []
-
+    # Calculate ACTIVE portions: gaps with no AFK coverage
+    active_portions = []
     current_pos = task_start
-    for coverage_start, coverage_end in all_coverage:
-        if current_pos < coverage_start:
-            offline_portions.append((current_pos, coverage_start))
-        current_pos = max(current_pos, coverage_end)
+    for afk_start, afk_end in merged_afk:
+        if current_pos < afk_start:
+            active_portions.append((current_pos, afk_start))
+        current_pos = max(current_pos, afk_end)
 
     if current_pos < task_end:
-        offline_portions.append((current_pos, task_end))
-
-    # Calculate unaccounted duration
-    total_coverage = sum(
-        (end - start for start, end in all_coverage),
-        timedelta(0)
-    )
-    unaccounted = task_event.duration - total_coverage
+        active_portions.append((current_pos, task_end))
 
     return {
-        "active_portions": merged_windows,
+        "active_portions": active_portions,
         "afk_portions": merged_afk,
-        "offline_portions": offline_portions,
-        "unaccounted_duration": unaccounted,
     }

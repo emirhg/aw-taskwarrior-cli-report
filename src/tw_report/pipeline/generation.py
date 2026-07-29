@@ -305,10 +305,9 @@ def generate_partitioned_task_slots(
     afk_events = afk_events or []
 
     for task_event in task_events:
-        # Partition this task into ACTIVE/AFK/OFFLINE portions
+        # Partition this task into ACTIVE/AFK portions (AFK only, no window data)
         partitioned = partition_task_duration(
             task_event,
-            window_events,
             afk_events,
         )
 
@@ -347,21 +346,6 @@ def generate_partitioned_task_slots(
                 "task": task_name,
             }
             result.append(afk_slot)
-
-        # Generate OFFLINE portion slots
-        for offline_start, offline_end in partitioned["offline_portions"]:
-            offline_slot = {
-                "type": "offline_task",
-                "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
-                "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
-                "duration": offline_end - offline_start,
-                "event_duration": timedelta(0),  # No window/AFK events during offline
-                "actual_duration": timedelta(0),  # System was off
-                "afk_duration": timedelta(0),
-                "project": project,
-                "task": task_name,
-            }
-            result.append(offline_slot)
 
     return result
 
