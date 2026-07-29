@@ -550,32 +550,36 @@ def print_timeline_report(
         print("No activity found for the specified period.")
 
     # Print date/week header with duration column labels on same line
-    # Data rows use display_width() for column alignment, so header must too
+    # Must use SAME terminal_width calculation as DisplayColumns to align columns
     from tw_report.utils.formatting import display_width, ljust_display
 
     header_text = "Wk  Date       Day"
 
-    # Data rows structure (from DisplayColumns):
-    # - 7 indent + 13 time + 2 sep + 28 project + 2 sep + 35 task = 87 display width
-    # - 2 space separator
-    # - Then durations at visual position 89
+    # Match DisplayColumns.format() structure exactly:
+    # - Left section: 87 display width
+    # - 2-space separator
+    # - Right section: duration labels with display_width padding
 
-    # Header must align labels at same visual position (89) as data row durations
-    header_left_visual_width = 87  # Same as data row left section (matching structure)
+    header_left_visual_width = 87  # Same as data row left section
     header_text_width = display_width(header_text)
-    padding_needed = header_left_visual_width - header_text_width
+    padding_to_left_section = header_left_visual_width - header_text_width
 
-    # Build header with proper display width alignment
-    header_left = header_text + (" " * padding_needed)
+    header_left_section = header_text + (" " * padding_to_left_section)
+
+    # Build right section with labels (same widths as DisplayColumns)
     header_right_section = ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) + ljust_display("ACTIVE", 8)
 
-    # Assemble with 2-space separator (same as data rows)
-    header_line = header_left + "  " + header_right_section
+    # Calculate dynamic padding to terminal width (SAME AS DisplayColumns)
+    terminal_width = width
+    left_section_width = display_width(header_left_section)
+    right_section_width = display_width(header_right_section)
+    left_padding = terminal_width - left_section_width - right_section_width - 2
 
-    # Pad to match data line length for visual alignment
-    min_line_length = 135
-    if len(header_line) < min_line_length:
-        header_line = header_line + " " * (min_line_length - len(header_line))
+    # Build header with same logic as DisplayColumns
+    if left_padding < 0:
+        header_line = header_left_section + "  " + header_right_section
+    else:
+        header_line = header_left_section + (" " * left_padding) + "  " + header_right_section
 
     print(header_line)
 
