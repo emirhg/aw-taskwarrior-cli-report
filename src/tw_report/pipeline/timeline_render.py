@@ -858,65 +858,9 @@ def print_timeline_report(
     weekly_metrics = PeriodMetrics()
 
     # Build list of (project, date, slots) for consecutive same-project same-date runs
-    # offline_task slots are singletons to break up regular grouping
-    slot_groups = []
-    current_project_group = None
-    current_project_group_project = None
-    current_project_group_date = None
-
-    for slot in slots:
-        slot_date_val = slot_date(slot)
-        slot_project = slot.get("project")
-
-        # offline_task slots always break grouping (they're singletons)
-        if slot.get("type") == "offline_task":
-            # Finalize current group if any
-            if current_project_group is not None:
-                slot_groups.append(
-                    (
-                        current_project_group_project,
-                        current_project_group_date,
-                        current_project_group,
-                    )
-                )
-                current_project_group = None
-            # Add as singleton group
-            slot_groups.append((slot_project, slot_date_val, [slot]))
-            current_project_group_project = None
-            current_project_group_date = None
-            continue
-
-        if (
-            slot_project != current_project_group_project
-            or slot_date_val != current_project_group_date
-        ):
-            if current_project_group is not None:
-                slot_groups.append(
-                    (
-                        current_project_group_project,
-                        current_project_group_date,
-                        current_project_group,
-                    )
-                )
-            current_project_group_project = slot_project
-            current_project_group_date = slot_date_val
-            current_project_group = [slot]
-        else:
-            current_project_group.append(slot)
-
-    if current_project_group is not None:
-        slot_groups.append(
-            (
-                current_project_group_project,
-                current_project_group_date,
-                current_project_group,
-            )
-        )
-
-    # Pre-compute total slot entries per date to decide rollup per day
-    date_total_entries = {}
-    for gp, gd, gs in slot_groups:
-        date_total_entries[gd] = date_total_entries.get(gd, 0) + len(gs)
+    # No grouping: render each slot individually as its own line
+    # Sort slots by start time to maintain chronological order
+    sorted_slots = sorted(slots, key=lambda s: s["start"])
 
     # Rollup state: track whether prev day was rolled up to skip its day total
     prev_date_was_rollup = False

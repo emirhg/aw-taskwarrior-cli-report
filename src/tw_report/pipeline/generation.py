@@ -67,9 +67,79 @@ def _merge_overlapping_events(events: List[Event]) -> List[Event]:
     return merged
 
 
+def _partition_untracked_gap(
+    gap_event: Event,
+    afk_events: List[Event],
+) -> List[Event]:
+    """Partition an untracked gap event into ACTIVE and AFK portions.
+
+    When an untracked gap period (not_afk event) contains AFK events,
+    split it into separate ACTIVE and AFK sub-events for proper rendering.
+
+    Args:
+        gap_event: The not_afk event representing untracked time
+        afk_events: List of AFK events to find overlaps
+
+    Returns:
+        List of Event objects (gap_event split by AFK overlaps, or original if no overlap)
+    """
+    gap_start = gap_event.timestamp
+    gap_end = gap_event.timestamp + gap_event.duration
+
+    # Find AFK events that overlap this gap
+    overlapping_afk = [
+        afk for afk in afk_events
+        if afk.timestamp < gap_end and (afk.timestamp + afk.duration) > gap_start
+    ]
+
+    if not overlapping_afk:
+        # No AFK overlap, return original gap event
+        return [gap_event]
+
+    # Sort AFK events by start time
+    overlapping_afk = sorted(overlapping_afk, key=lambda a: a.timestamp)
+
+    result = []
+    current_pos = gap_start
+
+    for afk_event in overlapping_afk:
+        afk_start = max(afk_event.timestamp, gap_start)
+        afk_end = min(afk_event.timestamp + afk_event.duration, gap_end)
+
+        # Add ACTIVE portion before this AFK event
+        if current_pos < afk_start:
+            active_event = Event(
+                timestamp=current_pos,
+                duration=afk_start - current_pos,
+                data={"gap_type": "untracked_active"}
+            )
+            result.append(active_event)
+
+        # Add AFK portion
+        afk_portion = Event(
+            timestamp=afk_start,
+            duration=afk_end - afk_start,
+            data={"gap_type": "untracked_afk"}
+        )
+        result.append(afk_portion)
+        current_pos = afk_end
+
+    # Add remaining ACTIVE portion after last AFK
+    if current_pos < gap_end:
+        active_event = Event(
+            timestamp=current_pos,
+            duration=gap_end - current_pos,
+            data={"gap_type": "untracked_active"}
+        )
+        result.append(active_event)
+
+    return result
+
+
 def generate_untracked_gap_events(
     not_afk_events: List[Event],
     task_events: Optional[List[Event]],
+    afk_events: Optional[List[Event]] = None,
 ) -> List[ReportEvent]:
     """Generate synthetic NO_PROJECT/NO_TASK events for not-afk time uncovered by any task.
 
@@ -77,9 +147,13 @@ def generate_untracked_gap_events(
     Remaining uncovered sub-ranges >= MIN_EVENT_DURATION become synthetic ReportEvent entries,
     allowing untracked activity time to be represented in timesheets without fetching window events.
 
+    When AFK events are provided, gaps are partitioned into ACTIVE/AFK portions for
+    consistent rendering (avoiding entries that show both AFK and ACTIVE on same line).
+
     Args:
         not_afk_events: List of not-afk events (periods when user was active)
         task_events: List of TaskWarrior task events (may be None if no tasks)
+        afk_events: Optional AFK events for partitioning gaps into ACTIVE/AFK portions
 
     Returns:
         List of ReportEvent instances tagged NO_PROJECT/NO_TASK for uncovered gaps
@@ -89,21 +163,22 @@ def generate_untracked_gap_events(
     if not not_afk_events:
         return result
 
+    afk_events = afk_events or []
+
     # If no task events, entire not-afk periods are uncovered
     if not task_events:
         for not_afk_event in not_afk_events:
             if not_afk_event.duration >= MIN_EVENT_DURATION:
-                synthetic_event = Event(
-                    timestamp=not_afk_event.timestamp,
-                    duration=not_afk_event.duration,
-                    data={},
-                )
-                result.append(ReportEvent(
-                    event=synthetic_event,
-                    project=NO_PROJECT,
-                    task=NO_TASK,
-                    active_task=None,
-                ))
+                # Partition gap into ACTIVE/AFK portions
+                partitioned = _partition_untracked_gap(not_afk_event, afk_events)
+                for gap_portion in partitioned:
+                    if gap_portion.duration >= MIN_EVENT_DURATION:
+                        result.append(ReportEvent(
+                            event=gap_portion,
+                            project=NO_PROJECT,
+                            task=NO_TASK,
+                            active_task=None,
+                        ))
         return result
 
     # Process each not-afk period
@@ -233,40 +308,38 @@ def generate_partitioned_task_slots(
         # Extract task metadata
         task_name, project = get_task_info(task_event)
 
-        # Generate ACTIVE portion slots (includes both window activity AND AFK within task)
-        # For now, ACTIVE slots cover all time when task is active (whether focused or idle)
+        # Generate separate slots for ACTIVE and AFK portions
+        # Each slot represents ONE activity type, never mixing both
         active_portions = partitioned["active_portions"]
         afk_portions = partitioned["afk_portions"]
 
-        if active_portions or afk_portions:
-            # Find the span of all active+afk periods
-            all_periods = active_portions + afk_portions
-            if all_periods:
-                all_periods_sorted = sorted(all_periods, key=lambda p: p[0])
-                slot_start = all_periods_sorted[0][0]
-                slot_end = all_periods_sorted[-1][1]
+        # Create ACTIVE slot for active work time
+        for active_start, active_end in active_portions:
+            active_slot = {
+                "type": "active_task",
+                "start": active_start.astimezone() if hasattr(active_start, 'astimezone') else active_start,
+                "end": active_end.astimezone() if hasattr(active_end, 'astimezone') else active_end,
+                "duration": active_end - active_start,
+                "actual_duration": active_end - active_start,
+                "afk_duration": timedelta(0),  # This slot is ACTIVE only
+                "project": project,
+                "task": task_name,
+            }
+            result.append(active_slot)
 
-                total_afk = sum(
-                    (end - start for start, end in afk_portions),
-                    timedelta(0)
-                )
-
-                # Duration is the full time span from first start to last end
-                # (includes gaps between active/afk periods)
-                slot_duration = slot_end - slot_start
-
-                # Create single "active_task" slot covering all active+afk time
-                active_slot = {
-                    "type": "active_task",
-                    "start": slot_start.astimezone() if hasattr(slot_start, 'astimezone') else slot_start,
-                    "end": slot_end.astimezone() if hasattr(slot_end, 'astimezone') else slot_end,
-                    "duration": slot_duration,
-                    "actual_duration": slot_duration,
-                    "afk_duration": total_afk,
-                    "project": project,
-                    "task": task_name,
-                }
-                result.append(active_slot)
+        # Create AFK slot for idle time during task
+        for afk_start, afk_end in afk_portions:
+            afk_slot = {
+                "type": "afk_task",
+                "start": afk_start.astimezone() if hasattr(afk_start, 'astimezone') else afk_start,
+                "end": afk_end.astimezone() if hasattr(afk_end, 'astimezone') else afk_end,
+                "duration": afk_end - afk_start,
+                "actual_duration": afk_end - afk_start,
+                "afk_duration": afk_end - afk_start,  # This slot is AFK only
+                "project": project,
+                "task": task_name,
+            }
+            result.append(afk_slot)
 
         # Generate OFFLINE portion slots
         for offline_start, offline_end in partitioned["offline_portions"]:
