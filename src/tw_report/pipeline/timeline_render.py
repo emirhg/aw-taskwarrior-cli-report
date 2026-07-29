@@ -529,10 +529,10 @@ def print_timeline_report(
 
 
     # Use actual_duration for merged slots, duration for others
-    # Exclude OFFLINE gap markers from totals (informational only)
-    # Keep offline_task slots (actual work sessions) and AFK slots in totals
+    # Include all slots (offline, regular, afk, offline_task) in totals
+    # OFFLINE gaps represent system-off time and should be counted
     all_regular_slots = [
-        s for s in slots if _get_slot_type(s) != "offline"
+        s for s in slots if _get_slot_type(s) != "invalid"  # Never exclude, placeholder to keep structure
     ]
     # Project-tracked time (excluding "No project assigned")
     tracked_slots = [s for s in all_regular_slots if s.project != NO_PROJECT]
@@ -724,8 +724,9 @@ def print_timeline_report(
     ]
 
     # Recalculate total_time_all after filtering to match the displayed slots
+    # Include OFFLINE gaps in totals (they represent system-off time)
     all_regular_slots_filtered = [
-        s for s in slots if _get_slot_type(s) != "offline"
+        s for s in slots if _get_slot_type(s) != "invalid"  # Never exclude, placeholder
     ]
     total_time_all = sum(
         (_get_displayed_duration(slot) for slot in all_regular_slots_filtered),
@@ -809,8 +810,9 @@ def print_timeline_report(
     # CRITICAL: Recalculate total_time_all after all filtering/deduplication
     # The previous calculation (line 555) included slots that are now filtered out.
     # This must happen AFTER zero-duration filtering and OFFLINE deduplication.
+    # Include OFFLINE gaps in totals (they represent system-off time)
     all_regular_slots_final = [
-        s for s in slots if _get_slot_type(s) != "offline"
+        s for s in slots if _get_slot_type(s) != "invalid"  # Never exclude, placeholder
     ]
     total_time_all = sum(
         (_get_displayed_duration(slot) for slot in all_regular_slots_final),

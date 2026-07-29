@@ -412,8 +412,9 @@ def generate_afk_and_offline_slots(
                 "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
                 "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
                 "duration": offline_duration,
-                "actual_duration": offline_duration,  # OFFLINE time is "actual" (wall-clock time while offline)
+                "actual_duration": timedelta(0),  # No online activity during OFFLINE period
                 "afk_duration": timedelta(0),
+                "offline_extension_duration": offline_duration,  # Display the entire period in OFFLINE column
                 "project": NO_PROJECT,
                 "task": NO_TASK,
             }

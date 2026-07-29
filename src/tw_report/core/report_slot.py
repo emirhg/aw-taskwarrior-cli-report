@@ -328,12 +328,13 @@ class ReportTimelineSlot:
 
     @property
     def is_offline_gap(self) -> bool:
-        """True if this is an OFFLINE gap: system was off (actual_duration==duration, no task_event)."""
+        """True if this is an OFFLINE gap from AFK false positive: no task, no activity, offline_extension set."""
         return (
             self.task_event is None
-            and self.actual_duration == self.duration
-            and self.afk_duration is not None
-            and self.afk_duration == timedelta(0)
+            and self.actual_duration == timedelta(0)
+            and (self.afk_duration is None or self.afk_duration == timedelta(0))
+            and self.offline_extension_duration is not None
+            and self.offline_extension_duration > timedelta(0)
             and self.event_duration is None
         )
 
