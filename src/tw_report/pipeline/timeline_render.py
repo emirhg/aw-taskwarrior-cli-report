@@ -842,13 +842,13 @@ def print_timeline_report(
 
             overlaps_offline = False
 
-            # Check if slot is "No project assigned" - these should be removed if they overlap/touch ANY OFFLINE period
+            # Check if slot is "No project assigned" - these should be removed if they overlap with ANY OFFLINE period
             if slot.project in [NO_PROJECT, "No project assigned", None, ""] or \
                slot.task in [NO_TASK, "No task assigned", None, ""]:
                 # "No project assigned" slots should not overlap with any OFFLINE period
-                # Use >= to catch boundary cases where slot ends exactly when OFFLINE starts
+                # Use > (not >=) to allow slots that end exactly when OFFLINE starts (boundary touch is OK)
                 for offline_start, offline_end in all_offline_periods:
-                    if slot_start < offline_end and slot_end >= offline_start:
+                    if slot_start < offline_end and slot_end > offline_start:
                         overlaps_offline = True
                         break
             else:
