@@ -4,10 +4,11 @@ This file provides project-specific instructions for Claude Code and related age
 
 ## Getting Started
 
-1. **Project Overview**: Read `README.md` (556 lines) for the full feature set, architecture, and report types.
-2. **Code Navigation**: Use `index.txt` (362 lines) as a quick reference guide to locate files and understand structure.
-3. **Architecture Details**: See `docs/ARCHITECTURE.md` for the Phase 12 comprehensive design document.
-4. **Period Consolidation**: See `docs/PERIOD_CONSOLIDATION.md` for the new day/week/month/year consolidation feature.
+1. **Project Overview**: Read `README.md` for the full feature set, architecture, and report types.
+2. **Code Navigation**: Use `index.txt` as a quick reference guide to locate files and understand structure.
+3. **Architecture Details**: See `docs/ARCHITECTURE.md` for the comprehensive design document.
+4. **Period Consolidation**: See `docs/PERIOD_CONSOLIDATION.md` for the day/week/month/year consolidation feature.
+5. **Current Session**: Check memory at `~/.claude/projects/-home-emirhg-Desktop-ianua-work-report/memory/MEMORY.md` for ongoing work and known issues.
 
 ## Project Structure
 
@@ -157,23 +158,32 @@ New period-based features use consistent bucketing functions:
 
 These match the period token definitions in `src/tw_report/core/period.py` (`:week`, `:month`, `:year` tokens).
 
-## Recent Major Features & Optimizations
+## Recent Work & Current Issues (Session 2026-07-30)
 
-### Timeline Gap Detection & Visual Separation (2026-07-23)
-- **Feature**: Blank lines appear between work sessions with gaps > 5 minutes
-- **Purpose**: Improve readability by visually separating work sessions from breaks, system shutdowns, or mode changes
-- **Implementation**: Gap detection in `print_timeline_report()` tracks `last_slot_end` and checks gap before rendering each slot
-- **Configuration**: Threshold is `gap_threshold = timedelta(minutes=5)` in `timeline_render.py:574` (configurable)
-- **Scope**: Works for all slot types (regular, AFK, OFFLINE tasks)
-- **Note**: This is an intentional UX feature—do not remove or disable without explicit user request
+### Current Status: AFK/OFFLINE Column Fixes In Progress
+- **Test Status**: 462 unit tests, 15 failing
+- **Primary Work**: Fixing AFK/OFFLINE columns display accuracy
+- **Known Issues** (from memory):
+  - AFK and OFFLINE columns substantially fixed (commits 6d42def, 2c6453b) but ACTIVE column still inflated
+  - ACTIVE time display fix identified—missing `generate_active_gap_events()` in normal mode
+  - Overlapping partition bug: TaskWarrior events fragmenting into 10+ overlapping slots
+  - Object migration data loss: Only untracked time showing in timeline output
 
-### Timeline Duplicate Slot Deduplication (2026-07-23)
-- **Issue**: ActivityWatch sometimes records overlapping `not-afk` events (during window recovery)
-- **Symptom**: Same task appeared multiple times with overlapping/nested time ranges (e.g., 14:09-18:51 and 14:09-19:35)
-- **Fix**: Added `_merge_overlapping_work_slots()` to `ReportTimeline.combine_work_with_embedded_afk()`
-- **Details**: Merges overlapping work slots for same (project, task) before combining with AFK periods
-- **Side effect fix**: When merging, use max() for overlapping time markers (afk_duration, offline_extension_duration) to avoid double-counting
-- **Location**: `src/tw_report/core/report_slot.py:545-620` (ReportTimeline._merge_overlapping_work_slots)
+### Completed Major Features & Optimizations
+
+#### Timeline Gap Detection & Visual Separation (2026-07-23)
+- Blank lines appear between work sessions with gaps > 5 minutes
+- Improves readability by visually separating work sessions from breaks/shutdowns
+- Configurable threshold (default: 5 minutes)
+
+#### Timeline Duplicate Slot Deduplication (2026-07-23)
+- Handles overlapping ActivityWatch `not-afk` events (window recovery)
+- Merges overlapping work slots via `_merge_overlapping_work_slots()` in `report_slot.py`
+
+#### AFK False-Positive Detection (2026-07-28, Phases 1-3 Complete)
+- Detects when system was offline but AFK continued reporting
+- Splits AFK into offline + online portions at first window event
+- All 14 tests passing, ready for end-to-end verification
 
 ### Performance Optimization: OFFLINE Window Event Fetching (2026-07-22)
 - **10x speedup** for `--task <uuid> --timesheet :all` queries (95s → 10s)

@@ -488,7 +488,7 @@ pytest tests/unit/test_filtering.py::TestEventFilterBasics::test_basic_filtering
 ```
 
 ### Test organization
-- **`tests/unit/`** — Fast, isolated unit tests (262+ tests)
+- **`tests/unit/`** — Fast, isolated unit tests (462 tests, 15 currently failing)
   - Core logic: filtering, consolidation, OFFLINE processing
   - CLI argument parsing
   - Config loading and settings resolution
@@ -560,6 +560,31 @@ Or use the built-in debug scripts:
 python debug_profile.py  # Profile time/memory for a command
 python debug_full_pipeline.py  # Trace the full event pipeline
 ```
+
+## Current Work & Known Issues (Session 2026-07-30)
+
+### Work In Progress
+
+**AFK/OFFLINE Column Accuracy** (15 failing tests)
+- **Status**: Active development
+- **Focus**: Fixing column values to match actual displayed durations
+- **Progress**: 
+  - OFFLINE and AFK columns substantially fixed (use actual displayed column sums)
+  - ACTIVE column still showing inflated values due to upstream slot generation
+  - Root cause: Missing `generate_active_gap_events()` in normal timeline mode
+- **Impact**: Timeline report columns may not sum correctly to totals
+
+### Known Issues
+
+1. **ACTIVE time display** — Missing active gap event generation for non-window queries
+   - Workaround: Use `--timesheet --detail-level 3+` to get accurate metrics
+
+2. **Overlapping partitions** — TaskWarrior events sometimes fragment into 10+ overlapping slots
+   - Root cause: `partition_task_duration()` not merging window event fragments
+   - Status: Under investigation
+
+3. **Object migration regression** — Only untracked time showing in timeline output
+   - Status: Investigating upstream slot generation
 
 ## Contributing
 
