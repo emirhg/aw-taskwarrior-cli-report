@@ -840,3 +840,93 @@ class OfflineTaskProcessor:
         )
 
         return slot
+
+    def get_event_based_slots(self) -> List["ReportTimelineSlot"]:
+        """Generate one slot per OFFLINE task event (event-based timesheet approach).
+
+        REPLACES aggregation/grouping logic for timesheet reporting. Each task event
+        becomes a separate timeline entry, preserving chronological event structure
+        without any grouping across multiple events for the same (project, task).
+
+        Process per event:
+        1. Check if event has OFFLINE tag
+        2. Apply EventFilter per-event
+        3. Calculate online_time using AFK overlap (just for this event)
+        4. Create ReportTimelineSlot with event_duration = event.duration
+        5. Return list (one slot per event)
+
+        Returns:
+            List of ReportTimelineSlot objects, one per OFFLINE task event.
+            Slots are sorted by timestamp for chronological rendering.
+        """
+        from tw_report.core.report_slot import ReportTimelineSlot
+        from tw_report.core.aw_events import TaskWarriorEvent
+
+        result = []
+
+        for event in self.task_events:
+            if not self._task_has_offline_tag(event):
+                continue
+
+            # Extract task metadata
+            project = event.data.get("project", "No project assigned")
+            task = (
+                event.data.get("title")
+                or event.data.get("label")
+                or event.data.get("task")
+                or "No task assigned"
+            )
+
+            # Apply EventFilter per-event
+            entry = {"project": project, "task": task, "type": "offline_task"}
+            if not self.event_filter.should_include_entry(entry, "offline_task"):
+                continue
+
+            # Use event's duration directly (no aggregation)
+            wall_clock_duration = event.duration or timedelta(0)
+            event_start = event.timestamp
+            event_end = event_start + wall_clock_duration
+
+            # Calculate online time: sum of AFK events overlapping this event
+            online_time = self._calculate_online_time_from_afk(event_start, event_end)
+
+            # Offline gap: wall-clock minus online time
+            offline_gap = wall_clock_duration - online_time
+
+            # Get tags from event
+            raw_tags = event.data.get("tags", [])
+            event_tags = [raw_tags] if isinstance(raw_tags, str) else list(raw_tags)
+
+            # Create TaskWarriorEvent wrapper
+            task_event = TaskWarriorEvent(
+                id=event.id,
+                timestamp=event.timestamp,
+                duration=event.duration,
+                data=event.data,
+            )
+
+            # Create slot with event_duration set (required for is_offline_task predicate)
+            slot = ReportTimelineSlot(
+                start=event_start,
+                end=event_end,
+                duration=wall_clock_duration,
+                actual_duration=online_time if online_time > timedelta(0) else timedelta(0),
+                productive_duration=timedelta(0),  # No categorization per-event
+                task_event=task_event,
+                offline_extension_duration=offline_gap if offline_gap > timedelta(0) else None,
+                event_duration=wall_clock_duration,  # Critical: identifies as offline_task
+                tags=event_tags,
+                categories=[],
+            )
+
+            # Validate that offline_task predicate is satisfied
+            assert slot.is_offline_task, (
+                f"get_event_based_slots: Slot does not satisfy is_offline_task predicate. "
+                f"task_event={slot.task_event is not None}, event_duration={slot.event_duration}"
+            )
+
+            result.append(slot)
+
+        # Sort by timestamp for chronological rendering
+        result.sort(key=lambda s: s.start)
+        return result

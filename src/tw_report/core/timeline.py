@@ -185,8 +185,15 @@ class TimelineSlot:
         if end is None:
             end = start + duration
 
+        # Infer afk_duration for AFK-only slots if not explicitly provided
+        # For type="afk" with no afk_duration, the entire actual_duration is idle time
+        slot_type = d["type"]
+        afk_duration = d.get("afk_duration")
+        if slot_type == "afk" and afk_duration is None:
+            afk_duration = d["actual_duration"]
+
         return cls(
-            type=d["type"],
+            type=slot_type,
             start=start,
             end=end,
             project=d.get("project", ""),
@@ -196,7 +203,7 @@ class TimelineSlot:
             categories=d.get("categories", []),
             tags=d.get("tags", []),
             actual_duration=d["actual_duration"],
-            afk_duration=d.get("afk_duration"),
+            afk_duration=afk_duration,
             offline_extension_duration=d.get("offline_extension_duration"),
             event_duration=d.get("event_duration"),
             apps=d.get("apps"),

@@ -1031,123 +1031,125 @@ def print_timeline_report(
             print(pending_date_prefix)
             pending_date_prefix = None
 
-        # Handle offline_task slots (synthetic OFFLINE-tagged tasks formatted as gap entries)
-        if is_offline_task:
-            wall_clock_duration = slot.duration
-            event_duration = (slot.event_duration or timedelta(0))
+        # UNIFIED SLOT RENDERING (2026-07-30):
+        # Single code path for ALL slot types (offline_task, regular, afk).
+        # All slots are treated uniformly based on their properties, not special-cased by type.
+        # This ensures consistent accumulation of OFFLINE/AFK/ACTIVE columns regardless of source.
 
-            # Check for gap before rendering
-            if last_slot_end is not None:
-                gap = slot.start - last_slot_end
-                if gap > gap_threshold:
-                    _render_system_shutdown_separator()
+        # Check for gap before rendering
+        if last_slot_end is not None:
+            gap = slot.start - last_slot_end
+            if gap > gap_threshold:
+                _render_system_shutdown_separator()
 
-            # Format OFFLINE task entries with fixed-width columns
-            # OFFLINE tasks show only OFFLINE duration type (wall-clock time untracked)
-            offline_task_name = f"*{slot.task}"
-            slot_with_name = {
-                "project": slot.project,
-                "task": offline_task_name,
-                "type": "offline_task",
-                "start": slot.start,
-                "duration": None,  # Don't use duration for active time fallback
-                "offline_extension_duration": wall_clock_duration,  # Show only offline type
-                "afk_duration": None,
-                "actual_duration": None,  # Don't show active to avoid double-count
-                "productive_duration": slot.productive_duration,
-            }
+        # Extract slot properties uniformly (works for dict or object)
+        def get_slot_attr(attr, default=None):
+            if isinstance(slot, dict):
+                return slot.get(attr, default)
+            else:
+                return getattr(slot, attr, default)
 
-            from tw_report.core.report_slot import DisplayColumns
-            cols = DisplayColumns.from_slot_dict(
-                slot_with_name,
-                _to_local_time(slot.start),
-                _to_local_time(slot.start + wall_clock_duration)
-            )
-            print(cols.format(width))
+        slot_type = _get_slot_type(slot)
+        slot_start = slot.start
+        slot_end = slot.end if hasattr(slot, 'end') else slot.start + slot.duration
+        slot_duration = slot.duration
+        slot_online = slot.get("duration") if isinstance(slot, dict) else slot.duration
+        slot_afk = get_slot_attr("afk_duration")
+        slot_offline_ext = get_slot_attr("offline_extension_duration")
+        slot_event_duration = get_slot_attr("event_duration")
+        slot_actual_duration = get_slot_attr("actual_duration")
+        slot_productive = get_slot_attr("productive_duration")
 
-            # Accumulate offline_task to day/week totals
-            offline_ext = wall_clock_duration - event_duration
-            slot_duration = TimeslotDuration(
-                online_duration=event_duration if event_duration.total_seconds() > 0 else None,
-                offline_gap=offline_ext if offline_ext.total_seconds() > 0 else None,
-                afk_portion=None,
-            )
-            daily_metrics.add_timeslot(slot_duration, productive=None)
-            weekly_metrics.add_timeslot(slot_duration, productive=None)
+        # Special handling for offline_task display: prepend "*" to task name
+        slot_for_display = slot.copy() if isinstance(slot, dict) else slot
+        if slot_type == "offline_task" and isinstance(slot_for_display, dict):
+            if slot_for_display.get("task"):
+                slot_for_display["task"] = f"*{slot_for_display['task']}"
 
-            # Track displayed values for accurate day/week totals
-            if offline_ext and offline_ext.total_seconds() > 0:
-                daily_displayed_offline += offline_ext
-                weekly_displayed_offline += offline_ext
+        # For detail_level == 1, suppress task column by passing NO_TASK
+        if detail_level == 1 and isinstance(slot_for_display, dict):
+            slot_for_display["task"] = NO_TASK
 
-            # Update last_slot_end for gap detection
-            last_slot_end = slot.start + wall_clock_duration
-        else:
-            # Regular or AFK slot: render directly with DisplayColumns
+        # Render slot with DisplayColumns (works for all slot types)
+        slot_start_local = _to_local_time(slot_start)
+        slot_end_local = _to_local_time(slot_end)
 
-            # Check for gap before rendering
-            if last_slot_end is not None:
-                gap = slot.start - last_slot_end
-                if gap > gap_threshold:
-                    _render_system_shutdown_separator()
+        from tw_report.core.report_slot import DisplayColumns
+        cols = DisplayColumns.from_slot_dict(slot_for_display, slot_start_local, slot_end_local)
+        print(cols.format(width))
 
-            # Format slot for display based on detail_level
-            slot_start_local = _to_local_time(slot.start)
-            slot_end_local = _to_local_time(slot.start + slot.duration)
-
-            # For detail_level == 1, suppress task column by passing NO_TASK
-            slot_for_display = slot.copy() if isinstance(slot, dict) else slot
-            if detail_level == 1 and isinstance(slot_for_display, dict):
-                slot_for_display["task"] = NO_TASK
-
-            from tw_report.core.report_slot import DisplayColumns
-            cols = DisplayColumns.from_slot_dict(slot_for_display, slot_start_local, slot_end_local)
-
-            print(cols.format(width))
-
-            # Render detail (categories/apps/titles for detail_level >= 3)
+        # Render detail (categories/apps/titles for detail_level >= 3)
+        # Skip for offline_task slots (no window data)
+        if slot_type != "offline_task":
             _render_slot_detail(slot if isinstance(slot, dict) else slot.to_dict(), detail_level, width)
 
-            # Render embedded AFK slots as indented sub-entries (should be empty now, defensive)
-            if isinstance(slot, dict) and slot.get("embedded_afk_slots"):
-                _render_embedded_afk_slots(slot["embedded_afk_slots"], width)
+        # Render embedded AFK slots as indented sub-entries (should be empty now, defensive)
+        if isinstance(slot, dict) and slot.get("embedded_afk_slots"):
+            _render_embedded_afk_slots(slot["embedded_afk_slots"], width)
 
-            # Update last_slot_end for gap detection
-            last_slot_end = slot.start + (slot.actual_duration or slot.duration)
+        # Update last_slot_end for gap detection
+        # For offline_task slots, use duration; for others, use actual_duration if available
+        if slot_type == "offline_task":
+            last_slot_end = slot_start + slot_duration
+        else:
+            last_slot_end = slot_start + (slot_actual_duration or slot_duration)
 
-            # Accumulate to day/week metrics
-            slot_type = _get_slot_type(slot) if isinstance(slot, dict) else _get_slot_type(slot)
-            slot_online = slot.get("duration") if isinstance(slot, dict) else slot.duration
-            slot_afk = slot.afk_duration if isinstance(slot, dict) else slot.afk_duration
-            slot_productive = slot.productive_duration if isinstance(slot, dict) else slot.productive_duration
+        # UNIFIED METRICS & ACCUMULATION (single path for all slot types):
+        # All slots contribute their components to metrics and displayed totals.
+        # The key insight: OFFLINE/AFK/ACTIVE columns come from slot properties,
+        # not from slot type. Track each column independently.
 
-            # Track displayed column values (what actually appears in timeline)
-            # These are the source of truth for day/week totals
-            if slot_type == "afk":
-                # AFK slots: pure idle time (entire slot is AFK)
-                daily_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
-                weekly_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
-                if slot_online and slot_online.total_seconds() > 0:
-                    daily_displayed_afk += slot_online
-                    weekly_displayed_afk += slot_online
-            else:
-                # Regular slots: may have afk_duration and active time
-                daily_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
-                weekly_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
+        # Metrics accumulation (same for all types)
+        if slot_type == "afk":
+            # Pure AFK gap: entire slot is idle time
+            daily_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
+            weekly_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
+        elif slot_type == "offline_task":
+            # Offline task: split into online + offline portions
+            event_dur = slot_event_duration or timedelta(0)
+            offline_dur = slot_duration - event_dur
+            slot_duration_obj = TimeslotDuration(
+                online_duration=event_dur if event_dur.total_seconds() > 0 else None,
+                offline_gap=offline_dur if offline_dur.total_seconds() > 0 else None,
+                afk_portion=None,
+            )
+            daily_metrics.add_timeslot(slot_duration_obj, productive=None)
+            weekly_metrics.add_timeslot(slot_duration_obj, productive=None)
+        else:
+            # Regular slots: may have afk_duration and active time
+            daily_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
+            weekly_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
 
-                # Track displayed values from the slot's fields
-                if slot_afk and slot_afk.total_seconds() > 0:
-                    daily_displayed_afk += slot_afk
-                    weekly_displayed_afk += slot_afk
+        # UNIFIED COLUMN ACCUMULATION:
+        # Accumulate whatever columns are present in the slot, regardless of type.
+        # This is the architectural fix: columns are determined by slot properties, not by type special-casing.
 
-                # Active time using actual_duration (what DisplayColumns uses), not duration
-                # This matches what's actually displayed in the ACTIVE column
-                slot_actual_duration = slot.get("actual_duration") if isinstance(slot, dict) else slot.actual_duration
-                online_for_display = slot_actual_duration if slot_actual_duration is not None else slot_online
-                slot_active = (online_for_display or timedelta(0)) - (slot_afk or timedelta(0))
-                if slot_active and slot_active.total_seconds() > 0:
-                    daily_displayed_active += slot_active
-                    weekly_displayed_active += slot_active
+        # OFFLINE column: from offline_extension_duration (present in offline_task and some regular slots)
+        if slot_offline_ext and slot_offline_ext.total_seconds() > 0:
+            daily_displayed_offline += slot_offline_ext
+            weekly_displayed_offline += slot_offline_ext
+
+        # AFK column: from afk_duration OR for pure-AFK slots, the entire slot duration
+        # Pure AFK slots have type="afk" with no afk_duration field; entire duration is idle time
+        if slot_type == "afk":
+            # Pure AFK slot: entire slot is idle time
+            afk_to_accumulate = slot_online
+        else:
+            # Regular or offline_task: only accumulate explicit afk_duration field
+            afk_to_accumulate = slot_afk
+
+        if afk_to_accumulate and afk_to_accumulate.total_seconds() > 0:
+            daily_displayed_afk += afk_to_accumulate
+            weekly_displayed_afk += afk_to_accumulate
+
+        # ACTIVE column: calculated as online - afk (using actual_duration for display match)
+        # For AFK slots, active is 0 (already handled above)
+        if slot_type != "afk":
+            online_for_display = slot_actual_duration if slot_actual_duration is not None else slot_online
+            slot_active = (online_for_display or timedelta(0)) - (slot_afk or timedelta(0))
+            if slot_active and slot_active.total_seconds() > 0:
+                daily_displayed_active += slot_active
+                weekly_displayed_active += slot_active
 
     # Print final totals
     if slots:

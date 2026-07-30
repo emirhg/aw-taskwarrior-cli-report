@@ -514,7 +514,21 @@ def main():
             tail_tolerance_seconds=args.tail_tolerance,
             afk_validation_tolerance_seconds=args.afk_validation_tolerance,
         )
-        offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
+
+        # EVENT-BASED TIMESHEET APPROACH (no grouping for timesheet modes):
+        # For timesheet modes (day/week/month/year), use event-based slots (one per task event)
+        # For hierarchical modes, use grouping logic
+        event_based_offline_slots = []
+        if grouping_mode in ("day", "week", "month", "year"):
+            # Timesheet/timeline mode: use per-event slots, skip grouping
+            event_based_offline_slots = offline_processor.get_event_based_slots()
+            offline_task_durations = {}
+            offline_event_durations = {}
+            offline_event_groups = {}
+            offline_task_real_durations = {}
+        else:
+            # Hierarchical mode: use grouping approach
+            offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
 
     # Exclude ONLY window events that were actually consumed by OFFLINE task groups.
     # Window events tied to offline-tagged tasks but outside any group's span are NOT excluded,
@@ -538,7 +552,8 @@ def main():
     # Remove regular events that overlap with OFFLINE task periods (avoid duplication)
     # This must happen before metrics calculation for consistency
     # Use offline_event_groups from processor which already has computed OFFLINE periods
-    if offline_processor and offline_event_groups:
+    # SKIP this for timesheet mode (event-based slots don't use grouping)
+    if offline_processor and offline_event_groups and grouping_mode != "day" and grouping_mode != "week" and grouping_mode != "month" and grouping_mode != "year":
         # Build periods for each (project, task) from offline event groups
         offline_periods = {}  # (project, task) -> [(start, end), ...]
         for key, events in offline_event_groups.items():
@@ -714,6 +729,27 @@ def main():
 
         # Use Timeline for internal slot management (Phase 3 migration)
         timeline = Timeline()
+
+        # EVENT-BASED TIMESHEET APPROACH (2026-07-30):
+        # For timesheet modes, add per-event OFFLINE task slots (one per event)
+        # instead of aggregated slots from grouping logic
+        if event_based_offline_slots:
+            for rts in event_based_offline_slots:
+                ts = TimelineSlot(
+                    type="offline_task",
+                    start=rts.start,
+                    end=rts.end,
+                    duration=rts.duration,
+                    project=rts.project,
+                    task=rts.task,
+                    actual_duration=rts.actual_duration,
+                    productive_duration=rts.productive_duration,
+                    tags=rts.tags,
+                    categories=rts.categories,
+                    event_duration=rts.event_duration,
+                    offline_extension_duration=rts.offline_extension_duration,
+                )
+                timeline.add_from_dict(ts.to_dict())
 
         # Task-only modes: taskwarrior events (no window events, no AFK correlation)
         # This includes: task UUID mode (--task-id) and project filter mode
