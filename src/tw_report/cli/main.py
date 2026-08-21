@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from tw_report.core.aw_events import WindowEvent, AFKEvent, TaskWarriorEvent
 
 from tw_report.cli.args import parse_args, parse_positional_args
+from tw_report.config import load_user_config, resolve_settings
 from tw_report.core.categories import (
     categorize_event,
     compile_category_rules,
@@ -143,6 +144,14 @@ def main():
     args = parse_args()
     client = ActivityWatchClient("tw-report")
 
+    # Load config file and resolve settings (CLI args > config file > defaults)
+    user_config = load_user_config()
+    resolved_settings = resolve_settings(
+        cli_args={"day_start_hour": args.day_start_hour},
+        user_config=user_config
+    )
+    day_start_hour = resolved_settings.day_start_hour
+
     # Determine grouping mode (default to --by-day)
     grouping_mode = None
     if args.by_project:
@@ -228,7 +237,7 @@ def main():
         search_term=args.search,
     )
 
-    start_time, end_time = parse_period(period)
+    start_time, end_time = parse_period(period, day_start_hour)
     categories_json = load_categories(args.categories)
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
 
@@ -513,6 +522,7 @@ def main():
             use_afk_for_reconciliation=not requires_window_data,
             tail_tolerance_seconds=args.tail_tolerance,
             afk_validation_tolerance_seconds=args.afk_validation_tolerance,
+            day_start_hour=day_start_hour,
         )
 
         # EVENT-BASED TIMESHEET APPROACH (no grouping for timesheet modes):
@@ -985,6 +995,7 @@ def main():
             last_break_duration=context.metrics.last_break_duration,
             afk_events=afk_events,
             exclude_online=exclude_online,
+            day_start_hour=day_start_hour,
         )
     else:
         # If no task_events, treat as non-task-based report regardless of is_task_based_report
