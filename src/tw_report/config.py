@@ -25,6 +25,7 @@ class ResolvedSettings:
     """Merged configuration from CLI args, config file, and defaults."""
 
     detail_level: int
+    day_start_hour: int = 4
     exclude_projects: Optional[list] = None
     exclude_tasks: Optional[list] = None
     exclude_apps: Optional[list] = None
@@ -106,6 +107,7 @@ def resolve_settings(
     if defaults is None:
         defaults = {
             "detail_level": 4,
+            "day_start_hour": 4,
             "exclude_projects": None,
             "exclude_tasks": None,
             "exclude_apps": None,
@@ -121,6 +123,7 @@ def resolve_settings(
 
     return ResolvedSettings(
         detail_level=settings.get("detail_level", defaults["detail_level"]),
+        day_start_hour=settings.get("day_start_hour", defaults["day_start_hour"]),
         exclude_projects=settings.get("exclude_projects"),
         exclude_tasks=settings.get("exclude_tasks"),
         exclude_apps=settings.get("exclude_apps"),
