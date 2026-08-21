@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple, Literal, TYPE_CHECKING, Uni
 
 from tw_report.core.timeline import TimelineSlot, TimelineSlotValidationError
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
+from tw_report.core.period import logical_date, day_boundary
 
 if TYPE_CHECKING:
     from tw_report.core.aw_events import WindowEvent, AFKEvent, TaskWarriorEvent
@@ -582,7 +583,7 @@ class ReportTimelineSlot:
         )
 
     @staticmethod
-    def bucket_start(dt: datetime, mode: Literal["day", "week", "month", "year"]) -> date:
+    def bucket_start(dt: datetime, mode: Literal["day", "week", "month", "year"], day_start_hour: int = 4) -> date:
         """
         Get the start date of the period bucket containing dt, for the given mode.
 
@@ -591,16 +592,17 @@ class ReportTimelineSlot:
 
         Args:
             dt: A timezone-aware datetime
-            mode: "day" (midnight), "week" (Monday), "month" (1st), "year" (Jan 1)
+            mode: "day" (at day_start_hour), "week" (Monday), "month" (1st), "year" (Jan 1)
+            day_start_hour: Hour when a logical day starts (0-23, default 4)
 
         Returns:
             The date marking the start of the bucket containing dt
         """
-        d = dt.date()
+        d = logical_date(dt, day_start_hour)
         if mode == "day":
             return d
         elif mode == "week":
-            # Monday-start ISO week (matching period.py convention)
+            # Monday-start ISO week (matching period.py convention, using logical_date)
             return d - timedelta(days=d.weekday())
         elif mode == "month":
             return d.replace(day=1)
@@ -609,7 +611,7 @@ class ReportTimelineSlot:
         else:
             raise ValueError(f"Unknown bucket mode: {mode}")
 
-    def bucket_key(self, mode: Literal["day", "week", "month", "year"]) -> date:
+    def bucket_key(self, mode: Literal["day", "week", "month", "year"], day_start_hour: int = 4) -> date:
         """
         Get this slot's bucket key for the given mode.
 
@@ -620,14 +622,15 @@ class ReportTimelineSlot:
 
         Args:
             mode: "day", "week", "month", or "year"
+            day_start_hour: Hour when a logical day starts (0-23, default 4)
 
         Returns:
             The bucket-start date for the bucket containing this slot's start
         """
-        return ReportTimelineSlot.bucket_start(self.start, mode)
+        return ReportTimelineSlot.bucket_start(self.start, mode, day_start_hour)
 
     def split_at_boundaries(
-        self, mode: Literal["day", "week", "month", "year"]
+        self, mode: Literal["day", "week", "month", "year"], day_start_hour: int = 4
     ) -> List["ReportTimelineSlot"]:
         """
         Split this slot at period boundaries, proportionally allocating durations.
@@ -639,6 +642,7 @@ class ReportTimelineSlot:
 
         Args:
             mode: "day", "week", "month", or "year"
+            day_start_hour: Hour when a logical day starts (0-23, default 4)
 
         Returns:
             List of ReportTimelineSlot pieces, each confined to one bucket,
@@ -646,8 +650,8 @@ class ReportTimelineSlot:
             bucket_mode/bucket_start_date set on each piece.
         """
         # Fast path: slot stays within one bucket
-        start_bucket = ReportTimelineSlot.bucket_start(self.start, mode)
-        end_bucket = ReportTimelineSlot.bucket_start(self.end - timedelta(seconds=1), mode)
+        start_bucket = ReportTimelineSlot.bucket_start(self.start, mode, day_start_hour)
+        end_bucket = ReportTimelineSlot.bucket_start(self.end - timedelta(seconds=1), mode, day_start_hour)
         if start_bucket == end_bucket:
             self_copy = ReportTimelineSlot(
                 start=self.start,
@@ -687,9 +691,9 @@ class ReportTimelineSlot:
 
         while current_dt < self.end:
             # Determine this bucket's end boundary
-            current_bucket_start = ReportTimelineSlot.bucket_start(current_dt, mode)
+            current_bucket_start = ReportTimelineSlot.bucket_start(current_dt, mode, day_start_hour)
             next_bucket_start = current_bucket_start + _bucket_duration(mode)
-            bucket_end = datetime.combine(next_bucket_start, time.min, tzinfo=current_dt.tzinfo)
+            bucket_end = day_boundary(next_bucket_start, day_start_hour, current_dt.tzinfo)
 
             # Calculate overlap with this bucket
             piece_start = current_dt
@@ -1098,13 +1102,16 @@ class ReportEntries:
 
         return result
 
-    def consolidate_consecutive(self) -> "ReportEntries":
+    def consolidate_consecutive(self, day_start_hour: int = 4) -> "ReportEntries":
         """
         Fine-grain consolidation: merge CONSECUTIVE slots sharing (project, task, date).
 
         Bare offline gap markers are filtered out from the output.
         This fixes the inconsistency between TimelineSlotManager.consolidate() and
         consolidate_by_period() — both now uniformly exclude bare offline gaps.
+
+        Args:
+            day_start_hour: Hour when a logical day starts (0-23, default 4)
 
         Returns:
             ReportEntries with consecutive-same-task runs merged
@@ -1128,11 +1135,11 @@ class ReportEntries:
                 current_group.append(report_slot)
                 continue
 
-            # Check if same (project, task, date)
+            # Check if same (project, task, date) using logical_date
             same_project_task_date = (
                 report_slot.project == current_group[0].project
                 and report_slot.task == current_group[0].task
-                and report_slot.start.date() == current_group[0].start.date()
+                and logical_date(report_slot.start, day_start_hour) == logical_date(current_group[0].start, day_start_hour)
             )
 
             if same_project_task_date:
@@ -1206,7 +1213,7 @@ class ReportEntries:
         return ReportEntries(slots_list=consolidated)
 
     def grouped_by_project_date(
-        self,
+        self, day_start_hour: int = 4
     ) -> List[Tuple[str, date, List[ReportTimelineSlot]]]:
         """
         Group slots by (project, date) without merging.
@@ -1214,6 +1221,9 @@ class ReportEntries:
         Returns tuples of (project, date, [slots for that project on that date]).
         This is used by the renderer for headers/totals, without collapsing
         individual rows into a single merged entry.
+
+        Args:
+            day_start_hour: Hour when a logical day starts (0-23, default 4)
 
         Returns:
             List of (project, date, slots_list) tuples
@@ -1223,9 +1233,9 @@ class ReportEntries:
         current_date = None
         current_group = []
 
-        for report_slot in sorted(self.slots_list, key=lambda s: (s.project, s.start.date(), s.start)):
+        for report_slot in sorted(self.slots_list, key=lambda s: (s.project, logical_date(s.start, day_start_hour), s.start)):
             project = report_slot.project
-            date_key = report_slot.start.date()
+            date_key = logical_date(report_slot.start, day_start_hour)
 
             if project != current_project or date_key != current_date:
                 if current_group:
@@ -1241,7 +1251,7 @@ class ReportEntries:
 
         return groups
 
-    def bucket(self, mode: Literal["day", "week", "month", "year"]) -> "ReportEntries":
+    def bucket(self, mode: Literal["day", "week", "month", "year"], day_start_hour: int = 4) -> "ReportEntries":
         """
         Period bucketing: split all slots at boundaries, then global-groupby (bucket, project, task).
 
@@ -1250,6 +1260,7 @@ class ReportEntries:
 
         Args:
             mode: "day", "week", "month", or "year"
+            day_start_hour: Hour when a logical day starts (0-23, default 4)
 
         Returns:
             ReportEntries with slots split at boundaries and grouped by period bucket,
@@ -1258,7 +1269,7 @@ class ReportEntries:
         # Split all slots at boundaries
         split_pieces = []
         for report_slot in self.slots_list:
-            split_pieces.extend(report_slot.split_at_boundaries(mode))
+            split_pieces.extend(report_slot.split_at_boundaries(mode, day_start_hour))
 
         # Global groupby (bucket, project, task), excluding bare offline gaps
         bucket_groups = {}
