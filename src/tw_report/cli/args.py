@@ -63,6 +63,7 @@ def reorder_arguments(argv: List[str]) -> List[str]:
                     "--task-id",
                     "--tail-tolerance",
                     "--afk-validation-tolerance",
+                    "--day-start-hour",
                 ]:
                     optional_args.append(argv[i + 1])
                     i += 1
@@ -258,6 +259,14 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         type=float,
         default=10.0,
         help="When validating AFK data against window events, check if task/AFK times are within N seconds of each other. If matched tightly, query window bucket to confirm true offline (no window events = offline). Default: 10s.",
+    )
+    parser.add_argument(
+        "--day-start-hour",
+        type=int,
+        choices=range(24),
+        default=None,
+        metavar="HOUR",
+        help="Hour when a logical day starts (0-23, default from config or 4). Set to 0 to use literal midnight boundaries.",
     )
     return parser.parse_args(reordered_argv)
 
