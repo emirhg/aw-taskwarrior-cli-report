@@ -65,6 +65,7 @@ from aw_transform import filter_keyvals
 from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
+from tw_report.core.period import logical_date
 
 if TYPE_CHECKING:
     from tw_report.core.report_slot import ReportTimelineSlot
@@ -247,7 +248,7 @@ def _get_displayed_duration(slot: Union[Dict, "ReportTimelineSlot"]) -> timedelt
             return slot.duration
 
 
-def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]]) -> List[Union[Dict, "ReportTimelineSlot"]]:
+def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]], day_start_hour: int = 4) -> List[Union[Dict, "ReportTimelineSlot"]]:
     """Split slots that span multiple days into single-day pieces.
 
     Accepts both dicts and ReportTimelineSlot objects for backward compatibility.
@@ -256,6 +257,7 @@ def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]]) ->
 
     Args:
         slots: List of slots (dicts or ReportTimelineSlot objects) that may span multiple days
+        day_start_hour: Hour when a logical day starts (0-23, default 4)
 
     Returns:
         List of slots, with multi-day slots split into single-day pieces (same type as input)
@@ -283,7 +285,7 @@ def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]]) ->
     # Split each slot at day boundaries
     split_slots = []
     for slot in report_slots:
-        split_slots.extend(slot.split_at_boundaries("day"))
+        split_slots.extend(slot.split_at_boundaries("day", day_start_hour))
 
     # Convert back to dicts if input was dicts
     if input_is_dict:
@@ -482,6 +484,7 @@ def print_timeline_report(
     last_break_duration: Optional[timedelta] = None,
     afk_events: Optional[List[Event]] = None,
     exclude_online: bool = False,
+    day_start_hour: int = 4,
 ):
     """Print a timeline report showing activity as continuous time slots with date/week headers and cumulative totals.
 
@@ -585,7 +588,7 @@ def print_timeline_report(
         slots = converted_slots
 
     width = get_terminal_width()
-    is_single_day = start_time.date() == end_time.date()
+    is_single_day = logical_date(start_time, day_start_hour) == logical_date(end_time, day_start_hour)
 
 
     # Use actual_duration for merged slots, duration for others
@@ -767,11 +770,11 @@ def print_timeline_report(
         return slot.start.strftime("%G-W%V")
 
     def slot_date(slot):
-        """Return slot date"""
-        return slot.start.date()
+        """Return slot logical date"""
+        return logical_date(slot.start, day_start_hour)
 
     # Split slots spanning multiple days
-    slots = split_slots_spanning_days(slots)
+    slots = split_slots_spanning_days(slots, day_start_hour)
 
     # Filter out slots shorter than MIN_EVENT_DURATION (tracking noise)
     slots = filter_short_slots(slots)
