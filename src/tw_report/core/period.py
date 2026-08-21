@@ -6,11 +6,21 @@ start/end datetime tuples for querying activity data.
 """
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date, time
 from typing import Tuple
 
 
-def parse_period(period_str: str) -> Tuple[datetime, datetime]:
+def logical_date(dt: datetime, day_start_hour: int) -> date:
+    """Get the logical day a datetime belongs to when days start at day_start_hour."""
+    return (dt - timedelta(hours=day_start_hour)).date()
+
+
+def day_boundary(d: date, day_start_hour: int, tzinfo) -> datetime:
+    """Get the datetime marking the start of a logical day."""
+    return datetime.combine(d, time(hour=day_start_hour), tzinfo=tzinfo)
+
+
+def parse_period(period_str: str, day_start_hour: int = 4) -> Tuple[datetime, datetime]:
     """
     Convert a human-readable period string into a start and end datetime tuple.
 
@@ -39,48 +49,47 @@ def parse_period(period_str: str) -> Tuple[datetime, datetime]:
         SystemExit: If period format is invalid (prints error to stderr and exits)
     """
     now = datetime.now().astimezone()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    logical_today = logical_date(now, day_start_hour)
+    today_start = day_boundary(logical_today, day_start_hour, now.tzinfo)
+    today_end = day_boundary(logical_today + timedelta(days=1), day_start_hour, now.tzinfo) - timedelta(microseconds=1)
 
     period_str = period_str.lower()
 
     if period_str == ":today":
         start = today_start
-        end = today_start + timedelta(days=1) - timedelta(microseconds=1)
+        end = day_boundary(logical_today + timedelta(days=1), day_start_hour, now.tzinfo) - timedelta(microseconds=1)
     elif period_str == ":yesterday":
-        yesterday = today_start - timedelta(days=1)
-        start = yesterday
+        yesterday = logical_today - timedelta(days=1)
+        start = day_boundary(yesterday, day_start_hour, now.tzinfo)
         end = today_start - timedelta(microseconds=1)
     elif period_str == ":week":
-        start = today_start - timedelta(days=now.weekday())
+        monday_offset = logical_today.weekday()
+        start = day_boundary(logical_today - timedelta(days=monday_offset), day_start_hour, now.tzinfo)
         end = today_end
     elif period_str == ":lastweek":
-        start_of_last_week = today_start - timedelta(days=now.weekday(), weeks=1)
+        monday_offset = logical_today.weekday()
+        start_of_last_week = logical_today - timedelta(days=monday_offset, weeks=1)
         end_of_last_week = start_of_last_week + timedelta(days=6)
-        start = start_of_last_week
-        end = end_of_last_week.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
+        start = day_boundary(start_of_last_week, day_start_hour, now.tzinfo)
+        end = day_boundary(end_of_last_week + timedelta(days=1), day_start_hour, now.tzinfo) - timedelta(microseconds=1)
     elif period_str == ":month":
-        start = today_start.replace(day=1)
+        start = day_boundary(logical_today.replace(day=1), day_start_hour, now.tzinfo)
         end = today_end
     elif period_str == ":lastmonth":
-        end_of_last_month = today_start.replace(day=1) - timedelta(days=1)
-        start_of_last_month = end_of_last_month.replace(day=1)
-        start = start_of_last_month
-        end = end_of_last_month.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
+        first_of_this_month = logical_today.replace(day=1)
+        last_of_last_month = first_of_this_month - timedelta(days=1)
+        first_of_last_month = last_of_last_month.replace(day=1)
+        start = day_boundary(first_of_last_month, day_start_hour, now.tzinfo)
+        end = day_boundary(first_of_this_month, day_start_hour, now.tzinfo) - timedelta(microseconds=1)
     elif period_str == ":year":
-        start = today_start.replace(month=1, day=1)
+        start = day_boundary(logical_today.replace(month=1, day=1), day_start_hour, now.tzinfo)
         end = today_end
     elif period_str == ":lastyear":
-        end_of_last_year = today_start.replace(month=1, day=1) - timedelta(days=1)
-        start_of_last_year = end_of_last_year.replace(month=1, day=1)
-        start = start_of_last_year
-        end = end_of_last_year.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
+        first_of_this_year = logical_today.replace(month=1, day=1)
+        last_of_last_year = first_of_this_year - timedelta(days=1)
+        first_of_last_year = last_of_last_year.replace(month=1, day=1)
+        start = day_boundary(first_of_last_year, day_start_hour, now.tzinfo)
+        end = day_boundary(first_of_this_year, day_start_hour, now.tzinfo) - timedelta(microseconds=1)
     elif period_str == ":all":
         start = datetime(1970, 1, 1, tzinfo=now.tzinfo)
         end = now
@@ -88,9 +97,10 @@ def parse_period(period_str: str) -> Tuple[datetime, datetime]:
         parts = period_str.split()
         try:
             if len(parts) == 1:
-                day = datetime.fromisoformat(parts[0]).astimezone(now.tzinfo)
-                start = day.replace(hour=0, minute=0, second=0, microsecond=0)
-                end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
+                parsed_dt = datetime.fromisoformat(parts[0]).astimezone(now.tzinfo)
+                parsed_date = parsed_dt.date()
+                start = day_boundary(parsed_date, day_start_hour, now.tzinfo)
+                end = day_boundary(parsed_date + timedelta(days=1), day_start_hour, now.tzinfo) - timedelta(microseconds=1)
             elif len(parts) == 2:
                 start = datetime.fromisoformat(parts[0]).astimezone(now.tzinfo)
                 end = datetime.fromisoformat(parts[1]).astimezone(now.tzinfo)
