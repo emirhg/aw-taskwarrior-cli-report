@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 from aw_core.models import Event
 
 from tw_report.core.categories import build_categories_from_window_events
+from tw_report.core.period import logical_date
 
 if TYPE_CHECKING:
     from tw_report.core.filtering import EventFilter
@@ -114,6 +115,7 @@ class OfflineTaskProcessor:
         use_afk_for_reconciliation: bool = False,
         tail_tolerance_seconds: float = 10.0,
         afk_validation_tolerance_seconds: float = 10.0,
+        day_start_hour: int = 4,
     ):
         """
         Initialize processor.
@@ -144,6 +146,7 @@ class OfflineTaskProcessor:
         self.use_afk_for_reconciliation = use_afk_for_reconciliation
         self.tail_tolerance_seconds = tail_tolerance_seconds
         self.afk_validation_tolerance_seconds = afk_validation_tolerance_seconds
+        self.day_start_hour = day_start_hour
         self.offline_durations: Dict[Tuple, timedelta] = {}
         self.offline_event_durations: Dict[Tuple, timedelta] = {}
         self.event_groups: Dict[Tuple, List[Event]] = {}
@@ -423,12 +426,12 @@ class OfflineTaskProcessor:
 
         groups: List[List[Event]] = []
 
-        # First, split events that span calendar boundaries
+        # First, split events that span logical day boundaries
         split_events: List[Event] = []
         for event in events:
             if event.duration:
-                event_start_date = event.timestamp.date()
-                event_end_date = (event.timestamp + event.duration).date()
+                event_start_date = logical_date(event.timestamp, self.day_start_hour)
+                event_end_date = logical_date(event.timestamp + event.duration, self.day_start_hour)
 
                 if event_start_date != event_end_date:
                     # Event spans multiple days - this is problematic for OFFLINE reporting.
@@ -491,12 +494,12 @@ class OfflineTaskProcessor:
                     interruption_found = True
                     break
 
-            # Split by calendar day boundary. Group must contain events that:
-            # 1. All start on the same calendar day (group_date)
-            # 2. All end on the same calendar day (group_date)
+            # Split by logical day boundary. Group must contain events that:
+            # 1. All start on the same logical day (group_date)
+            # 2. All end on the same logical day (group_date)
             # If curr_event starts on a different day OR ends on a different day, split.
-            curr_start_date = curr_start.date()
-            curr_end_date = curr_end.date()
+            curr_start_date = logical_date(curr_start, self.day_start_hour)
+            curr_end_date = logical_date(curr_end, self.day_start_hour)
             start_on_different_day = curr_start_date != group_date
             end_on_different_day = curr_end_date != group_date
 
