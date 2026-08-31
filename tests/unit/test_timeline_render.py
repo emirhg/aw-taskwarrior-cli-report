@@ -160,7 +160,8 @@ class TestSplitSlotsSpanningDays:
             "project": "Test",
             "task": "Work",
         }
-        result = split_slots_spanning_days([slot])
+        # Use day_start_hour=0 for calendar-day boundaries (midnight)
+        result = split_slots_spanning_days([slot], day_start_hour=0)
 
         # Should be split into two pieces
         assert len(result) == 2
@@ -182,7 +183,8 @@ class TestSplitSlotsSpanningDays:
             "project": "Test",
             "task": "Work",
         }
-        result = split_slots_spanning_days([slot])
+        # Use day_start_hour=0 for calendar-day boundaries (midnight)
+        result = split_slots_spanning_days([slot], day_start_hour=0)
 
         assert len(result) == 2
         # Each piece should get proportional productive time (50%)
@@ -199,7 +201,8 @@ class TestSplitSlotsSpanningDays:
             "project": "Test",
             "task": "Work",
         }
-        result = split_slots_spanning_days([slot])
+        # Use day_start_hour=0 for calendar-day boundaries
+        result = split_slots_spanning_days([slot], day_start_hour=0)
         assert len(result) == 1
         assert result[0]["duration"] == timedelta(0)
 
