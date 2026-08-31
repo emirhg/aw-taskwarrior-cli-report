@@ -1316,19 +1316,17 @@ def print_timeline_report(
             daily_active,
             daily_metrics.productive_duration, width
         )
-        # Use authoritative online_time_final (same as TOTALS) to ensure consistency
-        # This includes untracked time that slot-based accumulation may miss
-        # Calculate it the same way as TOTALS: Active (from AFK bucket) + AFK
-        # But for the final render, we'll use the already-calculated online_time_final
-        # if available. For now, use weekly_metrics which gets updated in the render loop.
-        # TODO: Wire through non_afk_time and total_afk_time to week total to match TOTALS exactly
-        total_week_with_afk = weekly_metrics.online_duration
+        # Calculate week online time from displayed values (same source as daily display)
+        # This ensures consistency: weekly total = sum of daily displayed values
+        # Uses weekly_displayed_active and weekly_displayed_afk (accumulated during render loop)
+        total_week_with_afk = weekly_displayed_active + weekly_displayed_afk
         if not is_single_day:
             # Format offline time in gap notation if present
-            if weekly_metrics.offline_gap and weekly_metrics.offline_gap > timedelta(0):
-                gaps_str = f"({format_duration(weekly_metrics.offline_gap)} OFF)"
+            if weekly_displayed_offline and weekly_displayed_offline > timedelta(0):
+                gaps_str = f"({format_duration(weekly_displayed_offline)} OFF)"
             else:
                 gaps_str = ""
+            # Use weekly productive duration from metrics
             base_duration = format_duration_tracked_prod(total_week_with_afk, weekly_metrics.productive_duration)
             right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
             # Week total aligned with week header (0 spaces) for pyramid shape
