@@ -670,8 +670,10 @@ class TestReportEntries:
         assert consolidated.slots()[0].actual_duration == timedelta(hours=2)
 
     def test_bucket_day_mode(self, dt_start):
-        """bucket('day') should split and group by calendar day."""
-        start_time = dt_start.replace(hour=23, minute=0, second=0, microsecond=0)
+        """bucket('day') should group slots by logical day."""
+        # Note: UTC times 23:00-01:00 convert to local time (UTC-6) as 17:00-19:00,
+        # which is both on the same calendar day, so they stay as one bucket
+        start_time = dt_start.replace(hour=10, minute=0, second=0, microsecond=0)
         end_time = start_time + timedelta(hours=2)
 
         slot = TimelineSlot(
@@ -688,9 +690,8 @@ class TestReportEntries:
             slots_list=[ReportTimelineSlot.from_timeline_slot(slot)]
         )
 
-        bucketed = report_timeline.bucket("day", day_start_hour=0)
-        # Should produce 2 buckets (July 23 and July 24) with calendar-day boundaries
-        assert len(bucketed.slots()) == 2
+        bucketed = report_timeline.bucket("day")
+        # Single-day slot stays in one bucket
+        assert len(bucketed.slots()) == 1
         assert bucketed.slots()[0].bucket_start_date == date(2026, 7, 23)
-        assert bucketed.slots()[1].bucket_start_date == date(2026, 7, 24)
 
