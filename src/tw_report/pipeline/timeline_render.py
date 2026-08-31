@@ -685,25 +685,8 @@ def print_timeline_report(
             timedelta(0),
         )
 
-    # Calculate total OFFLINE time (system powered off during task work)
-    # IMPORTANT: Only count offline_task gaps, NOT offline_extension_duration from window events.
-    #
-    # Why not offline_extension_duration?
-    # =====================================
-    # offline_extension_duration marks WINDOW ACTIVITY during OFFLINE tasks.
-    # This activity is already accounted for in the offline_task's event_duration
-    # (which comes from AFK bucket overlaps during the OFFLINE period).
-    # Summing both would double-count the same time!
-    #
-    # Example: OFFLINE task 09:55-11:08 (73 min wall-clock)
-    #   - Window events during this time: 21:47 (marked with offline_extension_duration)
-    #   - AFK events during this time: 21:47 (becomes event_duration)
-    #   - Offline gap: 73 - 21:47 = 51:13
-    #
-    # Correct: Count only the gap (51:13)
-    # Wrong: Count window activity (21:47) + gap (51:13) = 72:60 (DOUBLE-COUNT!)
-    # After consolidation, use offline_extension_duration directly (event_duration is None).
-    # Before consolidation, calculate as duration - event_duration.
+    # Calculate total OFFLINE time PRE-consolidation (for summary at top)
+    # Will be recalculated POST-consolidation for TOTALS
     def get_offline_duration(s):
         # Prefer offline_extension_duration if set (consolidated slots)
         if hasattr(s, 'offline_extension_duration') and s.offline_extension_duration:
@@ -990,27 +973,11 @@ def print_timeline_report(
     for period_key in sorted(period_groups.keys()):
         period_slots = period_groups[period_key]
         # DEBUG: Show slots before consolidation for Aug 24
-        if str(period_key).startswith("2026-08-24"):
-            disposicion_slots = [s for s in period_slots if hasattr(s, 'task') and s.task and 'Disposición' in s.task]
-            if disposicion_slots:
-                import sys
-                print(f"DEBUG: Before consolidation on {period_key}: {len(disposicion_slots)} Disposición slots", file=sys.stderr)
-                for i, slot in enumerate(disposicion_slots):
-                    print(f"  Slot {i}: {slot.start} to {slot.end}, offline_ext={slot.offline_extension_duration}, event_dur={slot.event_duration}", file=sys.stderr)
-
-        # Convert to ReportEntries, consolidate within period, get back slots
+        # Period-based grouping (already deduplicated globally)
+        # For consolidate-day/week/month/year modes: group slots by period boundaries
+        # Note: Global deduplication happened earlier, so these are already deduplicated
         report_entries = ReportEntries(slots_list=period_slots)
         consolidated = report_entries.consolidate_by_task()
-
-        # DEBUG: Show consolidated slots
-        if str(period_key).startswith("2026-08-24"):
-            disposicion_slots_after = [s for s in consolidated.slots_list if hasattr(s, 'task') and s.task and 'Disposición' in s.task]
-            if disposicion_slots_after:
-                import sys
-                print(f"DEBUG: After consolidation on {period_key}: {len(disposicion_slots_after)} Disposición slots", file=sys.stderr)
-                for slot in disposicion_slots_after:
-                    print(f"  offline_extension_duration={slot.offline_extension_duration}", file=sys.stderr)
-
         consolidated_slots.extend(consolidated.slots_list)
 
     # Replace slots with consolidated version
@@ -1028,6 +995,21 @@ def print_timeline_report(
     )
     total_productive_all = sum(
         (slot.productive_duration for slot in slots),
+        timedelta(0),
+    )
+
+    # RECALCULATE total_offline_time POST-consolidation
+    # Use consolidated slots for accuracy (avoids double-counting duplicates)
+    def get_offline_duration(s):
+        # Prefer offline_extension_duration if set (consolidated slots)
+        if hasattr(s, 'offline_extension_duration') and s.offline_extension_duration:
+            return s.offline_extension_duration
+        # Fall back to duration - event_duration (pre-consolidation slots)
+        return s.duration - (s.event_duration or timedelta(0))
+
+    total_offline_time = sum(
+        (get_offline_duration(s)
+         for s in slots if s.is_offline_task),
         timedelta(0),
     )
 
