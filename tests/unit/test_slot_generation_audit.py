@@ -44,15 +44,24 @@ class TestSlotCreationValidation:
 
     def test_slot_to_dict_preserves_timezone(self):
         """Slots should preserve their original timezone through to_dict()."""
+        from tw_report.core.aw_events import TaskWarriorEvent
+
         tz_minus6 = timezone(timedelta(hours=-6))
         start = datetime(2026, 8, 30, 12, 0, tzinfo=tz_minus6)
         end = datetime(2026, 8, 30, 13, 0, tzinfo=tz_minus6)
 
+        task_event = TaskWarriorEvent(
+            timestamp=start,
+            duration=timedelta(hours=1),
+            data={"project": "P1", "title": "T1", "tags": []}
+        )
+
         slot = ReportTimelineSlot(
             start=start,
             end=end,
-            project="P1",
-            task="T1",
+            duration=timedelta(hours=1),
+            actual_duration=timedelta(hours=1),
+            task_event=task_event,
         )
 
         slot_dict = slot.to_dict()
@@ -153,15 +162,24 @@ class TestSlotDurationValidation:
 
     def test_duration_calculation(self):
         """Duration should always equal end - start."""
+        from tw_report.core.aw_events import TaskWarriorEvent
+
         tz = timezone(timedelta(hours=-6))
         start = datetime(2026, 8, 30, 12, 0, tzinfo=tz)
         end = datetime(2026, 8, 30, 13, 30, tzinfo=tz)
 
+        task_event = TaskWarriorEvent(
+            timestamp=start,
+            duration=end - start,
+            data={"project": "P1", "title": "T1", "tags": []}
+        )
+
         slot = ReportTimelineSlot(
             start=start,
             end=end,
-            project="P1",
-            task="T1",
+            duration=end - start,
+            actual_duration=end - start,
+            task_event=task_event,
         )
 
         expected = end - start

@@ -84,7 +84,7 @@ class TestOfflineConsolidation:
 
         # Total offline time should be sum of all event durations
         total_offline = sum(offline_durations.values(), timedelta(0))
-        expected_total = sum(e.duration for e in task_events)
+        expected_total = sum((e.duration for e in task_events), timedelta(0))
         assert total_offline == expected_total, \
             f"Total offline time mismatch: {total_offline} != {expected_total}"
 
