@@ -973,6 +973,11 @@ def main():
         report_timeline = timeline.to_report_timeline()
         final_dicts = report_timeline.as_dicts()
 
+        # Apply session-merging consolidation if --consolidate flag is set
+        if args.consolidate:
+            from tw_report.pipeline.consolidation import consolidate_sessions
+            final_dicts = consolidate_sessions(final_dicts)
+
         TimelineReport(print_timeline_report).present(
             slots=final_dicts,
             period=period,

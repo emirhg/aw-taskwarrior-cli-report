@@ -218,13 +218,14 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Group by calendar year.",
     )
-    # BUG: --consolidate flag removed (Session 2026-08-31)
-    # The --consolidate flag (session-merging behavior) was removed in commit e773a84.
-    # It should be restored as a separate, non-mutually-exclusive modifier flag.
-    # Use case: tw-report --by-day --consolidate :week
-    # (merge consecutive sessions of same task even with gaps, for use with --by-X flags)
-    # Note: --by-project (hierarchical) doesn't need --consolidate (already consolidated)
-    # Status: FUTURE WORK - document and restore when priorities allow
+
+    # Session-merging consolidation flag (orthogonal to period grouping)
+    parser.add_argument(
+        "--consolidate",
+        action="store_true",
+        help="Consolidate sessions: merge consecutive sessions of the same task (even with gaps) unless interrupted by another task. Works with --by-day/week/month/year flags. Automatically enabled for --by-project (hierarchical view).",
+    )
+
     parser.add_argument(
         "--exclude-non-project",
         action="store_true",
