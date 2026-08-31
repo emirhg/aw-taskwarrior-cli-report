@@ -575,6 +575,12 @@ def convert_active_periods_to_slots(
     - Active + AFK = AFK slot (idle during untracked time)
     - Covered by task = handled by generate_partitioned_task_slots (includes offline detection)
 
+    CRITICAL: actual_duration semantics (2026-08-31 consolidation fix):
+    - For type="active": actual_duration = active time (same as duration, never AFK)
+    - For type="afk": actual_duration = full slot duration (entire slot is idle time)
+    NOTE: When consolidating, only merge slots of the same type to avoid summing
+    incompatible actual_duration values (active time + AFK time would be wrong).
+
     Args:
         active_events: AFKEvents with status="not-afk" from AFK bucket
         task_events: TaskWarrior events for identifying covered portions (overlap detection only)

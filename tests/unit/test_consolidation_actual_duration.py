@@ -231,6 +231,53 @@ class TestConsolidationActualDuration:
         # actual_duration: 10 * 25 min = 250 min = 4h10m
         assert consolidated[0]["actual_duration"] == timedelta(minutes=250)
 
+    def test_different_types_not_merged(self, base_time):
+        """Slots with different types should NOT be merged, even with same task."""
+        slots = [
+            # Active slot
+            {
+                "start": base_time,
+                "end": base_time + timedelta(hours=1),
+                "duration": timedelta(hours=1),
+                "actual_duration": timedelta(minutes=50),
+                "project": "P1",
+                "task": "T1",
+                "type": "regular",
+                "tags": [],
+            },
+            # AFK slot (gap 30m)
+            {
+                "start": base_time + timedelta(hours=1, minutes=30),
+                "end": base_time + timedelta(hours=1, minutes=30) + timedelta(minutes=30),
+                "duration": timedelta(minutes=30),
+                "actual_duration": timedelta(minutes=30),  # Full duration is AFK
+                "project": "P1",
+                "task": "T1",
+                "type": "afk",
+                "tags": [],
+            },
+            # Another active slot
+            {
+                "start": base_time + timedelta(hours=2),
+                "end": base_time + timedelta(hours=2) + timedelta(hours=1),
+                "duration": timedelta(hours=1),
+                "actual_duration": timedelta(minutes=48),
+                "project": "P1",
+                "task": "T1",
+                "type": "regular",
+                "tags": [],
+            },
+        ]
+
+        consolidated = consolidate_sessions(slots)
+
+        # Should NOT merge because types differ
+        assert len(consolidated) == 3  # Regular, AFK, Regular stay separate
+        # Regular slots can be merged separately if adjacent, but AFK breaks the sequence
+        # Verify that actual_duration values are NOT summed across types
+        assert any(s["type"] == "afk" for s in consolidated)
+        assert any(s["type"] == "regular" for s in consolidated)
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

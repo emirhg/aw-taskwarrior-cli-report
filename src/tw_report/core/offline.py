@@ -820,6 +820,9 @@ class OfflineTaskProcessor:
             }
         ])
 
+        # Calculate offline gap: total duration minus online time
+        offline_gap = slot_duration - online_time if slot_duration > online_time else timedelta(0)
+
         slot = ReportTimelineSlot(
             start=slot_start,
             end=slot_end,
@@ -830,6 +833,7 @@ class OfflineTaskProcessor:
             window_events=[],
             afk_events=[],
             event_duration=online_time,  # CRITICAL: discriminator for is_offline_task
+            offline_extension_duration=offline_gap if offline_gap > timedelta(0) else None,
             tags=task_tags,
             categories=categories,
         )

@@ -221,8 +221,8 @@ class DisplayColumns:
         active_time = ""
         active_duration = timedelta(0)
 
-        if slot_type == "offline":
-            # OFFLINE slots are system-off periods - no online or active time
+        if slot_type in ("offline", "offline_task"):
+            # OFFLINE/offline_task slots are system-off periods - no online or active time
             # All time should be in offline column only
             pass
         else:
@@ -874,6 +874,7 @@ class ReportEntries:
         report_slots = [
             ReportTimelineSlot.from_timeline_slot(slot)
             for slot in timeline.get_slots()
+            if slot.duration > timedelta(0)  # Filter out degenerate zero-duration slots
         ]
         return cls(slots_list=report_slots)
 
@@ -1441,6 +1442,76 @@ class ReportEntries:
             result.append(slot_dict)
         return result
 
+    def consolidate_by_task(self) -> "ReportEntries":
+        """Consolidate all slots for the same (project, task) into single merged entries.
+
+        This merges different entry types (regular, offline_task, afk) for the same task
+        into a single consolidated row, preserving all duration components (OFFLINE, AFK, ACTIVE).
+
+        This fixes the display bug where the same task appears multiple times with different
+        entry types instead of being shown as one consolidated entry.
+
+        Returns:
+            ReportEntries with one entry per (project, task) pair
+        """
+        if not self.slots_list:
+            return ReportEntries()
+
+        # Group slots by (project, task)
+        groups: Dict[Tuple[str, str], List[ReportTimelineSlot]] = {}
+        for slot in self.slots_list:
+            key = (slot.project, slot.task)
+            if key not in groups:
+                groups[key] = []
+            groups[key].append(slot)
+
+        # Merge each group
+        consolidated = []
+
+        for (project, task), group_slots in groups.items():
+            # Sum duration components across all slots for this task
+            total_duration = sum((s.duration for s in group_slots), timedelta(0))
+            total_actual_duration = sum((s.actual_duration for s in group_slots), timedelta(0))
+            total_afk_duration = sum((s.afk_duration or timedelta(0) for s in group_slots), timedelta(0))
+            total_offline_ext = sum((s.offline_extension_duration or timedelta(0) for s in group_slots), timedelta(0))
+            total_productive = sum((s.productive_duration for s in group_slots), timedelta(0))
+            total_event_duration = sum((s.event_duration or timedelta(0) for s in group_slots if s.event_duration is not None), timedelta(0))
+
+            # Get start/end from first and last slots (chronologically)
+            sorted_slots = sorted(group_slots, key=lambda s: s.start)
+            start_time = sorted_slots[0].start
+            end_time = sorted_slots[-1].end
+
+            # Merge categories and tags from all slots
+            merged_categories = []
+            all_tags = set()
+            for slot in group_slots:
+                merged_categories.extend(slot.categories or [])
+                if slot.tags:
+                    all_tags.update(slot.tags)
+
+            # Create merged slot with consolidated durations
+            merged_slot = ReportTimelineSlot(
+                start=start_time,
+                end=end_time,
+                duration=total_duration,
+                actual_duration=total_actual_duration,
+                productive_duration=total_productive,
+                task_event=sorted_slots[0].task_event,  # Use from first slot
+                window_events=[],
+                afk_events=[],
+                offline_extension_duration=total_offline_ext if total_offline_ext > timedelta(0) else None,
+                event_duration=total_event_duration if total_event_duration > timedelta(0) else None,
+                afk_duration=total_afk_duration if total_afk_duration > timedelta(0) else None,
+                tags=list(all_tags) if all_tags else [],
+                categories=merged_categories,
+            )
+            consolidated.append(merged_slot)
+
+        # Sort by start time
+        consolidated.sort(key=lambda s: s.start)
+
+        return ReportEntries(slots_list=consolidated)
 
 
 def _merge_categories_full(group: List[TimelineSlot]) -> List[Dict[str, Any]]:

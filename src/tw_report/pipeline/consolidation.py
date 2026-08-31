@@ -138,6 +138,12 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
         timedelta(0),
     )
 
+    # Sum offline_extension_duration if any slot has it (offline task tracking)
+    total_offline_extension = sum(
+        (slot.get("offline_extension_duration", timedelta(0)) for slot in group if slot.get("offline_extension_duration")),
+        timedelta(0),
+    )
+
     # Create merged slot by copying first and updating key fields
     merged = first_slot.copy()
     merged["start"] = start_time
@@ -145,6 +151,10 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
     merged["duration"] = merged_duration  # Wall-clock duration (includes gaps between sessions)
     merged["actual_duration"] = total_actual_duration  # Sum of active time (excludes AFK within slots)
     merged["event_duration"] = total_event_duration  # Sum of event durations
+
+    # Preserve offline_extension_duration if present (offline task tracking)
+    if total_offline_extension > timedelta(0):
+        merged["offline_extension_duration"] = total_offline_extension
 
     # Tags should be consistent (all same), but preserve from first slot
     if group and group[0].get("tags"):

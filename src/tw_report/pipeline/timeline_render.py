@@ -1284,12 +1284,13 @@ def print_timeline_report(
         else:
             separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
         print(separator_line)
-        # Use daily_metrics for accurate day totals (reuses Active Time calculation logic)
-        # Active = online - afk (this matches the SUMMARY Active Time metric)
-        daily_active = (daily_metrics.online_duration or timedelta(0)) - (daily_metrics.afk_duration or timedelta(0))
+        # CRITICAL FIX (2026-08-31): Use displayed values accumulated during rendering, not metrics
+        # daily_metrics has ambiguous semantics; use the values actually accumulated in the display loop
+        # daily_displayed_offline, daily_displayed_afk, daily_displayed_active are the canonical display values
+        daily_active = non_afk_time if non_afk_time else timedelta(0)
         format_and_print_day_total_displayed(
-            daily_metrics.offline_gap or timedelta(0),
-            daily_metrics.afk_duration or timedelta(0),
+            daily_displayed_offline,
+            daily_displayed_afk,
             daily_active,
             daily_metrics.productive_duration, width
         )
