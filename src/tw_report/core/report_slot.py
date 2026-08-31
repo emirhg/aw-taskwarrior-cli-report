@@ -339,8 +339,17 @@ class ReportTimelineSlot:
 
     @property
     def is_offline_task(self) -> bool:
-        """True if this is an offline_task slot: task_event and event_duration both set."""
-        return self.task_event is not None and self.event_duration is not None
+        """True if this is an offline_task slot: task_event and offline gap information set.
+
+        Checks for EITHER offline_extension_duration OR event_duration:
+        - offline_extension_duration: system-off time (primary field after consolidation)
+        - event_duration: online time within task (used before consolidation)
+        """
+        if self.task_event is None:
+            return False
+        has_offline_ext = self.offline_extension_duration is not None and self.offline_extension_duration > timedelta(0)
+        has_event_dur = self.event_duration is not None and self.event_duration > timedelta(0)
+        return has_offline_ext or has_event_dur
 
     @property
     def is_afk_only(self) -> bool:
