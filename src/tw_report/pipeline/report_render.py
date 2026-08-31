@@ -608,6 +608,9 @@ def print_report(
         last_break_start=last_break_start,
         last_break_end=last_break_end,
         last_break_duration=last_break_duration,
+        total_offline_time=timedelta(0),
+        afk_time=None,
+        total_time_all=None,
     )
 
     if not report_data:
@@ -712,10 +715,12 @@ def print_report(
                 print()
 
     # Print TOTALS at bottom
+    # Prefer non_afk_time if available; fallback to total_duration for backward compatibility with tests
+    total_time_for_totals = non_afk_time or total_duration
     print_report_totals(
-        total_time_all=total_duration,
+        total_time_all=total_time_for_totals,
         total_productive_all=productive_task_time or timedelta(0),
         total_afk=None,
         total_offline=None,
-        total_non_afk=total_duration,
+        total_non_afk=total_time_for_totals,
     )
