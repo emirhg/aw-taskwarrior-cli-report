@@ -1147,7 +1147,8 @@ def print_timeline_report(
                     print(full_line.rstrip())
                 print()
             current_week_key = slot_week
-            week_number = slot.start.isocalendar()[1]
+            # Extract week number from week_key (format: 'YYYY-Www')
+            week_number = int(current_week_key.split('-W')[1])
             week_str = f"W{week_number}"
             date_str = slot_date_val.strftime("%Y-%m-%d")
             day_str = slot_date_val.strftime("%a")
