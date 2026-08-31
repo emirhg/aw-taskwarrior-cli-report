@@ -107,13 +107,13 @@ class AFKEvent(Event):
         afk_start = self.timestamp
         afk_end = self.timestamp + self.duration
 
-        # If no window events provided/found, system was off (no recording data)
-        # Treat entire AFK period as OFFLINE (false positive AFK from AFK bucket)
+        # If no window events provided/found, can't verify if AFK is real or false positive
+        # Safe fallback: treat entire AFK period as online-afk (not offline)
         if not window_events:
             return {
-                "is_false_positive": True,
-                "offline_portion": (afk_start, afk_end),
-                "online_afk_portions": [],
+                "is_false_positive": False,  # Can't be sure, but assume safe fallback
+                "offline_portion": None,  # No windows to contradict AFK, so no offline portion
+                "online_afk_portions": [(afk_start, afk_end)],  # Treat entire AFK as online-afk
             }
 
         # Filter windows that overlap this AFK period and sort by start time
