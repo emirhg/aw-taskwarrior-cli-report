@@ -163,7 +163,6 @@ class TestTimelineReportTotalsInvariants:
     - Total = Online + Offline
     """
 
-    @pytest.mark.xfail(reason="Complex integration test: AFK slot metrics not calculated from dict slots in print_timeline_report")
     def test_timeline_report_online_equals_active_plus_afk(self, capsys):
         """TOTALS: Online Time should equal Active Time + AFK Time."""
         base_time = datetime(2026, 7, 28, 0, 0, 0, tzinfo=timezone.utc)
@@ -177,13 +176,16 @@ class TestTimelineReportTotalsInvariants:
                 "end": base_time.replace(hour=10),
                 "duration": timedelta(hours=1),
                 "actual_duration": timedelta(hours=1),
+                "productive_duration": timedelta(hours=1),
             },
             {
                 "type": "afk",
                 "start": base_time.replace(hour=10),
                 "end": base_time.replace(hour=11),
                 "duration": timedelta(hours=1),
-                "actual_duration": timedelta(hours=1),
+                "actual_duration": timedelta(0),  # No online work during AFK
+                "afk_duration": timedelta(hours=1),  # All 1h is idle time
+                "productive_duration": timedelta(0),
             },
         ]
 
@@ -213,7 +215,6 @@ class TestTimelineReportTotalsInvariants:
             f"Active ({active_time}) + AFK ({afk_time})"
         )
 
-    @pytest.mark.xfail(reason="Complex integration test: metrics not calculated from dict slots in print_timeline_report")
     def test_timeline_report_total_equals_online_plus_offline(self, capsys):
         """TOTALS: Total Time should equal Online Time + Offline Time."""
         base_time = datetime(2026, 7, 28, 0, 0, 0, tzinfo=timezone.utc)
@@ -228,13 +229,17 @@ class TestTimelineReportTotalsInvariants:
                 "duration": timedelta(hours=2),
                 "event_duration": timedelta(minutes=30),  # 30 min AW overlap
                 "actual_duration": timedelta(minutes=30),
+                "offline_extension_duration": timedelta(hours=2) - timedelta(minutes=30),
+                "productive_duration": timedelta(minutes=30),
             },
             {
                 "type": "afk",
                 "start": base_time.replace(hour=9),
                 "end": base_time.replace(hour=10),
                 "duration": timedelta(hours=1),
-                "actual_duration": timedelta(hours=1),
+                "actual_duration": timedelta(0),  # No online work during AFK
+                "afk_duration": timedelta(hours=1),  # All 1h is idle time
+                "productive_duration": timedelta(0),
             },
         ]
 
@@ -267,7 +272,6 @@ class TestTimelineReportTotalsInvariants:
             f"Online ({online_time}) + Offline ({offline_time})"
         )
 
-    @pytest.mark.xfail(reason="Complex integration test: offline metrics not calculated from dict slots in print_timeline_report")
     def test_timeline_report_does_not_double_count_offline(self, capsys):
         """CRITICAL: Online should NOT include Offline time (regression test).
 
@@ -290,13 +294,17 @@ class TestTimelineReportTotalsInvariants:
                 "duration": timedelta(hours=1, minutes=20),
                 "event_duration": timedelta(0),  # No AW activity
                 "actual_duration": timedelta(0),
+                "offline_extension_duration": timedelta(hours=1, minutes=20),  # All is offline
+                "productive_duration": timedelta(0),
             },
             {
                 "type": "afk",
                 "start": base_time + timedelta(hours=2),
                 "end": base_time + timedelta(hours=2, minutes=15),
                 "duration": timedelta(minutes=15),
-                "actual_duration": timedelta(minutes=15),
+                "actual_duration": timedelta(0),  # No online work during AFK
+                "afk_duration": timedelta(minutes=15),  # All 15m is idle time
+                "productive_duration": timedelta(0),
             },
         ]
 
