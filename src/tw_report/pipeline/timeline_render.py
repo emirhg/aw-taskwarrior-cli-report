@@ -1069,6 +1069,10 @@ def print_timeline_report(
     weekly_displayed_afk = timedelta(0)
     weekly_displayed_active = timedelta(0)
 
+    # Track pending week total to print AFTER we have authoritative online_time from AFK bucket
+    # This ensures week total uses same data source (AFK bucket) as TOTALS section
+    pending_week_total_data = None  # Will store (productive_duration, offline_gap) when week ends
+
     # Slots are already sorted and filtered by this point (line 729).
     # Render each slot individually — no grouping.
     last_slot_end = None  # Track end time of last rendered slot (for gap detection)
@@ -1132,19 +1136,9 @@ def print_timeline_report(
                     daily_metrics.productive_duration, width
                 )
                 if not is_single_day:
-                    # Use online_duration only (not total_duration) since offline_gap is displayed separately
-                    total_week_with_afk = weekly_metrics.online_duration
-                    # Format offline time in gap notation if present
-                    if weekly_metrics.offline_gap and weekly_metrics.offline_gap > timedelta(0):
-                        gaps_str = f"({format_duration(weekly_metrics.offline_gap)} OFF)"
-                    else:
-                        gaps_str = ""
-                    base_duration = format_duration_tracked_prod(total_week_with_afk, weekly_metrics.productive_duration)
-                    right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-                    # Week total aligned with week header (0 spaces) for pyramid shape
-                    left_part = "Week total (tracked):  "
-                    full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
-                    print(full_line.rstrip())
+                    # DEFER week total printing until after we have authoritative online_time from AFK bucket
+                    # Save the data for printing after the render loop
+                    pending_week_total_data = (weekly_metrics.productive_duration, weekly_metrics.offline_gap)
                 print()
             current_week_key = slot_week
             # Extract week number from week_key (format: 'YYYY-Www')
@@ -1317,26 +1311,13 @@ def print_timeline_report(
             daily_active,
             daily_metrics.productive_duration, width
         )
-        # Calculate week online time from displayed values (same source as daily display)
-        # This ensures consistency: weekly total = sum of daily displayed values
-        # Uses weekly_displayed_active and weekly_displayed_afk (accumulated during render loop)
-        total_week_with_afk = weekly_displayed_active + weekly_displayed_afk
-        if not is_single_day:
-            # Format offline time in gap notation if present
-            if weekly_displayed_offline and weekly_displayed_offline > timedelta(0):
-                gaps_str = f"({format_duration(weekly_displayed_offline)} OFF)"
-            else:
-                gaps_str = ""
-            # Use weekly productive duration from metrics
-            base_duration = format_duration_tracked_prod(total_week_with_afk, weekly_metrics.productive_duration)
-            right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
-            # Week total aligned with week header (0 spaces) for pyramid shape
-            left_part = "Week total (tracked):  "
-            full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
-            print(full_line.rstrip())
         print()
+        # Save final week's totals (flush at end of render loop)
+        if not is_single_day:
+            pending_week_total_data = (weekly_metrics.productive_duration, weekly_metrics.offline_gap)
 
-    # Print TOTALS at bottom
+    # Calculate authoritative online time from AFK bucket BEFORE printing week total
+    # This ensures week total uses same data source (AFK bucket) as TOTALS section
     # Online time must satisfy: Online = Active Time + AFK Time
     # Active Time comes from non_afk_time (AFK bucket not-afk events)
     # AFK Time comes from total_afk_time (from final slots or AFK bucket afk events)
@@ -1353,6 +1334,23 @@ def print_timeline_report(
 
     # Total = Online + Offline (not passed to print_report_totals; calculated internally)
     total_time_final = online_time_final + total_offline_time
+
+    # NOW print deferred week total using authoritative online_time_final
+    if not is_single_day and pending_week_total_data is not None:
+        productive_duration, offline_gap = pending_week_total_data
+        # Format offline time in gap notation if present
+        if offline_gap and offline_gap > timedelta(0):
+            gaps_str = f"({format_duration(offline_gap)} OFF)"
+        else:
+            gaps_str = ""
+        # Use authoritative online_time_final from AFK bucket (matches TOTALS section)
+        base_duration = format_duration_tracked_prod(online_time_final, productive_duration)
+        right_part = f"{gaps_str}  {base_duration}" if gaps_str else base_duration
+        # Week total aligned with week header (0 spaces) for pyramid shape
+        left_part = "Week total (tracked):  "
+        full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
+        print(full_line.rstrip())
+        print()
 
     print_report_totals(
         total_time_all=online_time_final,
