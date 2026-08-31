@@ -105,7 +105,8 @@ class TestOfflineTaskDisplayBug:
             hours=8, minutes=34
         ), f"Expected offline_extension_duration=08:34:00, got {slot.offline_extension_duration}"
         assert slot.actual_duration == timedelta(0), f"Expected actual_duration=0, got {slot.actual_duration}"
-        assert slot.event_duration == timedelta(0), f"Expected event_duration=0, got {slot.event_duration}"
+        # event_duration should be None after consolidation (only used for split_at_boundaries)
+        assert slot.event_duration is None, f"Expected event_duration=None after consolidation, got {slot.event_duration}"
 
         # The OFFLINE display value should be the offline_extension_duration, not more
         # Formula: OFFLINE = offline_extension_duration (since that's set)
@@ -114,3 +115,61 @@ class TestOfflineTaskDisplayBug:
         assert slot.offline_extension_duration.total_seconds() == (
             8 * 3600 + 34 * 60
         ), "offline_extension_duration should be 08:34:00"
+
+    def test_duplicate_offline_slots_deduplicated_before_consolidation(self):
+        """Deduplication should remove duplicate slots BEFORE consolidation summing.
+
+        This test reproduces the real bug where 3 duplicate offline slots (from
+        generate_partitioned_task_slots and generate_afk_and_offline_slots) all
+        had offline_ext=8:34:37, and consolidation summed them to 17:09:15.
+        """
+        # Create 3 duplicate offline_task slots for the SAME period (04:00-12:34 UTC)
+        start = datetime(2026, 8, 24, 10, 0, 0, tzinfo=timezone.utc)  # 04:00 local
+        end = datetime(2026, 8, 24, 18, 34, 0, tzinfo=timezone.utc)   # 12:34 local
+        duration = timedelta(hours=8, minutes=34)
+
+        slots_list = []
+        for i in range(3):
+            ts = TimelineSlot(
+                type="offline_task",
+                start=start,
+                end=end,
+                duration=duration,
+                actual_duration=timedelta(0),
+                productive_duration=timedelta(0),
+                project="Ecosistema",
+                task="Disposición de restos de cocina",
+                event_duration=timedelta(0),
+                offline_extension_duration=duration,  # Each duplicate has full duration
+            )
+            slots_list.append(ReportTimelineSlot.from_timeline_slot(ts))
+
+        entries = ReportEntries(slots_list=slots_list)
+
+        # Consolidate (should deduplicate first)
+        consolidated = entries.consolidate_by_task()
+
+        # Should have only 1 slot, not 3
+        assert len(consolidated.slots()) == 1, (
+            f"Expected 1 consolidated slot after deduplication, got {len(consolidated.slots())}"
+        )
+
+        slot = consolidated.slots()[0]
+
+        # The offline_extension_duration should NOT be summed (3 * 8:34 = 25:42)
+        # It should remain 8:34:00 (the actual value for this time period)
+        assert slot.offline_extension_duration == duration, (
+            f"Expected offline_extension_duration={duration}, got {slot.offline_extension_duration}. "
+            f"Deduplication failed; summed duplicates instead of removing them."
+        )
+
+        # Verify the display value is correct
+        display = DisplayColumns.from_slot_dict(
+            slot.to_dict(),
+            datetime(2026, 8, 24, 4, 0, 0),
+            datetime(2026, 8, 24, 12, 34, 0),
+        )
+        assert display.offline_time == "08:34:00", (
+            f"Expected OFFLINE 08:34:00 after deduplication, got {display.offline_time}. "
+            f"Shows that duplicate slots were summed (17:09:15 bug)."
+        )
