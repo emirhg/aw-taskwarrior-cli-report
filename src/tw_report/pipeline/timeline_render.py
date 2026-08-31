@@ -1260,11 +1260,10 @@ def print_timeline_report(
             daily_displayed_afk += afk_to_accumulate
             weekly_displayed_afk += afk_to_accumulate
 
-        # ACTIVE column: calculated as online - afk (using actual_duration for display match)
+        # ACTIVE column: use actual_duration directly (already the non-AFK time)
         # For AFK slots, active is 0 (already handled above)
         if slot_type != "afk":
-            online_for_display = slot_actual_duration if slot_actual_duration is not None else slot_online
-            slot_active = (online_for_display or timedelta(0)) - (slot_afk or timedelta(0))
+            slot_active = slot_actual_duration if slot_actual_duration is not None else timedelta(0)
             if slot_active and slot_active.total_seconds() > 0:
                 daily_displayed_active += slot_active
                 weekly_displayed_active += slot_active

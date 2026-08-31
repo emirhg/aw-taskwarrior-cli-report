@@ -216,8 +216,7 @@ class DisplayColumns:
             if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() > 0:
                 afk_time = format_duration(afk_dur)
 
-        # Active time = ONLINE time - AFK time
-        # (actual_duration is online time when system was recording)
+        # Active time = non-AFK time during the slot
         # Special case: OFFLINE slots show ONLY in offline column, no active time
         active_time = ""
         active_duration = timedelta(0)
@@ -227,21 +226,24 @@ class DisplayColumns:
             # All time should be in offline column only
             pass
         else:
-            # IMPORTANT: Must check "is not None" not just falsy, so actual_duration=0 is honored
+            # IMPORTANT: actual_duration is already the non-AFK time, don't subtract AFK from it!
+            # If actual_duration exists, use it directly as active time
+            # Otherwise fall back to duration (which is wall-clock time)
             actual_dur = get_field("actual_duration")
-            online_duration = actual_dur if actual_dur is not None else get_field("duration")
-            afk_duration_slot = get_field("afk_duration") or timedelta(0)
-
-            if online_duration:
-                if isinstance(online_duration, timedelta):
-                    # Calculate active as online minus afk
+            if actual_dur is not None:
+                # actual_duration is already non-AFK, use it directly
+                active_duration = actual_dur if isinstance(actual_dur, timedelta) else timedelta(0)
+            else:
+                # Fall back to duration minus AFK (old behavior for compatibility)
+                online_duration = get_field("duration")
+                afk_duration_slot = get_field("afk_duration") or timedelta(0)
+                if online_duration and isinstance(online_duration, timedelta):
                     active_duration = online_duration - afk_duration_slot
-                    if active_duration.total_seconds() > 0:
-                        active_time = format_duration(active_duration)
-                    else:
-                        active_time = ""
                 else:
-                    active_time = str(online_duration)
+                    active_duration = timedelta(0)
+
+            if active_duration and active_duration.total_seconds() > 0:
+                active_time = format_duration(active_duration)
             else:
                 active_time = ""
 
