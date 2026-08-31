@@ -1234,9 +1234,12 @@ def print_timeline_report(
             daily_metrics.add_timeslot(slot_duration_obj, productive=None)
             weekly_metrics.add_timeslot(slot_duration_obj, productive=None)
         else:
-            # Regular slots: may have afk_duration and active time
-            daily_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
-            weekly_metrics.add(online=slot_online, afk=slot_afk, productive=slot_productive)
+            # Regular slots: use actual_duration (online active time) if available, else fall back to duration
+            # For consolidated slots, actual_duration = sum of component active times (correct online duration)
+            # For regular slots, actual_duration = online time without AFK
+            online_time = slot_actual_duration if slot_actual_duration is not None else slot_online
+            daily_metrics.add(online=online_time, afk=slot_afk, productive=slot_productive)
+            weekly_metrics.add(online=online_time, afk=slot_afk, productive=slot_productive)
 
         # UNIFIED COLUMN ACCUMULATION:
         # Accumulate whatever columns are present in the slot, regardless of type.
@@ -1281,9 +1284,13 @@ def print_timeline_report(
         else:
             separator_line = " " * left_padding_width + (" " * dynamic_padding) + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
         print(separator_line)
-        # Use displayed values for accurate day totals instead of accumulated metrics
+        # Use daily_metrics for accurate day totals (reuses Active Time calculation logic)
+        # Active = online - afk (this matches the SUMMARY Active Time metric)
+        daily_active = (daily_metrics.online_duration or timedelta(0)) - (daily_metrics.afk_duration or timedelta(0))
         format_and_print_day_total_displayed(
-            daily_displayed_offline, daily_displayed_afk, daily_displayed_active,
+            daily_metrics.offline_gap or timedelta(0),
+            daily_metrics.afk_duration or timedelta(0),
+            daily_active,
             daily_metrics.productive_duration, width
         )
         # Use online_duration only (not total_duration) since offline_gap is displayed separately
