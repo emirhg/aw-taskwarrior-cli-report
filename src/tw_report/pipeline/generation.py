@@ -313,21 +313,24 @@ def generate_partitioned_task_slots(
     afk_events = afk_events or []
 
     for task_event in task_events:
-        # Partition this task into ACTIVE/AFK portions (AFK only, no window data)
+        # Partition this task into ACTIVE/AFK/OFFLINE portions
+        # Now with window coverage check to detect when system was offline
         partitioned = partition_task_duration(
             task_event,
             afk_events,
+            window_events,
         )
 
         # Extract task metadata
         task_name, project = get_task_info(task_event)
 
-        # Generate separate slots for ACTIVE and AFK portions
+        # Generate separate slots for ACTIVE, AFK, and OFFLINE portions
         # Each slot represents ONE activity type, never mixing both
         active_portions = partitioned["active_portions"]
         afk_portions = partitioned["afk_portions"]
+        offline_portions = partitioned.get("offline_portions", [])
 
-        # Create ACTIVE slot for active work time
+        # Create ACTIVE slot for active work time (with windows)
         for active_start, active_end in active_portions:
             active_slot = {
                 "type": "active_task",
@@ -354,6 +357,20 @@ def generate_partitioned_task_slots(
                 "task": task_name,
             }
             result.append(afk_slot)
+
+        # Create OFFLINE slot for claimed task time with no window activity (system was off)
+        for offline_start, offline_end in offline_portions:
+            offline_slot = {
+                "type": "offline_task",
+                "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
+                "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
+                "duration": offline_end - offline_start,
+                "actual_duration": timedelta(0),  # No online activity; all time is offline
+                "event_duration": offline_end - offline_start,  # Full duration is offline gap
+                "project": project,
+                "task": task_name,
+            }
+            result.append(offline_slot)
 
     return result
 
