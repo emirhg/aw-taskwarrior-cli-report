@@ -972,9 +972,9 @@ def main():
         # that the rendering code understands. Do NOT combine work with embedded AFK here.
         report_timeline = timeline.to_report_timeline()
 
-        # Consolidate by task: merge different entry types (ACTIVE, OFFLINE, AFK) for same (project, task)
-        # This ensures each task appears once in output, with all duration components preserved
-        report_timeline = report_timeline.consolidate_by_task()
+        # NOTE: consolidate_by_task() is now called in the rendering layer (print_timeline_report)
+        # so that consolidation respects the rendering period (day, week, month, year)
+        # This prevents cross-period consolidation that would create entries spanning multiple days
 
         final_dicts = report_timeline.as_dicts()
 

@@ -945,6 +945,51 @@ def print_timeline_report(
 
     slots = filtered_slots
 
+    # ============================================================================
+    # PERIOD-AWARE CONSOLIDATION
+    # ============================================================================
+    # Consolidate slots by (project, task) within each logical period.
+    # This ensures consolidation respects the rendering granularity:
+    # - --by-day: consolidate within each day only
+    # - --by-week: consolidate within each week only
+    # - --by-month: consolidate within each month only
+    # This prevents cross-period consolidation that creates 24+ hour entries.
+
+    from tw_report.core.period import logical_date as get_logical_date
+    from tw_report.core.report_slot import ReportEntries
+
+    # Group slots by logical period
+    period_groups = {}
+    for slot in slots:
+        # Helper to get slot attribute (works with dict or object)
+        def get_attr(s, attr):
+            if isinstance(s, dict):
+                return s.get(attr)
+            else:
+                return getattr(s, attr, None)
+
+        # Get the logical date for this slot
+        slot_start = get_attr(slot, "start")
+        if slot_start:
+            period_key = get_logical_date(slot_start, day_start_hour)
+            if period_key not in period_groups:
+                period_groups[period_key] = []
+            period_groups[period_key].append(slot)
+
+    # Consolidate within each period, then flatten back to list
+    consolidated_slots = []
+    for period_key in sorted(period_groups.keys()):
+        period_slots = period_groups[period_key]
+        # Convert to ReportEntries, consolidate within period, get back slots
+        report_entries = ReportEntries(slots_list=period_slots)
+        consolidated = report_entries.consolidate_by_task()
+        consolidated_slots.extend(consolidated.slots_list)
+
+    # Replace slots with consolidated version
+    slots = consolidated_slots
+    # Re-sort by start time (consolidation may have changed order)
+    slots = sorted(slots, key=lambda s: s.start if not isinstance(s, dict) else s.get("start"))
+
     # CRITICAL: Recalculate total_time_all after all filtering/deduplication
     # The previous calculation (line 555) included slots that are now filtered out.
     # This must happen AFTER zero-duration filtering and OFFLINE deduplication.
