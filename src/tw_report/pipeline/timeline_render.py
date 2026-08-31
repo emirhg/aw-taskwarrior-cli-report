@@ -86,6 +86,66 @@ from tw_report.utils.formatting import (
 )
 
 
+# MODULE-LEVEL SLOT GROUPING FUNCTIONS (extracted from print_timeline_report)
+# These are separated to enable unit testing and reuse
+
+
+def get_slot_week_key(slot: Union[Dict, "ReportTimelineSlot"], day_start_hour: int = 4) -> str:
+    """Get ISO week key for a slot based on its logical date.
+
+    Calculates which ISO week a slot belongs to, accounting for day_start_hour.
+    This ensures consistent week assignment when logical day != calendar day.
+
+    Args:
+        slot: Timeline slot (dict or ReportTimelineSlot object)
+        day_start_hour: Hour when logical day starts (0-23, default 4)
+
+    Returns:
+        ISO week key string in format 'YYYY-Www' (e.g., '2026-W35')
+
+    Example:
+        >>> from datetime import datetime
+        >>> slot = {"start": datetime(2026, 8, 31, 22, 0)}
+        >>> get_slot_week_key(slot, day_start_hour=4)
+        '2026-W36'
+    """
+    if isinstance(slot, dict):
+        start_time = slot.get("start")
+    else:
+        start_time = slot.start
+
+    logical_dt = logical_date(start_time, day_start_hour)
+    iso_year, iso_week, iso_weekday = logical_dt.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
+
+
+def get_slot_logical_date(slot: Union[Dict, "ReportTimelineSlot"], day_start_hour: int = 4):
+    """Get logical date for a slot.
+
+    Determines which logical day a slot belongs to, accounting for day_start_hour.
+    Logical days start at day_start_hour instead of midnight.
+
+    Args:
+        slot: Timeline slot (dict or ReportTimelineSlot object)
+        day_start_hour: Hour when logical day starts (0-23, default 4)
+
+    Returns:
+        datetime.date object representing the logical day
+
+    Example:
+        >>> from datetime import datetime
+        >>> slot = {"start": datetime(2026, 9, 1, 2, 30)}
+        >>> get_slot_logical_date(slot, day_start_hour=4)
+        datetime.date(2026, 8, 31)  # Still in previous logical day
+    """
+    if isinstance(slot, dict):
+        start_time = slot.get("start")
+    else:
+        start_time = slot.start
+
+    return logical_date(start_time, day_start_hour)
+
+
 def _get_slot_type(slot: Union[Dict, "ReportTimelineSlot"]) -> str:
     """Get slot type from either dict or ReportTimelineSlot."""
     if isinstance(slot, dict):
@@ -796,19 +856,14 @@ def print_timeline_report(
     # Migration: Update slot_week_key() to use logical_date; update slot_week assignment at line 953.
     # Test: Run "tw-report --by-day :today" with day_start_hour=4; verify no day repeats with different weeks.
 
-    # Group slots by (iso_week_key, date)
+    # Use module-level grouping functions (extracted for testability)
     def slot_week_key(slot):
         """Return ISO week key based on LOGICAL date: 'YYYY-Www' (e.g., '2026-W17')"""
-        # FIX (2026-08-31): Use logical_date for week calculation to match date calculation
-        # Previously used calendar date via strftime("%G-W%V"), causing mismatch when
-        # day_start_hour causes logical day != calendar day. Now both use logical_date.
-        logical_dt = logical_date(slot.start, day_start_hour)
-        iso_year, iso_week, iso_weekday = logical_dt.isocalendar()
-        return f"{iso_year}-W{iso_week:02d}"
+        return get_slot_week_key(slot, day_start_hour)
 
     def slot_date(slot):
         """Return slot logical date"""
-        return logical_date(slot.start, day_start_hour)
+        return get_slot_logical_date(slot, day_start_hour)
 
     # Split slots spanning multiple days
     slots = split_slots_spanning_days(slots, day_start_hour)
