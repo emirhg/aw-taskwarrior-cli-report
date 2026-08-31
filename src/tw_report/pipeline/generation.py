@@ -360,13 +360,15 @@ def generate_partitioned_task_slots(
 
         # Create OFFLINE slot for claimed task time with no window activity (system was off)
         for offline_start, offline_end in offline_portions:
+            offline_duration = offline_end - offline_start
             offline_slot = {
                 "type": "offline_task",
                 "start": offline_start.astimezone() if hasattr(offline_start, 'astimezone') else offline_start,
                 "end": offline_end.astimezone() if hasattr(offline_end, 'astimezone') else offline_end,
-                "duration": offline_end - offline_start,
+                "duration": offline_duration,
                 "actual_duration": timedelta(0),  # No online activity; all time is offline
-                "event_duration": offline_end - offline_start,  # Full duration is offline gap
+                "event_duration": offline_duration,  # Required for TimelineSlot validation
+                "offline_extension_duration": offline_duration,  # Also for display rendering
                 "project": project,
                 "task": task_name,
             }
