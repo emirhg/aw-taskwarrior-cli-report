@@ -702,8 +702,17 @@ def print_timeline_report(
     #
     # Correct: Count only the gap (51:13)
     # Wrong: Count window activity (21:47) + gap (51:13) = 72:60 (DOUBLE-COUNT!)
+    # After consolidation, use offline_extension_duration directly (event_duration is None).
+    # Before consolidation, calculate as duration - event_duration.
+    def get_offline_duration(s):
+        # Prefer offline_extension_duration if set (consolidated slots)
+        if hasattr(s, 'offline_extension_duration') and s.offline_extension_duration:
+            return s.offline_extension_duration
+        # Fall back to duration - event_duration (pre-consolidation slots)
+        return s.duration - (s.event_duration or timedelta(0))
+
     total_offline_time = sum(
-        (s.duration - (s.event_duration or timedelta(0))
+        (get_offline_duration(s)
          for s in slots if s.is_offline_task),
         timedelta(0),
     )
