@@ -741,25 +741,11 @@ def main():
         timeline = Timeline()
 
         # EVENT-BASED TIMESHEET APPROACH (2026-07-30):
-        # For timesheet modes, add per-event OFFLINE task slots (one per event)
-        # instead of aggregated slots from grouping logic
-        if event_based_offline_slots:
-            for rts in event_based_offline_slots:
-                ts = TimelineSlot(
-                    type="offline_task",
-                    start=rts.start,
-                    end=rts.end,
-                    duration=rts.duration,
-                    project=rts.project,
-                    task=rts.task,
-                    actual_duration=rts.actual_duration,
-                    productive_duration=rts.productive_duration,
-                    tags=rts.tags,
-                    categories=rts.categories,
-                    event_duration=rts.event_duration,
-                    offline_extension_duration=rts.offline_extension_duration,
-                )
-                timeline.add_from_dict(ts.to_dict())
+        # For timesheet modes, use per-event OFFLINE task slots (one per event)
+        # These are now included in partitioned_task_slots, so DON'T add them separately
+        # to avoid duplication. Just document the approach for clarity.
+        # (Previously added event_based_offline_slots separately at this point, but
+        # that caused double-counting with partitioned_task_slots, so we skip it now.)
 
         # Task-only modes: taskwarrior events (no window events, no AFK correlation)
         # This includes: task UUID mode (--task-id) and project filter mode
@@ -930,7 +916,15 @@ def main():
         )
 
         # Combine AFK/offline slots with partitioned task slots and ACTIVE slots for uncovered periods
-        all_slot_entries = afk_offline_slots + active_slots + partitioned_task_slots
+        # BUGFIX: In timesheet mode (day/week/month/year), skip afk_offline_slots since
+        # partitioned_task_slots already includes per-event offline task slots with proper
+        # ACTIVE/AFK/OFFLINE breakdown. Adding afk_offline_slots would duplicate them.
+        if grouping_mode in ("day", "week", "month", "year"):
+            # Timesheet mode: skip afk_offline_slots, use partitioned_task_slots instead
+            all_slot_entries = active_slots + partitioned_task_slots
+        else:
+            # Hierarchical mode: use afk_offline_slots as normal
+            all_slot_entries = afk_offline_slots + active_slots + partitioned_task_slots
 
         # Filter entries using unified EventFilter for consistency
         # (replaces 50+ lines of scattered filter logic)
@@ -972,16 +966,6 @@ def main():
         # that the rendering code understands. Do NOT combine work with embedded AFK here.
         report_timeline = timeline.to_report_timeline()
         final_dicts = report_timeline.as_dicts()
-
-        # Debug: save unconsolidated slots for analysis
-        if args.consolidate:
-            preparar_before = [s for s in final_dicts if 'Preparar masa' in s.get('task', '')]
-            print(f"[DEBUG] Unconsolidated 'Preparar masa' slots: {len(preparar_before)}", file=sys.stderr)
-            for i, s in enumerate(preparar_before):
-                start = s.get('start')
-                end = s.get('end')
-                dur = s.get('duration')
-                print(f"  Slot {i}: {start} → {end} (dur={dur})", file=sys.stderr)
 
         # Apply session-merging consolidation if --consolidate flag is set
         if args.consolidate:
