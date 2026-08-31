@@ -122,8 +122,8 @@ def resolve_settings(
             settings[key] = value
 
     return ResolvedSettings(
-        detail_level=settings.get("detail_level", defaults["detail_level"]),
-        day_start_hour=settings.get("day_start_hour", defaults["day_start_hour"]),
+        detail_level=settings.get("detail_level", defaults.get("detail_level", 4)),
+        day_start_hour=settings.get("day_start_hour", defaults.get("day_start_hour", 4)),
         exclude_projects=settings.get("exclude_projects"),
         exclude_tasks=settings.get("exclude_tasks"),
         exclude_apps=settings.get("exclude_apps"),

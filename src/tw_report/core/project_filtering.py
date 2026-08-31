@@ -187,5 +187,10 @@ def should_skip_window_bucket(
     if grouping_mode == "project":
         return False
 
-    # Can skip for detail_level 1-2 in timeline mode with no app filter
+    # Can't skip if there are NO filters (need complete data for full timeline view)
+    has_any_filter = getattr(args, 'project', None) or getattr(args, 'task', None) or getattr(args, 'search', None)
+    if not has_any_filter:
+        return False
+
+    # Can skip for detail_level 1-2 in timeline mode with no app filter when filtering by project/task
     return True
