@@ -166,8 +166,8 @@ class TestReportTimelineSlotMerge:
         # Should have union of tags, deduplicated, order-preserving
         assert merged.tags == ["a", "b", "c", "d"]
 
-    def test_merge_rejects_mixed_types_by_default(self, dt_start):
-        """Bug fix #5: Mixed-type merge should raise unless explicitly opted in."""
+    def test_merge_rejects_mixed_projects_by_default(self, dt_start):
+        """Field-driven validation: Different projects should raise unless explicitly opted in."""
         slot1 = TimelineSlot(
             type="regular",
             start=dt_start,
@@ -175,23 +175,23 @@ class TestReportTimelineSlotMerge:
             duration=timedelta(hours=1),
             actual_duration=timedelta(hours=1),
             productive_duration=timedelta(0),
-            project="P", task="T", categories=[], tags=[],
+            project="ProjectA", task="T", categories=[], tags=[],
         )
         slot2 = TimelineSlot(
-            type="afk",
+            type="regular",
             start=dt_start + timedelta(hours=1),
             end=dt_start + timedelta(hours=1, minutes=30),
             duration=timedelta(minutes=30),
             actual_duration=timedelta(minutes=30),
             productive_duration=timedelta(0),
-            project="P", task="T", categories=[], tags=[],
+            project="ProjectB", task="T", categories=[], tags=[],
         )
 
         with pytest.raises(TimelineSlotValidationError):
             ReportTimelineSlot.from_timeline_slots([slot1, slot2])
 
-    def test_merge_allows_mixed_types_when_explicitly_opted_in(self, dt_start):
-        """Bug fix #5: allow_mixed_types=True should permit type mismatch."""
+    def test_merge_allows_mixed_projects_when_explicitly_opted_in(self, dt_start):
+        """Field-driven validation: allow_mixed_types=True permits project mismatch and merges type components."""
         slot1 = TimelineSlot(
             type="regular",
             start=dt_start,
@@ -199,23 +199,27 @@ class TestReportTimelineSlotMerge:
             duration=timedelta(hours=1),
             actual_duration=timedelta(hours=1),
             productive_duration=timedelta(0),
-            project="P", task="T", categories=[], tags=[],
+            project="ProjectA", task="T", categories=[], tags=[],
         )
         slot2 = TimelineSlot(
             type="afk",
             start=dt_start + timedelta(hours=1),
             end=dt_start + timedelta(hours=1, minutes=30),
             duration=timedelta(minutes=30),
-            actual_duration=timedelta(minutes=30),
+            actual_duration=timedelta(0),  # AFK has no active work
+            afk_duration=timedelta(minutes=30),  # All idle time
             productive_duration=timedelta(0),
-            project="P", task="T", categories=[], tags=[],
+            project="ProjectA", task="T", categories=[], tags=[],
         )
 
         merged = ReportTimelineSlot.from_timeline_slots(
             [slot1, slot2], allow_mixed_types=True
         )
-        # Should inherit properties of first slot (regular, not afk_only, not offline_task)
-        assert not merged.is_afk_only
+        # Should merge field values: actual_duration and afk_duration should sum
+        assert merged.actual_duration == timedelta(hours=1)  # 1h work time
+        assert merged.afk_duration == timedelta(minutes=30)  # 30m idle time
+        assert merged.duration == timedelta(hours=1, minutes=30)  # 1.5h wall-clock
+        assert not merged.is_afk_only  # Has work time, so not pure AFK
         assert not merged.is_offline_task
 
     def test_merge_sums_event_duration_regardless_of_position(self, dt_start):
@@ -258,29 +262,32 @@ class TestReportTimelineSlotMerge:
         assert merged.event_duration == timedelta(minutes=35)
 
     def test_merge_afk_duration_uses_actual_duration(self, dt_start):
-        """Bug fix #7: AFK duration should be summed via actual_duration uniformly."""
+        """Bug fix #7: AFK duration should be summed correctly (per Step 1 convention)."""
         slot1 = TimelineSlot(
             type="afk",
             start=dt_start,
             end=dt_start + timedelta(minutes=15),
             duration=timedelta(minutes=15),
-            actual_duration=timedelta(minutes=15),
+            actual_duration=timedelta(0),  # No online work activity
             productive_duration=timedelta(0),
             project="P", task="T", categories=[], tags=[],
+            afk_duration=timedelta(minutes=15),  # All idle time
         )
         slot2 = TimelineSlot(
             type="afk",
             start=dt_start + timedelta(minutes=15),
             end=dt_start + timedelta(minutes=20),
             duration=timedelta(minutes=5),
-            actual_duration=timedelta(minutes=5),
+            actual_duration=timedelta(0),  # No online work activity
             productive_duration=timedelta(0),
             project="P", task="T", categories=[], tags=[],
+            afk_duration=timedelta(minutes=5),  # All idle time
         )
 
         merged = ReportTimelineSlot.from_timeline_slots([slot1, slot2])
-        # AFK duration should be sum of actual_duration (15 + 5)
+        # AFK duration should be sum of afk_duration (15 + 5)
         assert merged.afk_duration == timedelta(minutes=20)
+        assert merged.actual_duration == timedelta(0)  # No online work activity in either slot
 
     def test_merge_uses_full_3level_category_merge(self, dt_start):
         """Bug fix #8: Category merge should preserve titles (3-level), not drop them (2-level)."""
@@ -502,7 +509,6 @@ class TestReportTimelineEmbeddedAFK:
         assert len(combined.slots()) == 1
 
         combined_slot = combined.slots()[0]
-        assert combined_slot.type == "regular"
         assert combined_slot.project == "Anarcademia"
         assert combined_slot.task == "Mecanismo"
         assert len(combined_slot.embedded_afk_slots) == 2
@@ -557,12 +563,10 @@ class TestReportTimelineEmbeddedAFK:
 
         # After sorting by start time: AFK before comes first
         standalone_afk = combined.slots()[0]
-        assert standalone_afk.type == "afk"
         assert standalone_afk.start == afk_before.start
 
         # Then combined work with embedded AFK
         work_slot = combined.slots()[1]
-        assert work_slot.type == "regular"
         assert len(work_slot.embedded_afk_slots) == 1
         assert work_slot.embedded_afk_slots[0].start == afk_overlaps.start
 

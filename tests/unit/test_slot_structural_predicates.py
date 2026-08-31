@@ -1,13 +1,12 @@
 """
-Verification tests for the NEW structural predicates that will replace the `type` string discriminator.
+Verification tests for the NEW structural predicates that replace the `type` string discriminator.
 
-These tests validate that the proposed structural predicates correctly classify slots
-according to how they're actually produced in the real pipeline, BEFORE we change
-ReportTimelineSlot itself. This is spec-first verification.
+These tests validate that the structural predicates correctly classify slots
+according to how they're produced in the real pipeline, using FIELD-DRIVEN logic instead of type branching.
 
-Predicates being validated:
+Predicates being validated (field-driven):
 - is_offline_task = (task_event is not None and event_duration is not None)
-- is_afk_only = (afk_duration is not None and afk_duration == actual_duration and event_duration is None)
+- is_afk_only = (actual_duration == 0 and afk_duration > 0 and event_duration is None and task_event is None)
 - regular (default/residual) = everything else
 """
 
@@ -88,8 +87,8 @@ class TestStructuralPredicateOfflineTask:
 class TestStructuralPredicateAFKOnly:
     """Verify the is_afk_only structural predicate works correctly."""
 
-    def test_bare_afk_gap_has_matching_durations(self):
-        """Bare AFK gap slots have afk_duration == actual_duration."""
+    def test_bare_afk_gap_has_zero_actual_duration(self):
+        """Bare AFK gap slots have actual_duration=0 and afk_duration > 0 (Step 1 convention)."""
         dt_start = datetime(2026, 7, 23, 10, 0, 0, tzinfo=UTC)
         afk_duration = timedelta(minutes=10)
         slot = make_time_slot(
@@ -98,17 +97,17 @@ class TestStructuralPredicateAFKOnly:
             duration=afk_duration,
             project=NO_PROJECT,
             task=NO_TASK,
-            actual_duration=afk_duration,
-            afk_duration=afk_duration,  # Must be set per plan §2
+            actual_duration=timedelta(0),  # No online work activity
+            afk_duration=afk_duration,  # All idle time
         )
-        # Predicate: afk_duration is not None and afk_duration == actual_duration
+        # Predicate: actual_duration == 0 and afk_duration > 0 and event_duration is None
+        assert slot.actual_duration == timedelta(0)
         assert slot.afk_duration == afk_duration
-        assert slot.actual_duration == afk_duration
-        assert slot.afk_duration == slot.actual_duration
+        assert slot.afk_duration > timedelta(0)
         assert slot.event_duration is None
 
     def test_bare_afk_gap_no_event_duration(self):
-        """Bare AFK gap slots never have event_duration."""
+        """Bare AFK gap slots never have event_duration (and actual_duration must be 0)."""
         dt_start = datetime(2026, 7, 23, 10, 0, 0, tzinfo=UTC)
         slot = make_time_slot(
             type_str="afk",
@@ -116,9 +115,10 @@ class TestStructuralPredicateAFKOnly:
             duration=timedelta(minutes=10),
             project=NO_PROJECT,
             task=NO_TASK,
-            actual_duration=timedelta(minutes=10),
+            actual_duration=timedelta(0),  # No online work activity
             afk_duration=timedelta(minutes=10),
         )
+        assert slot.actual_duration == timedelta(0)
         assert slot.event_duration is None
 
 
