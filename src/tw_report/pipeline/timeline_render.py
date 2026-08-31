@@ -1308,7 +1308,8 @@ def print_timeline_report(
         # CRITICAL FIX (2026-08-31): Use displayed values accumulated during rendering, not metrics
         # daily_metrics has ambiguous semantics; use the values actually accumulated in the display loop
         # daily_displayed_offline, daily_displayed_afk, daily_displayed_active are the canonical display values
-        daily_active = non_afk_time if non_afk_time else timedelta(0)
+        # BUG FIX: Use daily_displayed_active, NOT non_afk_time (which is the entire week's active time)
+        daily_active = daily_displayed_active
         format_and_print_day_total_displayed(
             daily_displayed_offline,
             daily_displayed_afk,
