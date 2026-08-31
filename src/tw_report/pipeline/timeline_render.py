@@ -146,22 +146,6 @@ def get_slot_logical_date(slot: Union[Dict, "ReportTimelineSlot"], day_start_hou
     return logical_date(start_time, day_start_hour)
 
 
-def _get_slot_type(slot: Union[Dict, "ReportTimelineSlot"]) -> str:
-    """Get slot type from either dict or ReportTimelineSlot."""
-    if isinstance(slot, dict):
-        return slot.get("type", "regular")
-    else:
-        # ReportTimelineSlot uses predicates instead of type field
-        if slot.is_offline_task:
-            return "offline_task"
-        elif slot.is_offline_gap:
-            return "offline"
-        elif slot.is_afk_only:
-            return "afk"
-        else:
-            return "regular"
-
-
 def _to_local_time(dt: datetime) -> datetime:
     """Convert UTC datetime to local timezone.
 
@@ -333,8 +317,7 @@ def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]], da
         report_slots = []
         for slot_dict in slots:
             try:
-                ts = TimelineSlot.from_dict(slot_dict)
-                rs = ReportTimelineSlot.from_timeline_slot(ts)
+                rs = ReportTimelineSlot.from_dict(slot_dict)
                 report_slots.append(rs)
             except Exception:
                 # Backward compatibility: skip malformed slots
@@ -638,9 +621,7 @@ def print_timeline_report(
         converted_slots = []
         for slot_dict in slots:
             try:
-                from tw_report.core.timeline import TimelineSlot
-                ts = TimelineSlot.from_dict(slot_dict)
-                rs = ReportTimelineSlot.from_timeline_slot(ts)
+                rs = ReportTimelineSlot.from_dict(slot_dict)
                 converted_slots.append(rs)
             except Exception:
                 # Skip malformed slots
@@ -654,9 +635,7 @@ def print_timeline_report(
     # Use actual_duration for merged slots, duration for others
     # Include all slots (offline, regular, afk, offline_task) in totals
     # OFFLINE gaps represent system-off time and should be counted
-    all_regular_slots = [
-        s for s in slots if _get_slot_type(s) != "invalid"  # Never exclude, placeholder to keep structure
-    ]
+    all_regular_slots = slots
     # Project-tracked time (excluding "No project assigned")
     tracked_slots = [s for s in all_regular_slots if s.project != NO_PROJECT]
 
@@ -880,15 +859,12 @@ def print_timeline_report(
 
     # Recalculate total_time_all after filtering to match the displayed slots
     # Include OFFLINE gaps in totals (they represent system-off time)
-    all_regular_slots_filtered = [
-        s for s in slots if _get_slot_type(s) != "invalid"  # Never exclude, placeholder
-    ]
     total_time_all = sum(
-        (_get_displayed_duration(slot) for slot in all_regular_slots_filtered),
+        (_get_displayed_duration(slot) for slot in slots),
         timedelta(0),
     )
     total_productive_all = sum(
-        (slot.productive_duration for slot in all_regular_slots_filtered),
+        (slot.productive_duration for slot in slots),
         timedelta(0),
     )
 
@@ -910,8 +886,15 @@ def print_timeline_report(
     # (OfflineTaskProcessor.consumed_window_event_ids in offline.py), not in rendering.
     # Currently kept here as the proper generation-layer fix requires additional investigation.
     offline_slots_by_task = {}
+    # Helper to check if slot has event_duration (field-driven offline_task detection)
+    def is_offline_task_slot(s):
+        if isinstance(s, dict):
+            return s.get("event_duration") is not None
+        else:
+            return getattr(s, "event_duration", None) is not None
+
     for slot in slots:
-        if _get_slot_type(slot) == "offline_task":
+        if is_offline_task_slot(slot):
             key = (slot.project, slot.task)
             if key not in offline_slots_by_task:
                 offline_slots_by_task[key] = []
@@ -929,7 +912,7 @@ def print_timeline_report(
 
 
     for slot in slots:
-        if _get_slot_type(slot) == "offline_task":
+        if is_offline_task_slot(slot):
             filtered_slots.append(slot)
         else:
             slot_start = slot.start
@@ -966,15 +949,12 @@ def print_timeline_report(
     # The previous calculation (line 555) included slots that are now filtered out.
     # This must happen AFTER zero-duration filtering and OFFLINE deduplication.
     # Include OFFLINE gaps in totals (they represent system-off time)
-    all_regular_slots_final = [
-        s for s in slots if _get_slot_type(s) != "invalid"  # Never exclude, placeholder
-    ]
     total_time_all = sum(
-        (_get_displayed_duration(slot) for slot in all_regular_slots_final),
+        (_get_displayed_duration(slot) for slot in slots),
         timedelta(0),
     )
     total_productive_all = sum(
-        (slot.productive_duration for slot in all_regular_slots_final),
+        (slot.productive_duration for slot in slots),
         timedelta(0),
     )
 
@@ -1063,11 +1043,18 @@ def print_timeline_report(
     # Fix: Use logical_date for BOTH week and date calculations.
     # See slot_week_key() BUG comment above for implementation details.
 
+    # Helper to check if slot has event_duration (field-driven offline_task detection)
+    def is_offline_task_slot_v2(s):
+        if isinstance(s, dict):
+            return s.get("event_duration") is not None
+        else:
+            return getattr(s, "event_duration", None) is not None
+
     # Process each slot individually
     for slot in slots:
         slot_week = slot_week_key(slot)  # Now uses logical_date (fixed 2026-08-31)
         slot_date_val = slot_date(slot)
-        is_offline_task = _get_slot_type(slot) == "offline_task"
+        is_offline_task = is_offline_task_slot_v2(slot)
 
         if slot_week != current_week_key:
             # Week changed: print previous week's closing totals
@@ -1167,7 +1154,6 @@ def print_timeline_report(
             else:
                 return getattr(slot, attr, default)
 
-        slot_type = _get_slot_type(slot)
         slot_start = slot.start
         slot_end = slot.end if hasattr(slot, 'end') else slot.start + slot.duration
         slot_duration = slot.duration
@@ -1178,9 +1164,9 @@ def print_timeline_report(
         slot_actual_duration = get_slot_attr("actual_duration")
         slot_productive = get_slot_attr("productive_duration")
 
-        # Special handling for offline_task display: prepend "*" to task name
+        # Special handling for offline_task display: prepend "*" to task name (field-driven)
         slot_for_display = slot.copy() if isinstance(slot, dict) else slot
-        if slot_type == "offline_task" and isinstance(slot_for_display, dict):
+        if slot_event_duration is not None and isinstance(slot_for_display, dict):
             if slot_for_display.get("task"):
                 slot_for_display["task"] = f"*{slot_for_display['task']}"
 
@@ -1197,79 +1183,59 @@ def print_timeline_report(
         print(cols.format(width))
 
         # Render detail (categories/apps/titles for detail_level >= 3)
-        # Skip for offline_task slots (no window data)
-        if slot_type != "offline_task":
+        # Skip for offline_task slots (no window data) - field-driven check
+        if slot_event_duration is None:
             _render_slot_detail(slot if isinstance(slot, dict) else slot.to_dict(), detail_level, width)
 
         # Render embedded AFK slots as indented sub-entries (should be empty now, defensive)
         if isinstance(slot, dict) and slot.get("embedded_afk_slots"):
             _render_embedded_afk_slots(slot["embedded_afk_slots"], width)
 
-        # Update last_slot_end for gap detection
-        # For offline_task slots, use duration; for others, use actual_duration if available
-        if slot_type == "offline_task":
-            last_slot_end = slot_start + slot_duration
-        else:
-            last_slot_end = slot_start + (slot_actual_duration or slot_duration)
+        # Update last_slot_end for gap detection (wall-clock duration for all slots)
+        last_slot_end = slot_start + slot_duration
 
-        # UNIFIED METRICS & ACCUMULATION (single path for all slot types):
-        # All slots contribute their components to metrics and displayed totals.
-        # The key insight: OFFLINE/AFK/ACTIVE columns come from slot properties,
-        # not from slot type. Track each column independently.
+        # UNIFIED METRICS & ACCUMULATION (field-driven, no type discrimination):
+        # All slots contribute their duration components to metrics.
+        # Key insight: online_duration and offline_gap are computed from fields, not from type.
+        # Consolidation allows a single slot to have multiple components (ACTIVE + AFK + OFFLINE).
 
-        # Metrics accumulation (same for all types)
-        if slot_type == "afk":
-            # Pure AFK gap: entire slot is idle time
-            daily_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
-            weekly_metrics.add(online=slot_online, afk=slot_online, productive=timedelta(0))
-        elif slot_type == "offline_task":
-            # Offline task: split into online + offline portions
-            event_dur = slot_event_duration or timedelta(0)
-            offline_dur = slot_duration - event_dur
-            slot_duration_obj = TimeslotDuration(
-                online_duration=event_dur if event_dur.total_seconds() > 0 else None,
-                offline_gap=offline_dur if offline_dur.total_seconds() > 0 else None,
-                afk_portion=None,
-            )
-            daily_metrics.add_timeslot(slot_duration_obj, productive=None)
-            weekly_metrics.add_timeslot(slot_duration_obj, productive=None)
-        else:
-            # Regular slots: use actual_duration (online active time) if available, else fall back to duration
-            # For consolidated slots, actual_duration = sum of component active times (correct online duration)
-            # For regular slots, actual_duration = online time without AFK
-            online_time = slot_actual_duration if slot_actual_duration is not None else slot_online
-            daily_metrics.add(online=online_time, afk=slot_afk, productive=slot_productive)
-            weekly_metrics.add(online=online_time, afk=slot_afk, productive=slot_productive)
+        # Compute online and offline durations from component fields
+        online_from_event = slot_event_duration or timedelta(0)  # Online time from offline_task split
+        online_from_actual = slot_actual_duration or timedelta(0)  # Online time from active work (not AFK)
+        online_duration = online_from_event + online_from_actual + (slot_afk or timedelta(0))
+        online_duration = online_duration if online_duration.total_seconds() > 0 else None
 
-        # UNIFIED COLUMN ACCUMULATION:
+        offline_gap = slot_offline_ext or timedelta(0)  # System-off time from offline_extension
+        offline_gap = offline_gap if offline_gap.total_seconds() > 0 else None
+
+        # Accumulate metrics (unified for all slot types)
+        slot_duration_obj = TimeslotDuration(
+            online_duration=online_duration,
+            offline_gap=offline_gap,
+            afk_portion=slot_afk,
+        )
+        daily_metrics.add_timeslot(slot_duration_obj, productive=slot_productive)
+        weekly_metrics.add_timeslot(slot_duration_obj, productive=slot_productive)
+
+        # UNIFIED COLUMN ACCUMULATION (field-driven):
         # Accumulate whatever columns are present in the slot, regardless of type.
-        # This is the architectural fix: columns are determined by slot properties, not by type special-casing.
+        # Columns are determined by slot properties, not by type special-casing.
 
-        # OFFLINE column: from offline_extension_duration (present in offline_task and some regular slots)
+        # OFFLINE column: from offline_extension_duration (system-off time)
         if slot_offline_ext and slot_offline_ext.total_seconds() > 0:
             daily_displayed_offline += slot_offline_ext
             weekly_displayed_offline += slot_offline_ext
 
-        # AFK column: from afk_duration OR for pure-AFK slots, the entire slot duration
-        # Pure AFK slots have type="afk" with no afk_duration field; entire duration is idle time
-        if slot_type == "afk":
-            # Pure AFK slot: entire slot is idle time
-            afk_to_accumulate = slot_online
-        else:
-            # Regular or offline_task: only accumulate explicit afk_duration field
-            afk_to_accumulate = slot_afk
+        # AFK column: from afk_duration field (idle time regardless of slot type)
+        if slot_afk and slot_afk.total_seconds() > 0:
+            daily_displayed_afk += slot_afk
+            weekly_displayed_afk += slot_afk
 
-        if afk_to_accumulate and afk_to_accumulate.total_seconds() > 0:
-            daily_displayed_afk += afk_to_accumulate
-            weekly_displayed_afk += afk_to_accumulate
-
-        # ACTIVE column: use actual_duration directly (already the non-AFK time)
-        # For AFK slots, active is 0 (already handled above)
-        if slot_type != "afk":
-            slot_active = slot_actual_duration if slot_actual_duration is not None else timedelta(0)
-            if slot_active and slot_active.total_seconds() > 0:
-                daily_displayed_active += slot_active
-                weekly_displayed_active += slot_active
+        # ACTIVE column: from actual_duration field (online work time, not idle)
+        slot_active = slot_actual_duration if slot_actual_duration is not None else timedelta(0)
+        if slot_active and slot_active.total_seconds() > 0:
+            daily_displayed_active += slot_active
+            weekly_displayed_active += slot_active
 
     # Print final totals
     if slots:

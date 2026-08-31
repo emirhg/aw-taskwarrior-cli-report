@@ -95,32 +95,45 @@ class TestOfflineConsolidationMultiType:
         for entry in task_a_entries:
             print(f"    Type: {entry.get('type')}, Duration: {entry.get('duration')}, OFFLINE Ext: {entry.get('offline_extension_duration')}")
 
-        # EXPECTED: Should have 2 entries (regular + offline_task)
-        # Consolidation only merges slots of the same type
-        # The AFK slot becomes "regular" type during to_report_timeline conversion,
-        # so it merges with the first regular (ACTIVE) slot
-        # Different types stay separate to preserve type information for display
-        assert len(task_a_entries) == 2, \
-            f"Expected 2 consolidated entries for Task A (one regular merged, one offline_task), but got {len(task_a_entries)}. " \
-            f"Types should be kept separate to preserve OFFLINE column display."
+        # EXPECTED: Should have 1 entry (all types consolidated into one)
+        # A single task session can span ACTIVE, AFK, and OFFLINE time
+        # All duration components are preserved and summed in one slot
+        assert len(task_a_entries) == 1, \
+            f"Expected 1 consolidated entry for Task A (all types merged), but got {len(task_a_entries)}. " \
+            f"All duration components should be present in single entry."
 
-        # Verify types are present and correct
-        types_found = {s.get("type") for s in task_a_entries}
-        assert "regular" in types_found, f"Should have 'regular' type (ACTIVE + AFK merged together)"
-        assert "offline_task" in types_found, f"Should have 'offline_task' type (OFFLINE) entry"
+        # The consolidated entry should have all three components summed
+        consolidated_slot = task_a_entries[0]
 
-        # Total duration should be: 1h (ACTIVE) + 2h (OFFLINE) + 30m (AFK) = 3h 30m
-        total_duration = sum(
-            (s.get("duration") or timedelta(0) for s in task_a_entries),
-            timedelta(0)
-        )
-        expected_total = timedelta(hours=3, minutes=30)
+        # Verify duration components
+        actual_duration = consolidated_slot.get("actual_duration") or timedelta(0)
+        afk_duration = consolidated_slot.get("afk_duration") or timedelta(0)
+        offline_ext = consolidated_slot.get("offline_extension_duration") or timedelta(0)
 
-        print(f"  Total duration across all entries: {total_duration}")
-        print(f"  Expected total: {expected_total}")
+        # ACTIVE (actual_duration) = 1h (from active_slot) + 30m (from afk_slot) = 1h30m
+        expected_actual = timedelta(hours=1, minutes=30)
+        # AFK (afk_duration) = 30m (from afk_slot) = 30m
+        expected_afk = timedelta(minutes=30)
+        # OFFLINE (offline_extension_duration) = 2h (from offline_slot) = 2h
+        expected_offline = timedelta(hours=2)
 
-        assert total_duration == expected_total, \
-            f"Total duration mismatch: {total_duration} != {expected_total}"
+        print(f"  Consolidated entry components:")
+        print(f"    ACTIVE: {actual_duration} (expected {expected_actual})")
+        print(f"    AFK: {afk_duration} (expected {expected_afk})")
+        print(f"    OFFLINE: {offline_ext} (expected {expected_offline})")
+
+        assert actual_duration == expected_actual, \
+            f"ACTIVE mismatch: {actual_duration} != {expected_actual}"
+        assert afk_duration == expected_afk, \
+            f"AFK mismatch: {afk_duration} != {expected_afk}"
+        assert offline_ext == expected_offline, \
+            f"OFFLINE mismatch: {offline_ext} != {expected_offline}"
+
+        # Total wall-clock span
+        total_wall_clock = consolidated_slot.get("duration") or timedelta(0)
+        expected_wall_clock = timedelta(hours=3, minutes=30)
+        assert total_wall_clock == expected_wall_clock, \
+            f"Wall-clock duration mismatch: {total_wall_clock} != {expected_wall_clock}"
 
     def test_consolidation_preserves_duration_components(self, base_time):
         """Consolidation should preserve and sum OFFLINE, AFK, ACTIVE components.
@@ -170,28 +183,21 @@ class TestOfflineConsolidationMultiType:
         for entry in task_entries:
             print(f"    Type: {entry.get('type')}, Duration: {entry.get('duration')}, Actual: {entry.get('actual_duration')}, OFFLINE Ext: {entry.get('offline_extension_duration')}")
 
-        # After consolidation, should have 2 entries (regular and offline_task kept separate)
-        assert len(task_entries) == 2, \
-            f"Expected 2 consolidated entries (regular + offline_task), got {len(task_entries)}"
+        # After consolidation, should have 1 entry (all types merged)
+        assert len(task_entries) == 1, \
+            f"Expected 1 consolidated entry (all types merged), got {len(task_entries)}"
 
-        # Find the regular and offline_task entries
-        regular_entries = [e for e in task_entries if e.get("type") == "regular"]
-        offline_entries = [e for e in task_entries if e.get("type") == "offline_task"]
+        consolidated_entry = task_entries[0]
 
-        assert len(regular_entries) == 1, f"Should have 1 regular entry (ACTIVE), got {len(regular_entries)}"
-        assert len(offline_entries) == 1, f"Should have 1 offline_task entry (OFFLINE), got {len(offline_entries)}"
+        # Verify components are preserved and summed
+        actual_duration = consolidated_entry.get("actual_duration") or timedelta(0)
+        offline_duration = consolidated_entry.get("offline_extension_duration") or timedelta(0)
 
-        # Regular entry should have 1h ACTIVE time
-        regular_entry = regular_entries[0]
-        actual_duration = regular_entry.get("actual_duration") or timedelta(0)
-        print(f"  Regular entry - ACTIVE: {actual_duration}")
+        print(f"  Consolidated entry - ACTIVE: {actual_duration}")
+        print(f"  Consolidated entry - OFFLINE: {offline_duration}")
+
         assert actual_duration == timedelta(hours=1), \
             f"ACTIVE total mismatch: {actual_duration} != 01:00"
-
-        # Offline_task entry should have 2h OFFLINE time
-        offline_entry = offline_entries[0]
-        offline_duration = offline_entry.get("offline_extension_duration") or timedelta(0)
-        print(f"  Offline_task entry - OFFLINE: {offline_duration}")
         assert offline_duration == timedelta(hours=2), \
             f"OFFLINE total mismatch: {offline_duration} != 02:00"
 
@@ -284,22 +290,22 @@ class TestOfflineConsolidationMultiType:
             total = sum((e.get("duration") or timedelta(0) for e in entries), timedelta(0))
             print(f"    {task}: {len(entries)} entries, total {total}")
 
-        # EXPECTED: Types are kept separate for display purposes
-        # Task A: 1 regular (ACTIVE) + 1 offline_task (OFFLINE) = 2 entries
-        # Task B: 1 regular (ACTIVE) + 1 offline_task (OFFLINE) = 2 entries
-        # Task C: 1 regular (ACTIVE) = 1 entry
+        # EXPECTED: All types consolidated into one entry per (project, task)
+        # Task A: 1 entry (3h wall-clock: 1h regular + 2h offline_task)
+        # Task B: 1 entry (2h wall-clock: 1h regular + 1h offline_task)
+        # Task C: 1 entry (1h regular)
 
-        assert len(tasks["Task A"]) == 2, \
-            f"Task A should have 2 entries (regular + offline_task), got {len(tasks['Task A'])}"
-        assert len(tasks["Task B"]) == 2, \
-            f"Task B should have 2 entries (regular + offline_task), got {len(tasks['Task B'])}"
+        assert len(tasks["Task A"]) == 1, \
+            f"Task A should have 1 entry (all types merged), got {len(tasks['Task A'])}"
+        assert len(tasks["Task B"]) == 1, \
+            f"Task B should have 1 entry (all types merged), got {len(tasks['Task B'])}"
         assert len(tasks["Task C"]) == 1, \
-            f"Task C should have 1 entry (regular only), got {len(tasks['Task C'])}"
+            f"Task C should have 1 entry (all types merged), got {len(tasks['Task C'])}"
 
-        # Totals should be:
-        # Task A: 3h (1h regular + 2h offline_task)
-        # Task B: 2h (1h regular + 1h offline_task)
-        # Task C: 1h (1h regular)
+        # Totals (wall-clock spans) should be:
+        # Task A: 3h (from 1h ACTIVE to 2h OFFLINE = full span)
+        # Task B: 2h (from 1h ACTIVE to 1h OFFLINE = full span)
+        # Task C: 1h (1h ACTIVE only)
         task_a_total = sum((e.get("duration") or timedelta(0) for e in tasks["Task A"]), timedelta(0))
         task_b_total = sum((e.get("duration") or timedelta(0) for e in tasks["Task B"]), timedelta(0))
         task_c_total = sum((e.get("duration") or timedelta(0) for e in tasks["Task C"]), timedelta(0))

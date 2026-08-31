@@ -348,7 +348,7 @@ def generate_partitioned_task_slots(
                 "start": afk_start.astimezone() if hasattr(afk_start, 'astimezone') else afk_start,
                 "end": afk_end.astimezone() if hasattr(afk_end, 'astimezone') else afk_end,
                 "duration": afk_end - afk_start,
-                "actual_duration": afk_end - afk_start,
+                "actual_duration": timedelta(0),  # No online work activity; afk_duration holds the idle time
                 "afk_duration": afk_end - afk_start,  # This slot is AFK only
                 "project": project,
                 "task": task_name,
@@ -467,7 +467,7 @@ def generate_afk_and_offline_slots(
                 "start": online_start.astimezone() if hasattr(online_start, 'astimezone') else online_start,
                 "end": online_end.astimezone() if hasattr(online_end, 'astimezone') else online_end,
                 "duration": online_afk_duration,
-                "actual_duration": online_afk_duration,  # User was idle but system was recording
+                "actual_duration": timedelta(0),  # No online work activity; afk_duration holds the idle time
                 "afk_duration": online_afk_duration,  # All of this period is idle time
                 "project": project,
                 "task": task_name,
@@ -613,15 +613,19 @@ def convert_active_periods_to_slots(
             for portion in partitioned:
                 if portion.duration >= MIN_EVENT_DURATION:
                     gap_type = portion.data.get("gap_type", "untracked_active")
-                    slot_type = "afk" if gap_type == "untracked_afk" else "active"
-                    afk_duration = portion.duration if gap_type == "untracked_afk" else timedelta(0)
+                    is_afk = gap_type == "untracked_afk"
+                    slot_type = "afk" if is_afk else "active"
+                    # For AFK slots: no online work activity (actual_duration=0), all idle time (afk_duration set)
+                    # For active slots: all online work (actual_duration set), no idle (afk_duration=0)
+                    actual_duration = timedelta(0) if is_afk else portion.duration
+                    afk_duration = portion.duration if is_afk else timedelta(0)
 
                     slot = {
                         "type": slot_type,
                         "start": portion.timestamp.astimezone() if hasattr(portion.timestamp, 'astimezone') else portion.timestamp,
                         "end": (portion.timestamp + portion.duration).astimezone() if hasattr(portion.timestamp, 'astimezone') else (portion.timestamp + portion.duration),
                         "duration": portion.duration,
-                        "actual_duration": portion.duration,
+                        "actual_duration": actual_duration,
                         "afk_duration": afk_duration,
                         "project": NO_PROJECT,
                         "task": NO_TASK,

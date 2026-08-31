@@ -202,8 +202,6 @@ class DisplayColumns:
             task_display = " " if abbrev_project else ""
 
         # Format duration columns (no parenthesis)
-        slot_type = get_field("type", "regular")
-
         offline_time = ""
         offline_dur = get_field("offline_extension_duration")
         if offline_dur:
@@ -216,36 +214,30 @@ class DisplayColumns:
             if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() > 0:
                 afk_time = format_duration(afk_dur)
 
-        # Active time = non-AFK time during the slot
-        # Special case: OFFLINE slots show ONLY in offline column, no active time
+        # Active time = non-AFK time during the slot (field-driven, no type discrimination)
         active_time = ""
         active_duration = timedelta(0)
 
-        if slot_type in ("offline", "offline_task"):
-            # OFFLINE/offline_task slots are system-off periods - no online or active time
-            # All time should be in offline column only
-            pass
+        # IMPORTANT: actual_duration is already the non-AFK time, don't subtract AFK from it!
+        # If actual_duration exists, use it directly as active time
+        # Otherwise fall back to duration minus AFK (old behavior for compatibility)
+        actual_dur = get_field("actual_duration")
+        if actual_dur is not None:
+            # actual_duration is already non-AFK, use it directly
+            active_duration = actual_dur if isinstance(actual_dur, timedelta) else timedelta(0)
         else:
-            # IMPORTANT: actual_duration is already the non-AFK time, don't subtract AFK from it!
-            # If actual_duration exists, use it directly as active time
-            # Otherwise fall back to duration (which is wall-clock time)
-            actual_dur = get_field("actual_duration")
-            if actual_dur is not None:
-                # actual_duration is already non-AFK, use it directly
-                active_duration = actual_dur if isinstance(actual_dur, timedelta) else timedelta(0)
+            # Fall back to duration minus AFK (old behavior for compatibility)
+            online_duration = get_field("duration")
+            afk_duration_slot = get_field("afk_duration") or timedelta(0)
+            if online_duration and isinstance(online_duration, timedelta):
+                active_duration = online_duration - afk_duration_slot
             else:
-                # Fall back to duration minus AFK (old behavior for compatibility)
-                online_duration = get_field("duration")
-                afk_duration_slot = get_field("afk_duration") or timedelta(0)
-                if online_duration and isinstance(online_duration, timedelta):
-                    active_duration = online_duration - afk_duration_slot
-                else:
-                    active_duration = timedelta(0)
+                active_duration = timedelta(0)
 
-            if active_duration and active_duration.total_seconds() > 0:
-                active_time = format_duration(active_duration)
-            else:
-                active_time = ""
+        if active_duration and active_duration.total_seconds() > 0:
+            active_time = format_duration(active_duration)
+        else:
+            active_time = ""
 
         # Productivity metric
         productivity = ""
@@ -352,21 +344,23 @@ class ReportTimelineSlot:
 
     @property
     def is_afk_only(self) -> bool:
-        """True if this is a bare AFK gap: afk_duration==actual_duration, no event_duration, AND no task work.
+        """True if this is a bare AFK gap: actual_duration=0, afk_duration set, no work event.
 
-        A slot is only pure AFK if:
-        1. The AFK duration equals the entire slot duration (all time was idle)
-        2. There's no event_duration (no external recorded work)
-        3. There's NO task_event (this isn't work time with idle periods within it)
+        A slot is only pure AFK (idle time with no work) if:
+        1. actual_duration == 0 (no online work activity)
+        2. afk_duration > 0 (there is idle time recorded)
+        3. event_duration is None (no external task work)
+        4. task_event is None (this is not a work period with embedded idle)
 
-        Slots with task_event represent work periods; even if the entire period was AFK,
-        they're "work with idle" not "pure idle", so they should be classified as "regular".
+        Slots with task_event represent work periods; even if embedded AFK is recorded,
+        they represent "work with idle" not "pure idle", so they classify as "regular".
         """
         return (
             self.afk_duration is not None
-            and self.afk_duration == self.actual_duration
+            and self.afk_duration > timedelta(0)
+            and self.actual_duration == timedelta(0)
             and self.event_duration is None
-            and self.task_event is None  # NEW: Only mark as pure AFK if no work activity
+            and self.task_event is None
         )
 
     @property
@@ -380,16 +374,6 @@ class ReportTimelineSlot:
             and self.offline_extension_duration > timedelta(0)
             and self.event_duration is None
         )
-
-    @property
-    def type(self) -> str:
-        """Return the type discriminator for this slot (offline, offline_task, or regular)."""
-        if self.is_offline_gap:
-            return "offline"
-        elif self.is_offline_task:
-            return "offline_task"
-        else:
-            return "regular"
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict format for backward compatibility.
@@ -416,18 +400,6 @@ class ReportTimelineSlot:
         if self.event_duration is not None:
             slot_dict["event_duration"] = self.event_duration
 
-        # Add type discriminator for legacy code paths
-        if self.is_offline_gap:
-            slot_dict["type"] = "offline"
-        elif self.is_offline_task:
-            slot_dict["type"] = "offline_task"
-        elif self.is_offline_gap:
-            slot_dict["type"] = "offline"
-        elif self.is_afk_only:
-            slot_dict["type"] = "afk"
-        else:
-            slot_dict["type"] = "regular"
-
         return slot_dict
 
     @classmethod
@@ -449,7 +421,7 @@ class ReportTimelineSlot:
 
         # Extract task_event from the old slot's project/task fields if present
         task_event = None
-        if slot.project or slot.task:
+        if slot.project != NO_PROJECT or slot.task != NO_TASK:
             # Create a synthetic TaskWarriorEvent from the TimelineSlot's extracted fields
             task_event = TaskWarriorEvent(
                 timestamp=slot.start,
@@ -480,6 +452,62 @@ class ReportTimelineSlot:
             tags=slot.tags,
             categories=slot.categories,
             apps=slot.apps,
+            source_slots=[],
+            is_consolidated=False,
+        )
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ReportTimelineSlot":
+        """
+        Create a ReportTimelineSlot directly from a dict (no TimelineSlot bridge needed).
+
+        This dedicated bridge allows dicts to be converted to ReportTimelineSlot without
+        requiring a "type" key, eliminating the need for a placeholder type field.
+
+        Args:
+            d: Dict with keys: start, end, duration, actual_duration, productive_duration,
+               project, task, tags, categories, apps, and optional: afk_duration,
+               offline_extension_duration, event_duration.
+
+        Returns:
+            ReportTimelineSlot with is_consolidated=False, source_slots=[]
+        """
+        # Import here to avoid circular imports
+        from tw_report.core.aw_events import TaskWarriorEvent
+
+        # Extract task_event if project/task are present (using sentinel-checked logic)
+        task_event = None
+        project = d.get("project", NO_PROJECT)
+        task = d.get("task", NO_TASK)
+        if project != NO_PROJECT or task != NO_TASK:
+            start = d.get("start")
+            duration = d.get("duration", timedelta(0))
+            tags = d.get("tags", [])
+            task_event = TaskWarriorEvent(
+                timestamp=start,
+                duration=duration,
+                data={
+                    "project": project,
+                    "title": task,
+                    "tags": tags if tags else [],
+                }
+            )
+
+        return cls(
+            start=d.get("start"),
+            end=d.get("end"),
+            duration=d.get("duration"),
+            actual_duration=d.get("actual_duration"),
+            productive_duration=d.get("productive_duration", timedelta(0)),
+            task_event=task_event,
+            window_events=[],
+            afk_events=[],
+            afk_duration=d.get("afk_duration"),
+            offline_extension_duration=d.get("offline_extension_duration"),
+            event_duration=d.get("event_duration"),
+            tags=d.get("tags", []),
+            categories=d.get("categories", []),
+            apps=d.get("apps", []),
             source_slots=[],
             is_consolidated=False,
         )
@@ -522,13 +550,13 @@ class ReportTimelineSlot:
         if not group:
             raise ValueError("Cannot merge empty slot list")
 
-        # Validate type consistency unless explicitly opted in
+        # Validate project consistency (collapse_to_project intentionally spans tasks, so don't check that)
         if not allow_mixed_types:
-            types = set(s.type for s in group)
-            if len(types) > 1:
+            projects = set(s.project for s in group)
+            if len(projects) > 1:
                 raise TimelineSlotValidationError(
-                    f"Cannot merge slots with differing types {types} unless allow_mixed_types=True. "
-                    f"Mixed-type merges likely indicate a grouping logic error."
+                    f"Cannot merge slots with differing projects {projects} unless allow_mixed_types=True. "
+                    f"Mixed-project merges likely indicate a grouping logic error."
                 )
 
         # Wall-clock time window (span, not sum — gaps are meaningful)
@@ -542,11 +570,9 @@ class ReportTimelineSlot:
             (s.productive_duration for s in group), timedelta(0)
         )
 
-        # AFK duration (unified via actual_duration, not duration)
-        afk_slots = [s for s in group if s.type == "afk"]
-        afk_duration = sum(
-            (s.actual_duration for s in afk_slots), timedelta(0)
-        ) if afk_slots else timedelta(0)
+        # AFK duration: sum afk_duration field directly across all slots
+        # (no type filter; slots can have afk_duration from multiple sources)
+        afk_duration = sum((s.afk_duration or timedelta(0) for s in group), timedelta(0))
 
         # Tags — PRESERVE and dedupe (bug fix #1)
         tags_union = list(dict.fromkeys(t for s in group for t in s.tags))
@@ -554,23 +580,23 @@ class ReportTimelineSlot:
         # Categories — use the fuller 3-level merge (bug fix #8)
         merged_categories = _merge_categories_full(group)
 
-        # event_duration for offline_task slots (sum across all offline_task members, bug fix #6)
+        # event_duration: sum directly across all slots that have it set (no type filter)
+        # Preserve None vs 0 distinction: only set if ANY slot in group had it
+        has_event_duration = any(s.event_duration is not None for s in group)
         event_duration = None
-        offline_task_slots = [s for s in group if s.type == "offline_task"]
-        if offline_task_slots:
-            event_durations = [s.event_duration or timedelta(0) for s in offline_task_slots]
-            event_duration = sum(event_durations, timedelta(0))
+        if has_event_duration:
+            event_duration = sum((s.event_duration or timedelta(0) for s in group), timedelta(0))
 
-        # offline_extension_duration for offline_task slots (duration - event_duration per slot, summed)
-        offline_extension_duration = None
-        if offline_task_slots:
-            offsets = [s.duration - (s.event_duration or timedelta(0)) for s in offline_task_slots]
-            offline_extension_duration = sum(offsets, timedelta(0))
+        # offline_extension_duration: sum directly across all slots (no type filter)
+        # This field is added by AFK-false-positive detection and represents system-off time
+        offline_extension_duration = sum(
+            (s.offline_extension_duration or timedelta(0) for s in group), timedelta(0)
+        ) if any(s.offline_extension_duration is not None for s in group) else None
 
         # Extract task_event from the first slot's project/task fields if present
         task_event = None
         first_slot = group[0]
-        if first_slot.project or first_slot.task:
+        if first_slot.project != NO_PROJECT or first_slot.task != NO_TASK:
             from tw_report.core.aw_events import TaskWarriorEvent
             task_event = TaskWarriorEvent(
                 timestamp=start,
@@ -1431,86 +1457,66 @@ class ReportEntries:
             if slot.event_duration is not None:
                 slot_dict["event_duration"] = slot.event_duration
 
-            # Add type discriminator for legacy code paths
-            if slot.is_offline_task:
-                slot_dict["type"] = "offline_task"
-            elif slot.is_afk_only:
-                slot_dict["type"] = "afk"
-            else:
-                slot_dict["type"] = "regular"
-
             result.append(slot_dict)
         return result
 
     def consolidate_by_task(self) -> "ReportEntries":
         """Consolidate all slots for the same (project, task) into single merged entries.
 
-        Only consolidates slots of the same type together (regular with regular,
-        offline_task with offline_task, etc.). This preserves type information needed
-        for correct display of duration columns.
-
-        This fixes the display bug where the same task appears multiple times with different
-        entry types instead of being shown as one consolidated entry.
+        Merges all slot types (regular, offline_task, afk) for the same (project, task)
+        into a single slot where all duration components are summed. This allows a single
+        task session to span ACTIVE (online work), AFK (online idle), and OFFLINE
+        (system powered off) time, all displayed in one row.
 
         Returns:
-            ReportEntries with one entry per (project, task, type) triple
+            ReportEntries with one entry per (project, task) pair, with all duration
+            components (actual_duration, afk_duration, offline_extension_duration, event_duration)
+            summed into the single merged slot.
         """
         if not self.slots_list:
             return ReportEntries()
 
-        # Group slots by (project, task, type) to keep different types separate
-        # This ensures offline_task slots stay as offline_task (for OFFLINE column display)
-        # and regular slots stay as regular (for standard column display)
-        groups: Dict[Tuple[str, str, str], List[ReportTimelineSlot]] = {}
+        # Group slots by (project, task) only — no type discrimination
+        groups: Dict[Tuple[str, str], List[ReportTimelineSlot]] = {}
         for slot in self.slots_list:
-            key = (slot.project, slot.task, slot.type)
+            key = (slot.project, slot.task)
             if key not in groups:
                 groups[key] = []
             groups[key].append(slot)
 
-        # Merge each group
+        # Merge each group by converting to TimelineSlot bridge and using from_timeline_slots()
         consolidated = []
 
-        for (project, task, slot_type), group_slots in groups.items():
-            # Sum duration components across all slots for this task
-            total_duration = sum((s.duration for s in group_slots), timedelta(0))
-            total_actual_duration = sum((s.actual_duration for s in group_slots), timedelta(0))
-            total_afk_duration = sum((s.afk_duration or timedelta(0) for s in group_slots), timedelta(0))
-            total_offline_ext = sum((s.offline_extension_duration or timedelta(0) for s in group_slots), timedelta(0))
-            total_productive = sum((s.productive_duration for s in group_slots), timedelta(0))
-            # For event_duration: preserve 0 values (offline_task indicator) vs None (not set)
-            # Sum only if any slot has event_duration set (not None)
-            has_event_duration = any(s.event_duration is not None for s in group_slots)
-            total_event_duration = sum((s.event_duration or timedelta(0) for s in group_slots if s.event_duration is not None), timedelta(0)) if has_event_duration else None
-
-            # Get start/end from first and last slots (chronologically)
+        for (project, task), group_slots in groups.items():
+            # Sort by start time to maintain chronological order
             sorted_slots = sorted(group_slots, key=lambda s: s.start)
-            start_time = sorted_slots[0].start
-            end_time = sorted_slots[-1].end
 
-            # Merge categories and tags from all slots
-            merged_categories = []
-            all_tags = set()
-            for slot in group_slots:
-                merged_categories.extend(slot.categories or [])
-                if slot.tags:
-                    all_tags.update(slot.tags)
+            # Bridge each ReportTimelineSlot to a TimelineSlot for from_timeline_slots()
+            # Pattern: copy all fields, type field is now unread by from_timeline_slots() logic,
+            # so we use a placeholder string
+            bridged_group = []
+            for slot in sorted_slots:
+                ts = TimelineSlot(
+                    type="regular",  # Placeholder; type is ignored by field-driven from_timeline_slots()
+                    start=slot.start,
+                    end=slot.end,
+                    duration=slot.duration,
+                    actual_duration=slot.actual_duration,
+                    productive_duration=slot.productive_duration,
+                    project=slot.project,
+                    task=slot.task,
+                    categories=slot.categories,
+                    tags=slot.tags,
+                    afk_duration=slot.afk_duration,
+                    offline_extension_duration=slot.offline_extension_duration,
+                    event_duration=slot.event_duration,
+                    apps=slot.apps,
+                )
+                bridged_group.append(ts)
 
-            # Create merged slot with consolidated durations
-            merged_slot = ReportTimelineSlot(
-                start=start_time,
-                end=end_time,
-                duration=total_duration,
-                actual_duration=total_actual_duration,
-                productive_duration=total_productive,
-                task_event=sorted_slots[0].task_event,  # Use from first slot
-                window_events=[],
-                afk_events=[],
-                offline_extension_duration=total_offline_ext if total_offline_ext > timedelta(0) else None,
-                event_duration=total_event_duration,  # Preserve 0 and None distinction (0 = offline_task)
-                afk_duration=total_afk_duration if total_afk_duration > timedelta(0) else None,
-                tags=list(all_tags) if all_tags else [],
-                categories=merged_categories,
+            # Use from_timeline_slots() to merge with field-driven logic
+            merged_slot = ReportTimelineSlot.from_timeline_slots(
+                bridged_group, allow_mixed_types=True
             )
             consolidated.append(merged_slot)
 
