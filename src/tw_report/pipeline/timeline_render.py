@@ -980,9 +980,28 @@ def print_timeline_report(
     consolidated_slots = []
     for period_key in sorted(period_groups.keys()):
         period_slots = period_groups[period_key]
+        # DEBUG: Show slots before consolidation for Aug 24
+        if str(period_key).startswith("2026-08-24"):
+            disposicion_slots = [s for s in period_slots if hasattr(s, 'task') and s.task and 'Disposición' in s.task]
+            if disposicion_slots:
+                import sys
+                print(f"DEBUG: Before consolidation on {period_key}: {len(disposicion_slots)} Disposición slots", file=sys.stderr)
+                for i, slot in enumerate(disposicion_slots):
+                    print(f"  Slot {i}: {slot.start} to {slot.end}, offline_ext={slot.offline_extension_duration}, event_dur={slot.event_duration}", file=sys.stderr)
+
         # Convert to ReportEntries, consolidate within period, get back slots
         report_entries = ReportEntries(slots_list=period_slots)
         consolidated = report_entries.consolidate_by_task()
+
+        # DEBUG: Show consolidated slots
+        if str(period_key).startswith("2026-08-24"):
+            disposicion_slots_after = [s for s in consolidated.slots_list if hasattr(s, 'task') and s.task and 'Disposición' in s.task]
+            if disposicion_slots_after:
+                import sys
+                print(f"DEBUG: After consolidation on {period_key}: {len(disposicion_slots_after)} Disposición slots", file=sys.stderr)
+                for slot in disposicion_slots_after:
+                    print(f"  offline_extension_duration={slot.offline_extension_duration}", file=sys.stderr)
+
         consolidated_slots.extend(consolidated.slots_list)
 
     # Replace slots with consolidated version
