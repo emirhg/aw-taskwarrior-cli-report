@@ -117,7 +117,13 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
     last_slot = group[-1]
 
     start_time = first_slot["start"]
-    end_time = last_slot["start"] + last_slot["duration"]
+
+    # Use "end" field if available, otherwise calculate from start + duration
+    if "end" in last_slot and last_slot["end"] is not None:
+        end_time = last_slot["end"]
+    else:
+        end_time = last_slot["start"] + last_slot["duration"]
+
     merged_duration = end_time - start_time
 
     # Sum event_duration values (actual time spent on task, without gaps)
@@ -128,6 +134,8 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     # Create merged slot by copying first and updating key fields
     merged = first_slot.copy()
+    merged["start"] = start_time
+    merged["end"] = end_time
     merged["duration"] = merged_duration
     merged["actual_duration"] = merged_duration
     merged["event_duration"] = total_event_duration

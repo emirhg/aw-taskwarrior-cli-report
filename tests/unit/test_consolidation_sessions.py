@@ -42,19 +42,24 @@ class TestConsolidationSessionMerging:
         task: str = "TestTask",
         **kwargs: Any,
     ) -> Dict[str, Any]:
-        """Helper to create a slot dict for testing."""
+        """Helper to create a slot dict for testing with realistic structure."""
+        end = start + duration
         return {
             "start": start,
+            "end": end,
             "duration": duration,
             "actual_duration": duration,
+            "productive_duration": timedelta(0),
             "project": project,
             "task": task,
             "tags": kwargs.get("tags", []),
+            "categories": [],
+            "apps": [],
             "event_duration": kwargs.get("event_duration", duration),
+            "afk_duration": timedelta(0),
+            "type": "regular",
             "is_offline_task": False,
             "is_afk_only": False,
-            "afk_duration": None,
-            "productive_duration": timedelta(0),
         }
 
     def test_consolidate_two_sessions_same_task_no_gap(self, base_time):
