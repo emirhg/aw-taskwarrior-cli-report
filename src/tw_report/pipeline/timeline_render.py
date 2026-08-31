@@ -764,10 +764,47 @@ def print_timeline_report(
 
     print(header_line)
 
+    # BUG: Day/Week grouping inconsistency with day_start_hour (Session 2026-08-31)
+    # ============================================================================
+    # When day_start_hour is set (default 4), logical days start at 4 AM instead of midnight.
+    # Currently: slot_week_key uses ISO calendar (strftime "%G-W%V"), but slot_date uses logical_date(day_start_hour).
+    # Problem: These two calculations are INDEPENDENT, causing:
+    #   1. Same calendar date split into multiple logical days → appears multiple times with separate totals
+    #   2. Week numbers flip for same calendar date (W35, W36, W35, W36 for 2026-08-30)
+    #   3. "Day total" lines don't accumulate properly — each logical day shown separately
+    #
+    # Example from session 2026-08-31 output:
+    #   W35 2026-08-30 Sun [entries] Day total: 03:02:36
+    #   W36 2026-08-30 Sun [entries] Day total: 03:18:44  ← WRONG: same calendar date, different totals!
+    #   W35 2026-08-30 Sun [entries] Day total: 03:18:44
+    #   W36 2026-08-30 Sun [entries] Day total: 03:51:56
+    #
+    # Root cause: slot_week_key uses calendar dates (via ISO calendar), not logical dates.
+    # When logical day != calendar day, week numbers can differ for entries within same calendar day.
+    #
+    # Solution: Calculate week key from logical_date, not calendar strftime:
+    #   OLD: slot.start.strftime("%G-W%V")  # Uses calendar date
+    #   NEW: Derive week from logical_date(slot.start, day_start_hour) using Monday-start logic
+    #        iso_week = logical_date.isocalendar()[1]
+    #        week_key = f"{logical_date.year}-W{iso_week:02d}"
+    #
+    # This ensures:
+    #   - Same logical day always in same week (no W35/W36 flipping)
+    #   - Entries consolidated by logical day boundary, not calendar boundary
+    #   - Week totals accumulate correctly
+    #
+    # Migration: Update slot_week_key() to use logical_date; update slot_week assignment at line 953.
+    # Test: Run "tw-report --by-day :today" with day_start_hour=4; verify no day repeats with different weeks.
+
     # Group slots by (iso_week_key, date)
     def slot_week_key(slot):
-        """Return ISO week key: 'YYYY-Www' (e.g., '2026-W17')"""
-        return slot.start.strftime("%G-W%V")
+        """Return ISO week key based on LOGICAL date: 'YYYY-Www' (e.g., '2026-W17')"""
+        # FIX (2026-08-31): Use logical_date for week calculation to match date calculation
+        # Previously used calendar date via strftime("%G-W%V"), causing mismatch when
+        # day_start_hour causes logical day != calendar day. Now both use logical_date.
+        logical_dt = logical_date(slot.start, day_start_hour)
+        iso_year, iso_week, iso_weekday = logical_dt.isocalendar()
+        return f"{iso_year}-W{iso_week:02d}"
 
     def slot_date(slot):
         """Return slot logical date"""
@@ -948,9 +985,32 @@ def print_timeline_report(
     gap_threshold = timedelta(minutes=5)  # Minimum gap to display separator
     pending_date_prefix = None  # Date header held until the next slot prints
 
+    # BUG: Intercalated day rendering in --by-day mode (Session 2026-08-31)
+    # ================================================================
+    # The grouping logic here uses slot_week (calendar-based ISO week) and slot_date_val (logical day).
+    # When these two calculations are misaligned (due to day_start_hour), we get:
+    #   1. Multiple entries for same calendar date (2026-08-30 appears 5+ times)
+    #   2. Each appearance gets its own "Day total" line (should consolidate into ONE)
+    #   3. Week numbers alternate (W35, W36, W35, W36) for same calendar date
+    #
+    # Current flow:
+    #   - slot_week = slot.start.strftime("%G-W%V")  ← Uses calendar date
+    #   - slot_date_val = slot_date(slot)            ← Uses logical date
+    #   - When week changes: print week total, reset metrics, show new date header
+    #   - When date changes (but week same): print day total, reset daily metrics only
+    #   - But slot_week and slot_date_val can DISAGREE on boundaries
+    #
+    # Example: 2026-08-30 23:42-00:14 (spans logical day boundary at 04:00)
+    #   - Calendar: both in 2026-08-30, both in W35
+    #   - Logical (day_start_hour=4): split into 2026-08-30 (W35) and 2026-08-31 (W36)
+    #   - Result: Same calendar date, different weeks → renders twice!
+    #
+    # Fix: Use logical_date for BOTH week and date calculations.
+    # See slot_week_key() BUG comment above for implementation details.
+
     # Process each slot individually
     for slot in slots:
-        slot_week = slot.start.strftime("%G-W%V")
+        slot_week = slot_week_key(slot)  # Now uses logical_date (fixed 2026-08-31)
         slot_date_val = slot_date(slot)
         is_offline_task = _get_slot_type(slot) == "offline_task"
 
