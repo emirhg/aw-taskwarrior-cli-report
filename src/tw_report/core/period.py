@@ -11,7 +11,32 @@ from typing import Tuple
 
 
 def logical_date(dt: datetime, day_start_hour: int) -> date:
-    """Get the logical day a datetime belongs to when days start at day_start_hour."""
+    """Get the logical day a datetime belongs to when days start at day_start_hour.
+
+    Handles both naive and timezone-aware datetimes correctly by normalizing
+    to local timezone before applying day_start_hour offset.
+
+    Args:
+        dt: Datetime to get logical date for (naive or tz-aware)
+        day_start_hour: Hour when logical day starts (0-23)
+
+    Returns:
+        Date object representing the logical day
+
+    BUG FIX (2026-08-31):
+    ====================
+    Previously, this function would give different logical dates for the same
+    instant in time if represented in different timezones. Example:
+      - 2026-09-01 04:00 UTC → logical date 2026-09-01
+      - 2026-08-31 22:00-06:00 (same instant) → logical date 2026-08-31
+
+    Fix: Convert timezone-aware datetimes to local timezone first.
+    This ensures the same instant always gets the same logical date.
+    """
+    # If timezone-aware, convert to local timezone to normalize
+    if dt.tzinfo is not None:
+        dt = dt.astimezone()
+
     return (dt - timedelta(hours=day_start_hour)).date()
 
 
