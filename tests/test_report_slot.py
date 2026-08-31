@@ -407,9 +407,11 @@ class TestReportTimelineSlotBucketing:
     def test_split_at_boundaries_day_mode_spanning_midnight(self, dt_start):
         """Split spanning two days should produce two pieces with prorated durations."""
         # dt_start is 2026-07-23 10:00 UTC
-        # Adjust to get 11 PM on July 23: that's 13 hours after 10 AM
-        start_time = dt_start.replace(hour=23, minute=0, second=0, microsecond=0)  # 2026-07-23 23:00 UTC
-        end_time = start_time + timedelta(hours=2)  # 2026-07-24 01:00 UTC
+        # To span midnight local (00:00 local = 06:00 UTC with UTC-6 offset),
+        # use a slot that crosses 06:00 UTC: 05:00 UTC to 07:00 UTC
+        # This is 23:00 local 07-22 to 01:00 local 07-23
+        start_time = dt_start.replace(day=23, hour=5, minute=0, second=0, microsecond=0)  # 2026-07-23 05:00 UTC = 23:00 local 07-22
+        end_time = start_time + timedelta(hours=2)  # 2026-07-23 07:00 UTC = 01:00 local 07-23
 
         slot = TimelineSlot(
             type="regular",
@@ -422,10 +424,11 @@ class TestReportTimelineSlotBucketing:
         )
 
         report_slot = ReportTimelineSlot.from_timeline_slot(slot)
-        split = report_slot.split_at_boundaries("day")
+        # Use day_start_hour=0 to get midnight boundaries (matching test intent)
+        split = report_slot.split_at_boundaries("day", day_start_hour=0)
 
         assert len(split) == 2
-        # First piece: 1 hour (11 PM - midnight)
+        # First piece: 1 hour (23:00 local - midnight local = 05:00 UTC - 06:00 UTC)
         assert split[0].duration == timedelta(hours=1)
         assert split[0].actual_duration == timedelta(hours=1)
         assert split[0].productive_duration == timedelta(minutes=30)  # 1:2 ratio
@@ -436,7 +439,7 @@ class TestReportTimelineSlotBucketing:
         assert split[1].productive_duration == timedelta(minutes=30)  # 1:2 ratio
 
     def test_split_at_boundaries_zero_duration_slot(self, dt_start):
-        """Split on a zero-duration slot should handle gracefully."""
+        """Zero-duration slots are invalid and rejected by ReportTimelineSlot."""
         slot = TimelineSlot(
             type="regular",
             start=dt_start,
@@ -447,10 +450,9 @@ class TestReportTimelineSlotBucketing:
             project="P", task="T", categories=[], tags=[],
         )
 
-        report_slot = ReportTimelineSlot.from_timeline_slot(slot)
-        # Should not crash; behavior is to return original or one piece
-        split = report_slot.split_at_boundaries("day")
-        assert len(split) >= 1
+        # ReportTimelineSlot forbids zero-duration slots
+        with pytest.raises(ValueError, match="positive duration"):
+            ReportTimelineSlot.from_timeline_slot(slot)
 
 
 class TestReportTimelineEmbeddedAFK:
