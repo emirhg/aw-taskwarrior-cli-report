@@ -17,7 +17,7 @@ class TestPeriodKeywords:
 
     def test_today(self):
         """Period :today should return current day boundaries."""
-        start, end = parse_period(":today")
+        start, end = parse_period(":today", day_start_hour=0)
         now = datetime.now().astimezone()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         today_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -27,7 +27,7 @@ class TestPeriodKeywords:
 
     def test_yesterday(self):
         """Period :yesterday should return previous day boundaries."""
-        start, end = parse_period(":yesterday")
+        start, end = parse_period(":yesterday", day_start_hour=0)
         now = datetime.now().astimezone()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         yesterday = today_start - timedelta(days=1)
@@ -37,7 +37,7 @@ class TestPeriodKeywords:
 
     def test_week(self):
         """Period :week should return Monday to today."""
-        start, end = parse_period(":week")
+        start, end = parse_period(":week", day_start_hour=0)
         now = datetime.now().astimezone()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         monday = today_start - timedelta(days=now.weekday())
@@ -49,7 +49,7 @@ class TestPeriodKeywords:
 
     def test_lastweek(self):
         """Period :lastweek should return full previous week (Mon-Sun)."""
-        start, end = parse_period(":lastweek")
+        start, end = parse_period(":lastweek", day_start_hour=0)
         now = datetime.now().astimezone()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         start_of_last_week = today_start - timedelta(
@@ -62,7 +62,7 @@ class TestPeriodKeywords:
 
     def test_month(self):
         """Period :month should return 1st of current month to today."""
-        start, end = parse_period(":month")
+        start, end = parse_period(":month", day_start_hour=0)
         now = datetime.now().astimezone()
         first_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -71,7 +71,7 @@ class TestPeriodKeywords:
 
     def test_lastmonth(self):
         """Period :lastmonth should return full previous month."""
-        start, end = parse_period(":lastmonth")
+        start, end = parse_period(":lastmonth", day_start_hour=0)
         now = datetime.now().astimezone()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_last_month = today_start.replace(day=1) - timedelta(days=1)
@@ -82,7 +82,7 @@ class TestPeriodKeywords:
 
     def test_year(self):
         """Period :year should return Jan 1 of current year to today."""
-        start, end = parse_period(":year")
+        start, end = parse_period(":year", day_start_hour=0)
         now = datetime.now().astimezone()
         jan_1 = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
@@ -91,7 +91,7 @@ class TestPeriodKeywords:
 
     def test_lastyear(self):
         """Period :lastyear should return full previous calendar year."""
-        start, end = parse_period(":lastyear")
+        start, end = parse_period(":lastyear", day_start_hour=0)
         now = datetime.now().astimezone()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         end_of_last_year = today_start.replace(month=1, day=1) - timedelta(days=1)
@@ -102,7 +102,7 @@ class TestPeriodKeywords:
 
     def test_all(self):
         """Period :all should return epoch to now."""
-        start, end = parse_period(":all")
+        start, end = parse_period(":all", day_start_hour=0)
         now = datetime.now().astimezone()
 
         # Start should be epoch (1970-01-01)
@@ -114,8 +114,8 @@ class TestPeriodKeywords:
 
     def test_case_insensitive(self):
         """Period keywords should be case-insensitive."""
-        start1, end1 = parse_period(":TODAY")
-        start2, end2 = parse_period(":today")
+        start1, end1 = parse_period(":TODAY", day_start_hour=0)
+        start2, end2 = parse_period(":today", day_start_hour=0)
         assert start1 == start2
         assert end1 == end2
 
@@ -125,7 +125,7 @@ class TestISODateFormats:
 
     def test_iso_date_single(self):
         """Single ISO date (YYYY-MM-DD) should return day boundaries."""
-        start, end = parse_period("2026-06-15")
+        start, end = parse_period("2026-06-15", day_start_hour=0)
 
         # Start should be 00:00:00
         assert start.hour == 0
@@ -138,7 +138,7 @@ class TestISODateFormats:
 
     def test_iso_date_range(self):
         """Two ISO dates should return range from first to second."""
-        start, end = parse_period("2026-06-15 2026-06-20")
+        start, end = parse_period("2026-06-15 2026-06-20", day_start_hour=0)
 
         # Start should be 2026-06-15 00:00:00
         assert start.date().isoformat() == "2026-06-15"
@@ -147,7 +147,7 @@ class TestISODateFormats:
 
     def test_iso_datetime_single(self):
         """Single ISO datetime uses date part, returns day boundaries."""
-        start, end = parse_period("2026-06-15T10:30:45")
+        start, end = parse_period("2026-06-15T10:30:45", day_start_hour=0)
 
         # Single datetime is treated like a single date — returns day boundaries
         assert start.hour == 0
@@ -159,7 +159,7 @@ class TestISODateFormats:
 
     def test_iso_datetime_range(self):
         """Two ISO datetimes should use exact range."""
-        start, end = parse_period("2026-06-15T10:30:45 2026-06-20T15:45:30")
+        start, end = parse_period("2026-06-15T10:30:45 2026-06-20T15:45:30", day_start_hour=0)
 
         assert start.hour == 10
         assert start.minute == 30
