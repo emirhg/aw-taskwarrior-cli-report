@@ -126,6 +126,12 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
 
     merged_duration = end_time - start_time
 
+    # Sum actual_duration values (active time, excluding AFK gaps within slots)
+    total_actual_duration = sum(
+        (slot.get("actual_duration", slot["duration"]) for slot in group),
+        timedelta(0),
+    )
+
     # Sum event_duration values (actual time spent on task, without gaps)
     total_event_duration = sum(
         (slot.get("event_duration", slot["duration"]) for slot in group),
@@ -136,9 +142,9 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
     merged = first_slot.copy()
     merged["start"] = start_time
     merged["end"] = end_time
-    merged["duration"] = merged_duration
-    merged["actual_duration"] = merged_duration
-    merged["event_duration"] = total_event_duration
+    merged["duration"] = merged_duration  # Wall-clock duration (includes gaps between sessions)
+    merged["actual_duration"] = total_actual_duration  # Sum of active time (excludes AFK within slots)
+    merged["event_duration"] = total_event_duration  # Sum of event durations
 
     # Tags should be consistent (all same), but preserve from first slot
     if group and group[0].get("tags"):
