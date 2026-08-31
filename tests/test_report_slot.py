@@ -688,8 +688,8 @@ class TestReportEntries:
             slots_list=[ReportTimelineSlot.from_timeline_slot(slot)]
         )
 
-        bucketed = report_timeline.bucket("day")
-        # Should produce 2 buckets (July 23 and July 24)
+        bucketed = report_timeline.bucket("day", day_start_hour=0)
+        # Should produce 2 buckets (July 23 and July 24) with calendar-day boundaries
         assert len(bucketed.slots()) == 2
         assert bucketed.slots()[0].bucket_start_date == date(2026, 7, 23)
         assert bucketed.slots()[1].bucket_start_date == date(2026, 7, 24)

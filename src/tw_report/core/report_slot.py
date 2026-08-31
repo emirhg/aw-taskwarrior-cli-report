@@ -1189,10 +1189,10 @@ class ReportEntries:
         current_group = []
 
         for report_slot in self.slots_list:
-            # Skip bare offline gap markers: empty project + task + zero duration
+            # Skip bare offline gap markers: empty/missing project + task + zero online duration
             if (
-                report_slot.project == NO_PROJECT
-                and report_slot.task == NO_TASK
+                (report_slot.project == NO_PROJECT or report_slot.project == "")
+                and (report_slot.task == NO_TASK or report_slot.task == "")
                 and report_slot.actual_duration == timedelta(0)
             ):
                 continue
