@@ -916,15 +916,10 @@ def main():
         )
 
         # Combine AFK/offline slots with partitioned task slots and ACTIVE slots for uncovered periods
-        # BUGFIX: In timesheet mode (day/week/month/year), skip afk_offline_slots since
-        # partitioned_task_slots already includes per-event offline task slots with proper
-        # ACTIVE/AFK/OFFLINE breakdown. Adding afk_offline_slots would duplicate them.
-        if grouping_mode in ("day", "week", "month", "year"):
-            # Timesheet mode: skip afk_offline_slots, use partitioned_task_slots instead
-            all_slot_entries = active_slots + partitioned_task_slots
-        else:
-            # Hierarchical mode: use afk_offline_slots as normal
-            all_slot_entries = afk_offline_slots + active_slots + partitioned_task_slots
+        # Note: event_based_offline_slots are NOT added here to avoid duplication with partitioned_task_slots.
+        # afk_offline_slots includes bare AFK gaps and offline task aggregates; in timesheet mode
+        # we'll filter out offline task duplicates below.
+        all_slot_entries = afk_offline_slots + active_slots + partitioned_task_slots
 
         # Filter entries using unified EventFilter for consistency
         # (replaces 50+ lines of scattered filter logic)
