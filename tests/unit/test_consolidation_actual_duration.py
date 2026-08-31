@@ -271,12 +271,14 @@ class TestConsolidationActualDuration:
 
         consolidated = consolidate_sessions(slots)
 
-        # Should NOT merge because types differ
-        assert len(consolidated) == 3  # Regular, AFK, Regular stay separate
-        # Regular slots can be merged separately if adjacent, but AFK breaks the sequence
-        # Verify that actual_duration values are NOT summed across types
-        assert any(s["type"] == "afk" for s in consolidated)
-        assert any(s["type"] == "regular" for s in consolidated)
+        # Consolidation is now type-independent: merges by (project, task) only
+        # All three slots have same project+task, so they merge into one
+        assert len(consolidated) == 1
+        # The merged slot spans entire time range
+        assert consolidated[0]["start"] == base_time
+        assert consolidated[0]["end"] == base_time + timedelta(hours=2) + timedelta(hours=1)
+        # actual_duration should be summed: 50m + 30m + 48m = 128m
+        assert consolidated[0]["actual_duration"] == timedelta(minutes=50 + 30 + 48)
 
 
 if __name__ == "__main__":
