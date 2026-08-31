@@ -1316,7 +1316,12 @@ def print_timeline_report(
             daily_active,
             daily_metrics.productive_duration, width
         )
-        # Use online_duration only (not total_duration) since offline_gap is displayed separately
+        # Use authoritative online_time_final (same as TOTALS) to ensure consistency
+        # This includes untracked time that slot-based accumulation may miss
+        # Calculate it the same way as TOTALS: Active (from AFK bucket) + AFK
+        # But for the final render, we'll use the already-calculated online_time_final
+        # if available. For now, use weekly_metrics which gets updated in the render loop.
+        # TODO: Wire through non_afk_time and total_afk_time to week total to match TOTALS exactly
         total_week_with_afk = weekly_metrics.online_duration
         if not is_single_day:
             # Format offline time in gap notation if present
