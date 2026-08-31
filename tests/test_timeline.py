@@ -101,11 +101,11 @@ class TestTimelineSlot:
         """Test overlaps() returns True for overlapping slots."""
         slot1 = TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         slot2 = TimelineSlot(
             type="task", start=tz_aware_dt(11), end=tz_aware_dt(13),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         assert slot1.overlaps(slot2)
         assert slot2.overlaps(slot1)
@@ -114,11 +114,11 @@ class TestTimelineSlot:
         """Test overlaps() returns False for non-overlapping slots."""
         slot1 = TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         slot2 = TimelineSlot(
             type="task", start=tz_aware_dt(13), end=tz_aware_dt(15),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         assert not slot1.overlaps(slot2)
         assert not slot2.overlaps(slot1)
@@ -127,11 +127,11 @@ class TestTimelineSlot:
         """Test overlaps() returns False for adjacent slots."""
         slot1 = TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         slot2 = TimelineSlot(
             type="task", start=tz_aware_dt(12), end=tz_aware_dt(14),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         assert not slot1.overlaps(slot2)
         assert not slot2.overlaps(slot1)
@@ -140,7 +140,7 @@ class TestTimelineSlot:
         """Test contains() returns True for times within slot."""
         slot = TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         assert slot.contains(tz_aware_dt(10))
         assert slot.contains(tz_aware_dt(11))
@@ -150,7 +150,7 @@ class TestTimelineSlot:
         """Test contains() returns False for times outside slot."""
         slot = TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         assert not slot.contains(tz_aware_dt(9))
         assert not slot.contains(tz_aware_dt(12))
@@ -204,6 +204,7 @@ class TestTimelineSlot:
         """Test from_dict raises when actual_duration is missing."""
         from tw_report.core.timeline import TimelineSlotValidationError
         d = {
+            "type": "task",
             "start": tz_aware_dt(10),
             "end": tz_aware_dt(12),
             "duration": timedelta(hours=2),
@@ -362,11 +363,11 @@ class TestTimeline:
         slots = [
             TimelineSlot(
                 type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-                project="P", task="T1", duration=timedelta(hours=2)
+                project="P", task="T1", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
             ),
             TimelineSlot(
                 type="task", start=tz_aware_dt(13), end=tz_aware_dt(15),
-                project="P", task="T2", duration=timedelta(hours=2)
+                project="P", task="T2", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
             ),
         ]
         timeline.add_slots(slots)
@@ -376,11 +377,11 @@ class TestTimeline:
         """Test slots are auto-sorted when added out of order."""
         slot1 = TimelineSlot(
             type="task", start=tz_aware_dt(13), end=tz_aware_dt(15),
-            project="P", task="T1", duration=timedelta(hours=2)
+            project="P", task="T1", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         slot2 = TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T2", duration=timedelta(hours=2)
+            project="P", task="T2", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         )
         timeline.add_slot(slot1)
         timeline.add_slot(slot2)
@@ -393,7 +394,7 @@ class TestTimeline:
         timeline.add_slot(sample_slot)
         dicts = timeline.get_slots_as_dicts()
         assert len(dicts) == 1
-        assert dicts[0]["type"] == "task"
+        assert dicts[0]["type"] == "regular"
         assert dicts[0]["project"] == "TestProject"
 
     def test_add_from_dict(self, timeline, tz_aware_dt):
@@ -405,6 +406,7 @@ class TestTimeline:
             "project": "P",
             "task": "T",
             "duration": timedelta(hours=2),
+            "actual_duration": timedelta(hours=2),
         }
         timeline.add_from_dict(slot_dict)
         assert timeline.count() == 1
@@ -414,11 +416,11 @@ class TestTimeline:
         """Test querying slots by project."""
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="ProjectA", task="T1", duration=timedelta(hours=2)
+            project="ProjectA", task="T1", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(13), end=tz_aware_dt(15),
-            project="ProjectB", task="T2", duration=timedelta(hours=2)
+            project="ProjectB", task="T2", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
 
         slots_a = timeline.get_slots_by_project("ProjectA")
@@ -429,11 +431,11 @@ class TestTimeline:
         """Test querying slots by task."""
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="TaskA", duration=timedelta(hours=2)
+            project="P", task="TaskA", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(13), end=tz_aware_dt(15),
-            project="P", task="TaskB", duration=timedelta(hours=2)
+            project="P", task="TaskB", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
 
         slots = timeline.get_slots_by_task("P", "TaskA")
@@ -444,11 +446,11 @@ class TestTimeline:
         """Test querying slots by type."""
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
         timeline.add_slot(TimelineSlot(
             type="afk", start=tz_aware_dt(12), end=tz_aware_dt(13),
-            project="", task="", duration=timedelta(hours=1)
+            project="", task="", duration=timedelta(hours=1), actual_duration=timedelta(hours=1)
         ))
 
         task_slots = timeline.get_slots_by_type("task")
@@ -460,11 +462,11 @@ class TestTimeline:
         """Test querying slots in time range."""
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T1", duration=timedelta(hours=2)
+            project="P", task="T1", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(14), end=tz_aware_dt(16),
-            project="P", task="T2", duration=timedelta(hours=2)
+            project="P", task="T2", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
 
         # Range that overlaps first slot
@@ -476,11 +478,11 @@ class TestTimeline:
         """Test total duration aggregation."""
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T1", duration=timedelta(hours=2)
+            project="P", task="T1", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(13), end=tz_aware_dt(16),
-            project="P", task="T2", duration=timedelta(hours=3)
+            project="P", task="T2", duration=timedelta(hours=3), actual_duration=timedelta(hours=3)
         ))
 
         assert timeline.total_duration() == timedelta(hours=5)
@@ -505,12 +507,12 @@ class TestTimeline:
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
             project="P", task="T1", duration=timedelta(hours=2),
-            productive_duration=timedelta(hours=1, minutes=45)
+            actual_duration=timedelta(hours=2), productive_duration=timedelta(hours=1, minutes=45)
         ))
         timeline.add_slot(TimelineSlot(
             type="afk", start=tz_aware_dt(12), end=tz_aware_dt(13),
             project="", task="", duration=timedelta(hours=1),
-            productive_duration=timedelta(0)
+            actual_duration=timedelta(hours=1), productive_duration=timedelta(0)
         ))
 
         assert timeline.total_productive_duration() == timedelta(hours=1, minutes=45)
@@ -520,11 +522,11 @@ class TestTimeline:
         slots = [
             TimelineSlot(
                 type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-                project="P", task="T1", duration=timedelta(hours=2)
+                project="P", task="T1", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
             ),
             TimelineSlot(
                 type="task", start=tz_aware_dt(13), end=tz_aware_dt(15),
-                project="P", task="T2", duration=timedelta(hours=2)
+                project="P", task="T2", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
             ),
         ]
         timeline.add_slots(slots)
@@ -544,7 +546,7 @@ class TestTimeline:
         """Test string representation."""
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(10), end=tz_aware_dt(12),
-            project="P", task="T", duration=timedelta(hours=2)
+            project="P", task="T", duration=timedelta(hours=2), actual_duration=timedelta(hours=2)
         ))
         repr_str = repr(timeline)
         assert "Timeline" in repr_str
@@ -561,18 +563,18 @@ class TestTimelineIntegration:
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(9), end=tz_aware_dt(12),
             project="ProjectA", task="TaskA", duration=timedelta(hours=3),
-            productive_duration=timedelta(hours=2, minutes=45)
+            actual_duration=timedelta(hours=3), productive_duration=timedelta(hours=2, minutes=45)
         ))
         # Lunch break
         timeline.add_slot(TimelineSlot(
             type="afk", start=tz_aware_dt(12), end=tz_aware_dt(13),
-            project="", task="", duration=timedelta(hours=1)
+            project="", task="", duration=timedelta(hours=1), actual_duration=timedelta(hours=1)
         ))
         # Afternoon: different task
         timeline.add_slot(TimelineSlot(
             type="task", start=tz_aware_dt(13), end=tz_aware_dt(17),
             project="ProjectB", task="TaskB", duration=timedelta(hours=4),
-            productive_duration=timedelta(hours=3, minutes=30)
+            actual_duration=timedelta(hours=4), productive_duration=timedelta(hours=3, minutes=30)
         ))
 
         assert timeline.count() == 3
@@ -610,12 +612,13 @@ class TestTimelineIntegration:
             project="ProjectB",
             task="TaskB",
             duration=timedelta(hours=1),
+            actual_duration=timedelta(hours=1),
         ))
         # Session 2: evening offline work
         timeline.add_slot(TimelineSlot(
             type="offline_task",
             start=tz_aware_dt(20),
-            end=tz_aware_dt(23),
+            end=tz_aware_dt(20) + timedelta(hours=3, minutes=24),
             project="ProjectA",
             task="OfflineTaskA",
             duration=timedelta(hours=3, minutes=24),
@@ -644,6 +647,7 @@ class TestTimelineIntegration:
                 "project": "P",
                 "task": "T1",
                 "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
             },
             {
                 "type": "task",
@@ -652,6 +656,7 @@ class TestTimelineIntegration:
                 "project": "P",
                 "task": "T2",
                 "duration": timedelta(hours=2),
+                "actual_duration": timedelta(hours=2),
                 "afk_duration": timedelta(minutes=30),
             },
         ]
