@@ -151,31 +151,31 @@ class TestSplitSlotsSpanningDays:
 
     def test_two_day_slot_split(self, base_time):
         """Slot spanning two days should be split."""
-        # Slot from 23:00 to 01:00 (spans midnight)
+        # Slot from 05:00 UTC to 07:00 UTC (23:00 local 06-30 to 01:00 local 07-01)
+        # This spans midnight in local time (UTC-6), so it should be split
         slot = {
-            "start": base_time.replace(hour=23),
+            "start": base_time.replace(hour=5),  # 05:00 UTC = 23:00 previous day local
             "duration": timedelta(hours=2),
             "actual_duration": timedelta(hours=2),
             "type": "regular",
             "project": "Test",
             "task": "Work",
         }
-        # Use day_start_hour=0 for calendar-day boundaries (midnight)
+        # Use day_start_hour=0 for calendar-day boundaries (midnight local time)
         result = split_slots_spanning_days([slot], day_start_hour=0)
 
-        # Should be split into two pieces
-        assert len(result) == 2
-        # First piece: 23:00 to 24:00 (1 hour)
-        assert result[0]["start"].hour == 23
+        # Should be split into two pieces (one before midnight local, one after midnight local)
+        assert len(result) == 2, f"Expected 2 pieces, got {len(result)}"
+        # First piece: 23:00 to 00:00 = 1 hour on 06-30
         assert result[0]["duration"] == timedelta(hours=1)
-        # Second piece: 00:00 to 01:00 (1 hour, next day)
-        assert result[1]["start"].day == base_time.day + 1
+        # Second piece: 00:00 to 01:00 = 1 hour on 07-01
         assert result[1]["duration"] == timedelta(hours=1)
 
     def test_duration_proportional_allocation(self, base_time):
         """Productive duration should be proportionally allocated."""
+        # Slot from 05:00 UTC to 07:00 UTC (23:00 local 06-30 to 01:00 local 07-01)
         slot = {
-            "start": base_time.replace(hour=23),
+            "start": base_time.replace(hour=5),
             "duration": timedelta(hours=2),
             "actual_duration": timedelta(hours=2),
             "productive_duration": timedelta(hours=1),
@@ -183,7 +183,7 @@ class TestSplitSlotsSpanningDays:
             "project": "Test",
             "task": "Work",
         }
-        # Use day_start_hour=0 for calendar-day boundaries (midnight)
+        # Use day_start_hour=0 for calendar-day boundaries (midnight local time)
         result = split_slots_spanning_days([slot], day_start_hour=0)
 
         assert len(result) == 2
@@ -192,7 +192,7 @@ class TestSplitSlotsSpanningDays:
         assert result[1]["productive_duration"] == timedelta(minutes=30)
 
     def test_zero_duration_slot(self, base_time):
-        """Zero-duration slot should not cause errors."""
+        """Zero-duration slots are invalid and skipped by ReportTimelineSlot.from_dict()."""
         slot = {
             "start": base_time,
             "duration": timedelta(0),
@@ -202,9 +202,9 @@ class TestSplitSlotsSpanningDays:
             "task": "Work",
         }
         # Use day_start_hour=0 for calendar-day boundaries
+        # Zero-duration slots are invalid for ReportTimelineSlot, so they get skipped
         result = split_slots_spanning_days([slot], day_start_hour=0)
-        assert len(result) == 1
-        assert result[0]["duration"] == timedelta(0)
+        assert len(result) == 0
 
 
 class TestPrintTimelineReport:

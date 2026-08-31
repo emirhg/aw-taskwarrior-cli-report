@@ -746,11 +746,19 @@ class ReportTimelineSlot:
         pieces = []
         current_dt = self.start
 
+        # Get local timezone for bucket boundary calculations
+        # logical_date converts to local timezone, so bucket dates are in local timezone context
+        # We need to convert those dates back to UTC using the same local timezone
+        local_tz = current_dt.astimezone().tzinfo if current_dt.tzinfo else None
+
         while current_dt < self.end:
             # Determine this bucket's end boundary
             current_bucket_start = ReportTimelineSlot.bucket_start(current_dt, mode, day_start_hour)
             next_bucket_start = current_bucket_start + _bucket_duration(mode)
-            bucket_end = day_boundary(next_bucket_start, day_start_hour, current_dt.tzinfo)
+            # bucket_start returns a date in local timezone context
+            # Convert it to UTC datetime using local timezone first, then to current_dt's timezone
+            bucket_end_local = day_boundary(next_bucket_start, day_start_hour, local_tz)
+            bucket_end = bucket_end_local.astimezone(current_dt.tzinfo) if local_tz and current_dt.tzinfo else bucket_end_local
 
             # Calculate overlap with this bucket
             piece_start = current_dt
