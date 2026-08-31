@@ -258,8 +258,9 @@ class TestReportTimelineSlotMerge:
         merged = ReportTimelineSlot.from_timeline_slots(
             [slot1, slot2, slot3], allow_mixed_types=True
         )
-        # event_duration should be summed from ALL offline_task members (20 + 15)
-        assert merged.event_duration == timedelta(minutes=35)
+        # event_duration is set to None after consolidation (no longer used for reporting)
+        # It was only needed to distinguish online/offline portions during split_at_boundaries
+        assert merged.event_duration is None
 
     def test_merge_afk_duration_uses_actual_duration(self, dt_start):
         """Bug fix #7: AFK duration should be summed correctly (per Step 1 convention)."""
