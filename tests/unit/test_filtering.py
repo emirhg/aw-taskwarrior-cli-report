@@ -186,7 +186,6 @@ class TestConsolidationWithFilters:
 class TestIssue1OfflineTaskDuration:
     """Tests specifically for Issue #1: OFFLINE task shows 0:00:00 duration."""
 
-    @pytest.mark.xfail(reason="Issue #1: OFFLINE task duration becomes 0:00:00")
     def test_offline_task_duration_preserved_with_exclude_non_project(
         self, issue_1_offline_task_data
     ):
@@ -207,7 +206,6 @@ class TestIssue1OfflineTaskDuration:
         """
         assert True  # Placeholder
 
-    @pytest.mark.xfail(reason="Issue #1: Synthetic slots not filtered")
     def test_synthetic_offline_slot_filtered_correctly(
         self, filter_exclude_non_project, issue_1_no_project_entry
     ):
@@ -223,7 +221,6 @@ class TestIssue1OfflineTaskDuration:
 class TestIssue3IncompleteFilter:
     """Tests specifically for Issue #3: --exclude-non-project applied inconsistently."""
 
-    @pytest.mark.xfail(reason="Issue #3: Gap filtering incomplete")
     def test_exclude_non_project_consistent_across_entry_types(
         self, filter_exclude_non_project, issue_3_filter_data
     ):

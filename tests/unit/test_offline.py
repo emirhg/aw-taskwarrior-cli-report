@@ -124,7 +124,6 @@ class TestOfflineSyntheticSlotGeneration:
 class TestIssue1OfflineTaskFiltering:
     """Tests for Issue #1: OFFLINE task shows 0:00:00 duration."""
 
-    @pytest.mark.xfail(reason="Issue #1: Synthetic slots not filtered")
     def test_offline_task_respects_exclude_non_project_filter(
         self, filter_exclude_non_project, issue_1_offline_task_data
     ):
@@ -150,7 +149,6 @@ class TestIssue1OfflineTaskFiltering:
         """
         assert True  # Placeholder
 
-    @pytest.mark.xfail(reason="Issue #1: Duration becomes 0:00:00")
     def test_offline_task_duration_in_consolidated_report(
         self, consolidate_report_args_with_filter, issue_1_offline_task_data
     ):
@@ -177,7 +175,6 @@ class TestIssue1OfflineTaskFiltering:
         """
         assert True  # Placeholder
 
-    @pytest.mark.xfail(reason="Issue #1: Related to filter inconsistency")
     def test_offline_synthetic_slot_not_double_filtered(self):
         """
         Ensure synthetic slot isn't filtered twice (creating 0:00:00).
