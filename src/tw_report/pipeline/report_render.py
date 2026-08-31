@@ -530,6 +530,9 @@ def print_report(
     last_break_start: Optional[datetime] = None,
     last_break_end: Optional[datetime] = None,
     last_break_duration: Optional[timedelta] = None,
+    afk_time: Optional[timedelta] = None,
+    total_offline_time: Optional[timedelta] = None,
+    total_time_all: Optional[timedelta] = None,
 ) -> None:
     """Print hierarchical report (project-based or category-based).
 
@@ -608,9 +611,9 @@ def print_report(
         last_break_start=last_break_start,
         last_break_end=last_break_end,
         last_break_duration=last_break_duration,
-        total_offline_time=timedelta(0),
-        afk_time=None,
-        total_time_all=None,
+        total_offline_time=total_offline_time or timedelta(0),
+        afk_time=afk_time,
+        total_time_all=total_time_all,
     )
 
     if not report_data:
@@ -715,12 +718,15 @@ def print_report(
                 print()
 
     # Print TOTALS at bottom
-    # Prefer non_afk_time if available; fallback to total_duration for backward compatibility with tests
-    total_time_for_totals = non_afk_time or total_duration
+    # Calculate online time = active + afk
+    online_time_for_totals = non_afk_time
+    if afk_time:
+        online_time_for_totals = (non_afk_time or timedelta(0)) + afk_time
+
     print_report_totals(
-        total_time_all=total_time_for_totals,
+        total_time_all=online_time_for_totals,
         total_productive_all=productive_task_time or timedelta(0),
-        total_afk=None,
-        total_offline=None,
-        total_non_afk=total_time_for_totals,
+        total_afk=afk_time,
+        total_offline=total_offline_time,
+        total_non_afk=non_afk_time or total_duration,
     )

@@ -1032,6 +1032,28 @@ def main():
         report_task_based = (
             context.is_task_based_report and context.task_events is not None
         )
+
+        # Calculate AFK time from raw AFK events
+        afk_time_calc = sum(
+            (e.duration for e in (afk_events or [])),
+            timedelta(0)
+        )
+        if afk_time_calc == timedelta(0):
+            afk_time_calc = None
+
+        # Calculate total offline time from OFFLINE tasks
+        total_offline_calc = sum(
+            (duration for duration in offline_task_durations.values()),
+            timedelta(0)
+        )
+        if total_offline_calc == timedelta(0):
+            total_offline_calc = None
+
+        # Total online time = Active + AFK
+        total_time_calc = None
+        if context.metrics.non_afk_time:
+            total_time_calc = context.metrics.non_afk_time + (afk_time_calc or timedelta(0))
+
         HierarchicalReport(print_report).present(
             report_data=report_data,
             period=period,
@@ -1054,6 +1076,9 @@ def main():
             last_break_start=context.metrics.last_break_start,
             last_break_end=context.metrics.last_break_end,
             last_break_duration=context.metrics.last_break_duration,
+            afk_time=afk_time_calc,
+            total_offline_time=total_offline_calc,
+            total_time_all=total_time_calc,
         )
 
 
