@@ -316,6 +316,23 @@ class ReportTimelineSlot:
     bucket_mode: Optional[Literal["day", "week", "month", "year"]] = None
     bucket_start_date: Optional[date] = None
 
+    def __post_init__(self) -> None:
+        """Validate slot integrity: reject zero-duration slots and normalize timezones."""
+        if self.duration <= timedelta(0):
+            raise ValueError(
+                f"ReportTimelineSlot must have positive duration; got {self.duration} "
+                f"(start={self.start}, end={self.end}). "
+                f"Zero-duration slots (start==end) are degenerate and invalid."
+            )
+        # Ensure timezone consistency: if times have tzinfo, they should match
+        if self.start.tzinfo is not None and self.end.tzinfo is not None:
+            if self.start.tzinfo != self.end.tzinfo:
+                raise ValueError(
+                    f"ReportTimelineSlot has mismatched timezones: "
+                    f"start={self.start.tzinfo}, end={self.end.tzinfo}. "
+                    f"Both must have same timezone."
+                )
+
     @property
     def project(self) -> str:
         """Project name, with NO_PROJECT fallback if no task_event."""

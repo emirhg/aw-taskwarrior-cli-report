@@ -887,6 +887,11 @@ class OfflineTaskProcessor:
 
             # Use event's duration directly (no aggregation)
             wall_clock_duration = event.duration or timedelta(0)
+
+            # Skip events with zero duration (degenerate slots)
+            if wall_clock_duration <= timedelta(0):
+                continue
+
             event_start = event.timestamp
             event_end = event_start + wall_clock_duration
 
