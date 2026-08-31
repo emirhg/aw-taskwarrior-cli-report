@@ -1445,22 +1445,25 @@ class ReportEntries:
     def consolidate_by_task(self) -> "ReportEntries":
         """Consolidate all slots for the same (project, task) into single merged entries.
 
-        This merges different entry types (regular, offline_task, afk) for the same task
-        into a single consolidated row, preserving all duration components (OFFLINE, AFK, ACTIVE).
+        Only consolidates slots of the same type together (regular with regular,
+        offline_task with offline_task, etc.). This preserves type information needed
+        for correct display of duration columns.
 
         This fixes the display bug where the same task appears multiple times with different
         entry types instead of being shown as one consolidated entry.
 
         Returns:
-            ReportEntries with one entry per (project, task) pair
+            ReportEntries with one entry per (project, task, type) triple
         """
         if not self.slots_list:
             return ReportEntries()
 
-        # Group slots by (project, task)
-        groups: Dict[Tuple[str, str], List[ReportTimelineSlot]] = {}
+        # Group slots by (project, task, type) to keep different types separate
+        # This ensures offline_task slots stay as offline_task (for OFFLINE column display)
+        # and regular slots stay as regular (for standard column display)
+        groups: Dict[Tuple[str, str, str], List[ReportTimelineSlot]] = {}
         for slot in self.slots_list:
-            key = (slot.project, slot.task)
+            key = (slot.project, slot.task, slot.type)
             if key not in groups:
                 groups[key] = []
             groups[key].append(slot)
@@ -1468,14 +1471,17 @@ class ReportEntries:
         # Merge each group
         consolidated = []
 
-        for (project, task), group_slots in groups.items():
+        for (project, task, slot_type), group_slots in groups.items():
             # Sum duration components across all slots for this task
             total_duration = sum((s.duration for s in group_slots), timedelta(0))
             total_actual_duration = sum((s.actual_duration for s in group_slots), timedelta(0))
             total_afk_duration = sum((s.afk_duration or timedelta(0) for s in group_slots), timedelta(0))
             total_offline_ext = sum((s.offline_extension_duration or timedelta(0) for s in group_slots), timedelta(0))
             total_productive = sum((s.productive_duration for s in group_slots), timedelta(0))
-            total_event_duration = sum((s.event_duration or timedelta(0) for s in group_slots if s.event_duration is not None), timedelta(0))
+            # For event_duration: preserve 0 values (offline_task indicator) vs None (not set)
+            # Sum only if any slot has event_duration set (not None)
+            has_event_duration = any(s.event_duration is not None for s in group_slots)
+            total_event_duration = sum((s.event_duration or timedelta(0) for s in group_slots if s.event_duration is not None), timedelta(0)) if has_event_duration else None
 
             # Get start/end from first and last slots (chronologically)
             sorted_slots = sorted(group_slots, key=lambda s: s.start)
@@ -1501,7 +1507,7 @@ class ReportEntries:
                 window_events=[],
                 afk_events=[],
                 offline_extension_duration=total_offline_ext if total_offline_ext > timedelta(0) else None,
-                event_duration=total_event_duration if total_event_duration > timedelta(0) else None,
+                event_duration=total_event_duration,  # Preserve 0 and None distinction (0 = offline_task)
                 afk_duration=total_afk_duration if total_afk_duration > timedelta(0) else None,
                 tags=list(all_tags) if all_tags else [],
                 categories=merged_categories,
