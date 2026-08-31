@@ -1033,11 +1033,11 @@ def main():
             context.is_task_based_report and context.task_events is not None
         )
 
-        # Calculate AFK time from raw AFK events
-        afk_time_calc = sum(
-            (e.duration for e in (afk_events or [])),
-            timedelta(0)
-        )
+        # Calculate AFK time from raw AFK events (filter by status='afk' only)
+        # AFK bucket contains both 'afk' (idle) and 'not-afk' (active) entries that tile the period
+        # Only sum the idle entries to get true AFK duration; mirrors the pattern at line 348-349
+        afk_only_events = filter_keyvals(afk_events, "status", ["afk"])
+        afk_time_calc = sum((e.duration for e in afk_only_events), timedelta(0))
         if afk_time_calc == timedelta(0):
             afk_time_calc = None
 
