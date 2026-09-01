@@ -1064,6 +1064,13 @@ def main():
     consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in consolidated_slots]
 
     # Now determine which rendering mode to use: timeline (period-based) or hierarchical
+    # BUG REPORTS:
+    # 1. Month consolidation (--by-month) crashes: ValueError zero-duration slot in offline.py
+    #    Root cause: OFFLINE slot duration calculation creates degenerate (start==end) slots
+    #    Fix needed: offline_processor.get_synthetic_slot() duration validation
+    # 2. Year consolidation (--by-year) hangs/timeouts: Possible O(n^2) or infinite loop
+    #    Likely in period grouping or consolidation logic when spanning 56+ years of history
+    #    Fix needed: Performance audit of consolidate_by_period() for large datasets
     if grouping_mode in ["day", "week", "month", "year"]:
         TimelineReport(print_timeline_report).present(
             slots=consolidated_dicts,

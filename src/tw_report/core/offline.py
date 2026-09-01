@@ -823,6 +823,10 @@ class OfflineTaskProcessor:
         # Calculate offline gap: total duration minus online time
         offline_gap = slot_duration - online_time if slot_duration > online_time else timedelta(0)
 
+        # BUG: Month consolidation crashes here when slot_duration is zero
+        # This happens when task event has same start==end time (degenerate task).
+        # ReportTimelineSlot.__post_init__ rejects zero-duration slots.
+        # Fix: Skip synthetic slot creation if slot_duration <= 0, or merge degenerate tasks upstream.
         slot = ReportTimelineSlot(
             start=slot_start,
             end=slot_end,
