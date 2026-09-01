@@ -51,9 +51,11 @@ from tw_report.core.task_filtering import (
 )
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.core.timeslot_builder import build_timeslot_timeline
+from tw_report.pipeline.generation import generate_untracked_gap_events
 from tw_report.pipeline.models import ReportContext
 from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
 from tw_report.pipeline.processors import (
+    build_canonical_events,
     build_context,
     compute_metrics,
     merge_overlapping_afk_periods,
@@ -757,7 +759,22 @@ def main():
     )
 
     # Convert ReportTimelineSlot objects to dict format for downstream processing
-    all_slot_entries = [s.to_dict() for s in report_slots]
+    # Add the 'type' field based on slot discriminators
+    def _infer_slot_type(slot):
+        if slot.is_afk_only:
+            return "afk"
+        elif slot.is_offline_gap:
+            return "offline"
+        elif slot.is_offline_task:
+            return "offline_task"
+        else:
+            return "regular"
+
+    all_slot_entries = []
+    for s in report_slots:
+        slot_dict = s.to_dict()
+        slot_dict["type"] = _infer_slot_type(s)
+        all_slot_entries.append(slot_dict)
 
     # Apply EventFilter to the flat slot list
     # This is the single, unified filter application point (replaces 3 scattered implementations)
