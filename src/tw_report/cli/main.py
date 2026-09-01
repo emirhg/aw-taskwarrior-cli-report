@@ -51,6 +51,7 @@ from tw_report.core.task_filtering import (
 )
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.core.timeslot_builder import build_timeslot_timeline
+from tw_report.core.report_slot import ReportEntries
 from tw_report.pipeline.generation import generate_untracked_gap_events
 from tw_report.pipeline.models import ReportContext
 from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
@@ -60,6 +61,7 @@ from tw_report.pipeline.processors import (
     compute_metrics,
     merge_overlapping_afk_periods,
     aggregate_hierarchy,
+    aggregate_hierarchy_from_slots,
     matches_user_filters,
 )
 from tw_report.pipeline.report_render import print_report
@@ -427,197 +429,63 @@ def main():
         )
 
 
-    # Special case: window data not required or not fetched
-    # Convert taskwarrior events directly to canonical events (skip window correlation)
-    if not requires_window_data or not window_events:
-        from tw_report.pipeline.models import ReportEvent
+    # PHASE 2 REFACTOR: Use unified builder instead of 5 scattered generators
+    # Build non-overlapping slots directly from raw events
+    from tw_report.core.report_slot import ReportTimelineSlot
 
-        canonical_events = []
+    final_slots = build_timeslot_timeline(
+        afk_events=afk_events,
+        window_events=window_events,
+        task_events=task_events or []
+    )
 
-        # Add taskwarrior events if they exist
-        if task_events:
-            for task_event in task_events:
-                task_name, project = get_task_info(task_event)
-                rep = ReportEvent(
-                    event=task_event,
-                    project=project,
-                    task=task_name,
-                    active_task=task_event,
-                )
-                # Apply user filters to ensure correctness (e.g., when --task filtering is set)
-                if matches_user_filters(rep, args, _matches_any, _excluded):
-                    canonical_events.append(rep)
-
-        # Add untracked (NO_PROJECT) time gaps from uncovered not-afk periods
-        # Only when window_events are skipped (using task-only path)
-        # This fills the visibility gap when window events can't be fetched due to optimization
-        # This now works even when there are NO task_events (just untracked window activity)
-        if not window_events and not_afk_events:
-            # Generate untracked gaps from not-afk periods
-            # not_afk_events are ALREADY the ACTIVE periods from the AFK bucket
-            # No need to partition with afk_events (that would contradict the definitions)
-            untracked_events = generate_untracked_gap_events(
-                not_afk_events,
-                task_events or [],
-                afk_events=None,  # not_afk already represents ACTIVE, no partitioning needed
-            )
-            # Apply filters to synthetic NO_PROJECT events (same as for task events)
-            for untracked_rep in untracked_events:
-                if matches_user_filters(untracked_rep, args, _matches_any, _excluded):
-                    canonical_events.append(untracked_rep)
-            # Re-sort by timestamp to maintain chronological order
-            canonical_events = sorted(canonical_events, key=lambda rep: rep.event.timestamp)
-    else:
-        # Normal mode: correlate window events to task events
-        canonical_events = build_canonical_events(
-            window_events=window_events,
-            not_afk_events=not_afk_events,
-            include_afk=args.include_afk,
-            task_events=task_events,
-            args=args,
-            no_project_label=NO_PROJECT,
-            no_task_label=NO_TASK,
-            categorize_event=categorize_event,
-            compiled_categories=compiled_categories,
-            get_category_score=get_category_score,
-            cat_score_map=cat_score_map,
-            find_active_task=find_active_task,
-            get_task_info=get_task_info,
-            matches_any=_matches_any,
-            excluded=_excluded,
-        )
-
-    # OFFLINE task reconciliation requires window events to determine tracked online time.
-    # If window events were skipped (e.g., when filtering by task UUID), check if we have
-    # OFFLINE-tagged tasks and re-fetch windows if needed.
-    # Unless --exclude-online is set, in which case we intentionally skip online time reporting.
-    exclude_online = getattr(args, "exclude_online", False)
-    if not requires_window_data and task_events and not window_events and not exclude_online:
-        has_offline_tasks = any(
-            any('offline' in t.lower() for t in e.data.get('tags', []))
-            for e in task_events
-        )
-        if has_offline_tasks:
-            # Re-fetch windows for OFFLINE task reconciliation
-            # Optimization: use task_time_ranges if available to avoid fetching entire period
-            if task_time_ranges:
-                from tw_report.core.aw_events import WindowEvent
-                window_events = _fetch_events_for_ranges(client, "window", task_time_ranges, event_cls=WindowEvent)
-            else:
-                window_bucket = get_bucket_id("window")
-                window_events = get_events(client, window_bucket, start_time, end_time)
-            for event in window_events:
-                categorize_event(event, compiled_categories)
-
-    # Process OFFLINE task events using the extracted OfflineTaskProcessor
-    # This replaces ~150 lines of scattered logic with a clean, testable class
-    offline_task_durations: Dict = {}
-    offline_event_durations: Dict = {}
-    offline_event_groups: Dict = {}
-    offline_processor = None
-
-    if task_events:
-        offline_processor = OfflineTaskProcessor(
-            task_events=task_events,
-            window_events=window_events,
-            afk_events=afk_events,
-            event_filter=event_filter,
-            end_time=end_time,
-            use_afk_for_reconciliation=not requires_window_data,
-            tail_tolerance_seconds=args.tail_tolerance,
-            afk_validation_tolerance_seconds=args.afk_validation_tolerance,
-            day_start_hour=day_start_hour,
-        )
-
-        # EVENT-BASED TIMESHEET APPROACH (no grouping for timesheet modes):
-        # For timesheet modes (day/week/month/year), use event-based slots (one per task event)
-        # For hierarchical modes, use grouping logic
-        event_based_offline_slots = []
-        if grouping_mode in ("day", "week", "month", "year"):
-            # Timesheet/timeline mode: use grouped offline tasks (consolidated by project+task)
-            # instead of per-event slots, to avoid showing 11+ separate entries for the same task
-            offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
-        else:
-            # Hierarchical mode: use grouping approach
-            offline_task_durations, offline_event_durations, offline_event_groups, offline_task_real_durations = offline_processor.process()
-
-    # Exclude ONLY window events that were actually consumed by OFFLINE task groups.
-    # Window events tied to offline-tagged tasks but outside any group's span are NOT excluded,
-    # allowing them to flow through aggregate_hierarchy() normally (fixes a latent bug).
-    if offline_processor and offline_processor.consumed_window_event_ids:
-        canonical_events = [
-            rep
-            for rep in canonical_events
-            if id(rep.event) not in offline_processor.consumed_window_event_ids
-        ]
-
-    # Filter out zero-duration events (< 100ms tracking noise)
-    # This must happen before metrics calculation so unscored_time is accurate
-    from tw_report.pipeline.generation import MIN_EVENT_DURATION
-    canonical_events = [
-        rep
-        for rep in canonical_events
-        if rep.event.duration >= MIN_EVENT_DURATION
+    # Consolidate slots by (project, task) to merge multi-entry work sessions
+    consolidated = ReportEntries(slots_list=[s.to_dict() for s in final_slots])
+    consolidated_slots = [
+        ReportTimelineSlot.from_dict(slot_dict)
+        for slot_dict in consolidated.consolidate_by_task().slots_list
     ]
 
-    # Remove regular events that overlap with OFFLINE task periods (avoid duplication)
-    # This must happen before metrics calculation for consistency
-    # Use offline_event_groups from processor which already has computed OFFLINE periods
-    # SKIP this for timesheet mode (event-based slots don't use grouping)
-    if offline_processor and offline_event_groups and grouping_mode != "day" and grouping_mode != "week" and grouping_mode != "month" and grouping_mode != "year":
-        # Build periods for each (project, task) from offline event groups
-        offline_periods = {}  # (project, task) -> [(start, end), ...]
-        for key, events in offline_event_groups.items():
-            project = key[0]
-            task = key[1]
-            pair_key = (project, task)
-            if pair_key not in offline_periods:
-                offline_periods[pair_key] = []
-            # Get time span for this group
-            if events:
-                sorted_events = sorted(events, key=lambda e: e.timestamp)
-                group_start = sorted_events[0].timestamp
-                group_end = sorted_events[-1].timestamp + (sorted_events[-1].duration or timedelta(0))
-                offline_periods[pair_key].append((group_start, group_end))
+    # Apply EventFilter once (unified point, replaces 3 scattered implementations)
+    # This is the ONLY filter application point for slots
+    all_slot_entries = [
+        s.to_dict()
+        for s in consolidated_slots
+        if event_filter.should_include_entry({
+            'project': s.project,
+            'task': s.task,
+            'type': 'regular' if s.project != NO_PROJECT else 'afk'
+        })
+        and not (args.exclude_non_project and s.project == NO_PROJECT)
+    ]
 
-        # Filter out canonical events that overlap OFFLINE periods for same task
-        filtered_canonical = []
-        for rep in canonical_events:
-            event = rep.event
-            project = rep.project
-            task = rep.task
-            pair_key = (project, task)
+    # Legacy compatibility: Convert slots to canonical_events for existing code paths
+    # This bridge will be removed in future refactors once all code paths use slots
+    from tw_report.pipeline.models import ReportEvent
+    canonical_events = []
 
-            event_start = event.timestamp
-            event_end = event_start + event.duration
+    for slot_dict in all_slot_entries:
+        slot = ReportTimelineSlot.from_dict(slot_dict)
 
-            overlaps_offline = False
-            if pair_key in offline_periods:
-                for offline_start, offline_end in offline_periods[pair_key]:
-                    if event_start < offline_end and event_end > offline_start:
-                        overlaps_offline = True
-                        break
+        # Create a synthetic event for compatibility
+        from aw_core.models import Event
+        synthetic_event = Event(
+            timestamp=slot.start,
+            duration=slot.duration,
+            data={"slot": slot_dict}
+        )
 
-            if not overlaps_offline:
-                filtered_canonical.append(rep)
+        rep = ReportEvent(
+            event=synthetic_event,
+            project=slot.project,
+            task=slot.task,
+            active_task=None  # Slots don't track active_task separately
+        )
+        canonical_events.append(rep)
 
-        canonical_events = filtered_canonical
-
-    # Mark window events with offline_extension_duration to show OFFLINE time notation.
-    # For each window event that overlaps with an OFFLINE task period, calculate the overlap
-    # and store it as offline_extension_duration so timeline rendering can display "(HH:MM:SS OFFLINE)".
-    # Note: Use only offline_durations (the aggregated duration per task), not the groups,
-    # to determine if activity occurred during an OFFLINE session. A task is "offline" if we
-    # have an entry for it, regardless of which specific events comprised it.
-    if offline_processor and offline_task_durations:
-        # For each canonical event (window activity), check if active_task is OFFLINE-tagged
-        for rep in canonical_events:
-            active_task = rep.active_task
-            if active_task and task_has_offline_tag(active_task):
-                # This window event occurred during an OFFLINE-tagged task.
-                # Mark the entire window event duration as offline_extension.
-                window_duration = rep.event.duration
-                rep.event.data["offline_extension_duration"] = window_duration
+    # No OfflineTaskProcessor needed — builder handles offline/online classification
+    offline_task_durations: Dict = {}
+    offline_processor = None
 
     metrics = compute_metrics(
         canonical_events=canonical_events,
@@ -642,88 +510,18 @@ def main():
         is_task_based_report=is_task_based_report,
         metrics=metrics,
     )
-    report_data = aggregate_hierarchy(
-        canonical_events,
+    # Use new slot-based hierarchy builder (Phase 2 refactor)
+    report_data = aggregate_hierarchy_from_slots(
+        consolidated_slots=consolidated_slots,
         task_based=(is_task_based_report and task_events is not None),
         cat_score_map=cat_score_map,
         get_category_score=get_category_score,
         normalize_title=normalize_title,
     )
 
-    # Replace task durations for OFFLINE tasks with aggregated event duration
-    # (calculated from span of all task events for that project/task)
-    # Skip if --exclude-offline flag is set
-    if not args.exclude_offline and offline_processor:
-        # Apply user filters to OFFLINE tasks
-        search_value = getattr(args, "search", None)
-        has_filters = bool(search_value or args.project or args.task or args.app)
-
-        for key, offline_duration in offline_task_durations.items():
-            # Handle both 2-element tuples (project, task) and 3-element tuples (project, task, group_idx)
-            project = key[0]
-            task_name = key[1]
-            # Filter OFFLINE tasks based on user's search/project/task/app filters
-            if has_filters:
-                # Check if task matches any filter
-                project_match = (
-                    search_value and _matches_any(project, [search_value], args.exact)
-                ) or (args.project and _matches_any(project, args.project, args.exact))
-                task_match = (
-                    search_value and _matches_any(task_name, [search_value], args.exact)
-                ) or (args.task and _matches_any(task_name, args.task, args.exact))
-
-                if not (project_match or task_match):
-                    continue  # Skip this OFFLINE task, doesn't match filter
-
-                if _excluded(project, args.exclude_project) or _excluded(
-                    task_name, args.exclude_task
-                ):
-                    continue  # Skip excluded task
-
-            # Build categories from reconciled window+offline breakdown
-            # Get categories from OfflineTaskProcessor (which includes real window events
-            # + offline remainder), convert from list-of-dicts to dict-by-category-name
-            reconciled_categories_list = offline_processor.offline_categories.get(key, [])
-            offline_categories_dict = {}
-            for cat_dict in reconciled_categories_list:
-                cat_name = cat_dict.get("category", "Unknown")
-                # Convert list format to hierarchical dict format with duration + apps
-                offline_categories_dict[cat_name] = {
-                    "total_duration": cat_dict.get("duration", timedelta(0)),
-                    "prod_score": 0.0,
-                    # Note: apps/titles breakdown from list format not used in hierarchical
-                    # reporting, only the duration per category
-                }
-
-            if project in report_data and task_name in report_data[project]["tasks"]:
-                # Task exists in report from aggregate_hierarchy; replace its duration
-                task_node = report_data[project]["tasks"][task_name]
-                old_duration = task_node["total_duration"]
-                task_node["total_duration"] = offline_duration
-                # Update project node to reflect new task duration
-                report_data[project]["total_duration"] = (
-                    report_data[project]["total_duration"]
-                    - old_duration
-                    + offline_duration
-                )
-                # Replace categories with reconciled breakdown
-                task_node["categories"] = offline_categories_dict
-            else:
-                # Task not in report (no window events); add it from scratch
-                proj_node = report_data.setdefault(
-                    project,
-                    {"total_duration": timedelta(0), "tasks": {}, "prod_score": 0.0},
-                )
-                task_node = proj_node["tasks"].setdefault(
-                    task_name,
-                    {
-                        "total_duration": offline_duration,
-                        "categories": {},
-                        "prod_score": 0.0,
-                    },
-                )
-                proj_node["total_duration"] += offline_duration
-                task_node["categories"] = offline_categories_dict
+    # PHASE 2 REFACTOR: No OfflineTaskProcessor needed
+    # Builder handles offline/online classification correctly
+    # Old duration-replacement logic eliminated
 
     # Generate timeline slots for BOTH period-based (day/week/month/year) and hierarchical reports
     # Both report modes need consistent AFK/Offline calculations, so slots are built unconditionally
