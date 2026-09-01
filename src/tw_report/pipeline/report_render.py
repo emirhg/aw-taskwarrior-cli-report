@@ -275,7 +275,7 @@ def print_report_totals(
         active_time = totals.active_time
     else:
         # Old API: accept raw timedelta parameters
-        online_time = total_time_all
+        online_time = total_time_all or timedelta(0)
         productive_time = total_productive_all or timedelta(0)
         afk_time = total_afk
         offline_time = total_offline
