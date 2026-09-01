@@ -202,6 +202,15 @@ def main():
         # resolve_task_filter_value() call below will raise the correct
         # "not found" error for this same value.
 
+    # Check if --project accidentally consumed a period token (e.g., :lastweek)
+    # This happens when --project is used without an argument
+    if args.project:
+        for value in args.project:
+            if value.startswith(':') and value in [':today', ':yesterday', ':week', ':lastweek', ':month', ':lastmonth', ':year', ':all']:
+                print(f"Error: --project requires an argument. Did you mean to use a period ('{value}') without a filter?\n"
+                      f"Correct usage: tw-report {value} --project PATTERN", file=sys.stderr)
+                return 1
+
     # Resolve project filter values (may be task IDs, UUIDs, or literal patterns)
     if args.project:
         resolved_projects = []
