@@ -832,54 +832,42 @@ def main():
             for i, (start, end, dur) in enumerate(preparar_slots, 1):
                 print(f"  Group {i}: {start} to {end} ({dur})", file=sys.stderr)
 
-    # CRITICAL: Consolidate and deduplicate slots for both rendering modes
-    # This ensures both timeline and hierarchical reports use the same metrics
-    from tw_report.core.report_slot import ReportEntries, ReportTimelineSlot
-    from tw_report.core.period import logical_date
+    # CRITICAL: Do NOT consolidate_by_task() on builder output!
+    # The sweep-line builder produces GUARANTEED non-overlapping slots by construction.
+    # Consolidating would merge non-contiguous gaps into one mega-slot, re-introducing overlaps.
+    # Instead, use the raw builder output directly for rendering, and apply filtering.
 
-    # Consolidate by period (day/week/month/year) to deduplicate
-    # This is the SAME consolidation the timeline report does internally
-    period_groups = {}
+    from tw_report.core.report_slot import ReportTimelineSlot
+    from tw_report.pipeline.timeline_render import compute_afk_offline_totals
+
+    # Convert final_dicts to ReportTimelineSlot objects for filtering
+    report_slots = []
     for slot_dict in final_dicts:
         slot_obj = ReportTimelineSlot.from_dict(slot_dict)
-        slot_start = slot_obj.start
-        if slot_start:
-            period_key = logical_date(slot_start, day_start_hour)
-            if period_key not in period_groups:
-                period_groups[period_key] = []
-            period_groups[period_key].append(slot_obj)
+        report_slots.append(slot_obj)
 
-    # Consolidate within each period
-    consolidated_slots = []
-    for period_key in sorted(period_groups.keys()):
-        period_slots = period_groups[period_key]
-        report_entries = ReportEntries(slots_list=period_slots)
-        consolidated = report_entries.consolidate_by_task()
-        consolidated_slots.extend(consolidated.slots_list)
-
-    # Apply EventFilter to consolidated slots for accurate totals
+    # Apply EventFilter to slots BEFORE any metrics calculation
     # Totals should only include entries that match the applied filters
-    filtered_consolidated_slots = [
-        s for s in consolidated_slots
+    filtered_slots = [
+        s for s in report_slots
         if event_filter.should_include_entry(
             {'project': s.project, 'task': s.task, 'type': 'regular'},
             entry_type='regular'
         )
     ]
 
-    # Recalculate ALL metrics from filtered, deduplicated slots
-    from tw_report.pipeline.timeline_render import compute_afk_offline_totals
-    slot_afk_time, slot_offline_time = compute_afk_offline_totals(filtered_consolidated_slots)
+    # Recalculate ALL metrics from filtered slots (non-overlapping by construction)
+    slot_afk_time, slot_offline_time = compute_afk_offline_totals(filtered_slots)
 
-    # Calculate filtered active time from consolidated slots
+    # Calculate filtered active time from builder output
     # Active time = actual_duration (work time without AFK)
     slot_active_time = sum(
-        (s.actual_duration or timedelta(0) for s in filtered_consolidated_slots),
+        (s.actual_duration or timedelta(0) for s in filtered_slots),
         timedelta(0)
     )
 
-    # Convert consolidated slots back to dicts for rendering
-    consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in consolidated_slots]
+    # Convert slots back to dicts for rendering (use raw builder output, NO consolidation)
+    consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in report_slots]
 
     # Now determine which rendering mode to use: timeline (period-based) or hierarchical
     # BUG REPORTS:
