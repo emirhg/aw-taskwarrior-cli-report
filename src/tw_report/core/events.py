@@ -8,19 +8,15 @@ typed exceptions and structured logging.
 
 import logging
 import platform
-from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, List, Tuple, Type, Optional
+from datetime import datetime
+from typing import List, Type, Optional
 
 from aw_core.models import Event
 from aw_client import ActivityWatchClient
 
 from tw_report.exceptions import ActivityWatchConnectionError
 
-if TYPE_CHECKING:
-    from tw_report.core.aw_events import AFKEvent
-
 logger = logging.getLogger(__name__)
-
 
 
 def get_bucket_id(bucket_name: str) -> str:
@@ -93,120 +89,3 @@ def get_events(
             exc_info=True,
         )
         return []
-
-
-def partition_task_duration(
-    task_event: "Event",
-    afk_events: List["AFKEvent"],
-    window_events: Optional[List["Event"]] = None,
-) -> dict:
-    """Partition a TaskWarrior task duration into ACTIVE, AFK, and OFFLINE portions.
-
-    For each TaskWarrior task, correlates with AFK and window events to determine
-    what the user was actually doing:
-    - ACTIVE: time when task was active (not covered by AFK) AND windows present
-    - OFFLINE: time when task was claimed but system was powered off (no windows)
-    - AFK: time when user was idle during the task (covered by AFK)
-
-    Window events are used to validate that "ACTIVE" portions actually had the
-    system online. If no windows exist during an "ACTIVE" portion, reclassify
-    as OFFLINE (system was powered off).
-
-    Args:
-        task_event: TaskWarrior task event with duration
-        afk_events: AFK bucket events (idle time tracking)
-        window_events: optional window events to validate system was online
-
-    Returns:
-        dict with:
-            "active_portions": [(start, end), ...] - Task time not covered by AFK, with windows
-            "afk_portions": [(start, end), ...] - Task time covered by AFK
-            "offline_portions": [(start, end), ...] - Task time without windows (system offline)
-
-    Example:
-        Task: 14:00-15:30 (90 min claimed)
-        AFK: [14:20-14:30], [14:50-15:00]  (20 min idle during task)
-        Windows: [14:10-14:15], [14:35-14:40]  (only some portions had activity)
-        → active_portions: [(14:00-14:20)]  (14:10-14:15 window covers this)
-        → offline_portions: [(14:30-14:50), (15:00-15:30)]  (no windows)
-        → afk_portions: [(14:20-14:30), (14:50-15:00)]
-    """
-    task_start = task_event.timestamp
-    task_end = task_start + task_event.duration
-    window_events = window_events or []
-
-    # Find AFK periods that overlap this task
-    overlapping_afk = []
-    for a in afk_events:
-        if a.data.get("status") != "afk":
-            continue  # Skip non-AFK events
-        a_start = a.timestamp
-        a_end = a_start + a.duration
-        if a_start < task_end and a_end > task_start:
-            # Clamp to task boundaries
-            clamped_start = max(a_start, task_start)
-            clamped_end = min(a_end, task_end)
-            overlapping_afk.append((clamped_start, clamped_end))
-
-    # Sort and merge overlapping AFK periods
-    if overlapping_afk:
-        overlapping_afk.sort()
-        merged_afk = []
-        current_start, current_end = overlapping_afk[0]
-        for a_start, a_end in overlapping_afk[1:]:
-            if a_start <= current_end:
-                current_end = max(current_end, a_end)
-            else:
-                merged_afk.append((current_start, current_end))
-                current_start, current_end = a_start, a_end
-        merged_afk.append((current_start, current_end))
-    else:
-        merged_afk = []
-
-    # Calculate portions not covered by AFK (candidates for ACTIVE or OFFLINE)
-    candidate_portions = []
-    current_pos = task_start
-    for afk_start, afk_end in merged_afk:
-        if current_pos < afk_start:
-            candidate_portions.append((current_pos, afk_start))
-        current_pos = max(current_pos, afk_end)
-
-    if current_pos < task_end:
-        candidate_portions.append((current_pos, task_end))
-
-    # Build window coverage map: which times have windows
-    window_coverage = []
-    for w in window_events:
-        w_start = w.timestamp
-        w_end = w_start + w.duration
-        # Only consider windows that overlap the task
-        if w_start < task_end and w_end > task_start:
-            window_coverage.append((max(w_start, task_start), min(w_end, task_end)))
-
-    # Classify candidate portions as ACTIVE (has windows) or OFFLINE (no windows)
-    # Only classify as OFFLINE if window_events were provided AND is not empty
-    # If window_events is None or empty, default to ACTIVE (old behavior, backward compat)
-    active_portions = []
-    offline_portions = []
-
-    for cand_start, cand_end in candidate_portions:
-        if window_events:  # True if list is not empty or None
-            # Window events provided (non-empty list): check if this portion has any window coverage
-            has_window = any(
-                w_start < cand_end and w_end > cand_start
-                for w_start, w_end in window_coverage
-            )
-
-            if has_window:
-                active_portions.append((cand_start, cand_end))
-            else:
-                offline_portions.append((cand_start, cand_end))
-        else:
-            # No window events provided (None or empty): default to ACTIVE (old behavior, backward compat)
-            active_portions.append((cand_start, cand_end))
-
-    return {
-        "active_portions": active_portions,
-        "afk_portions": merged_afk,
-        "offline_portions": offline_portions,
-    }
