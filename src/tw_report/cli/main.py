@@ -1004,21 +1004,34 @@ def main():
             for i, (start, end, dur) in enumerate(preparar_slots, 1):
                 print(f"  Group {i}: {start} to {end} ({dur})", file=sys.stderr)
 
-    # Compute AFK/Offline totals from consolidated slots (used by both timeline and hierarchical reports)
-    # Import here to avoid circular dependency
+    # CRITICAL: Consolidate and deduplicate slots for both rendering modes
+    # This ensures both timeline and hierarchical reports use the same metrics
+    from tw_report.core.report_slot import ReportEntries, ReportTimelineSlot
+    from tw_report.core.period import logical_date
+
+    # Consolidate by period (day/week/month/year) to deduplicate
+    # This is the SAME consolidation the timeline report does internally
+    period_groups = {}
+    for slot_dict in final_dicts:
+        slot_obj = ReportTimelineSlot.from_dict(slot_dict)
+        slot_start = slot_obj.start
+        if slot_start:
+            period_key = logical_date(slot_start, day_start_hour)
+            if period_key not in period_groups:
+                period_groups[period_key] = []
+            period_groups[period_key].append(slot_obj)
+
+    # Consolidate within each period
+    consolidated_slots = []
+    for period_key in sorted(period_groups.keys()):
+        period_slots = period_groups[period_key]
+        report_entries = ReportEntries(slots_list=period_slots)
+        consolidated = report_entries.consolidate_by_task()
+        consolidated_slots.extend(consolidated.slots_list)
+
+    # Recalculate totals from deduplicated slots
     from tw_report.pipeline.timeline_render import compute_afk_offline_totals
-    from tw_report.core.report_slot import ReportTimelineSlot
-
-    normalized_slots = [ReportTimelineSlot.from_dict(d) for d in final_dicts]
-    slot_afk_time, slot_offline_time = compute_afk_offline_totals(normalized_slots)
-
-    # DEBUG
-    offline_task_slots = [s for s in normalized_slots if s.is_offline_task]
-    print(f"[DEBUG] final_dicts: {len(final_dicts)} slots", file=sys.stderr)
-    print(f"[DEBUG] normalized_slots: {len(normalized_slots)} slots", file=sys.stderr)
-    print(f"[DEBUG] offline_task_slots: {len(offline_task_slots)} slots", file=sys.stderr)
-    print(f"[DEBUG] slot_offline_time: {slot_offline_time}", file=sys.stderr)
-    print(f"[DEBUG] offline_task_durations keys: {len(offline_task_durations)} entries", file=sys.stderr)
+    slot_afk_time, slot_offline_time = compute_afk_offline_totals(consolidated_slots)
 
     # Now determine which rendering mode to use: timeline (period-based) or hierarchical
     if grouping_mode in ["day", "week", "month", "year"]:
