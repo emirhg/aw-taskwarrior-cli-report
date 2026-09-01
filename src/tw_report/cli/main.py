@@ -28,7 +28,7 @@ from tw_report.core.events import (
     get_events,
 )
 from tw_report.core.filtering import EventFilter, NO_PROJECT, NO_TASK
-from tw_report.core.offline import OfflineTaskProcessor
+# OfflineTaskProcessor removed in Phase 2 refactor — builder handles offline classification
 from tw_report.core.period import parse_period
 from tw_report.core.task_matching import (
     build_offline_category_structure,
@@ -52,15 +52,13 @@ from tw_report.core.task_filtering import (
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.core.timeslot_builder import build_timeslot_timeline
 from tw_report.core.report_slot import ReportEntries
-from tw_report.pipeline.generation import generate_untracked_gap_events
+# generate_untracked_gap_events removed in Phase 2 refactor — builder handles gaps
 from tw_report.pipeline.models import ReportContext
 from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
 from tw_report.pipeline.processors import (
-    build_canonical_events,
     build_context,
     compute_metrics,
     merge_overlapping_afk_periods,
-    aggregate_hierarchy,
     aggregate_hierarchy_from_slots,
     matches_user_filters,
 )
