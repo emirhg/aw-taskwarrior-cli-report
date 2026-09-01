@@ -86,6 +86,54 @@ from tw_report.utils.formatting import (
 )
 
 
+# BREAKS COLUMN FEATURE (Phase 3)
+# Functions for calculating and rendering break durations between work slots
+
+MIN_BREAK_DURATION = timedelta(minutes=5)  # Breaks < 5 min are tracking noise
+
+
+def calculate_break_duration(slot_end: datetime, next_slot_start: datetime) -> timedelta:
+    """Calculate break duration between two slots.
+
+    Args:
+        slot_end: End time of the current slot
+        next_slot_start: Start time of the next slot
+
+    Returns:
+        Break duration (clamped to 0 minimum for overlapping slots)
+    """
+    gap = next_slot_start - slot_end
+    return max(gap, timedelta(0))
+
+
+def get_gap_between_slots(slot1: Dict[str, Any], slot2: Dict[str, Any]) -> timedelta:
+    """Extract gap time between two slots.
+
+    Args:
+        slot1: First slot dict with 'start' and 'end' keys
+        slot2: Second slot dict with 'start' and 'end' keys
+
+    Returns:
+        Gap duration between slot1.end and slot2.start
+    """
+    return calculate_break_duration(slot1["end"], slot2["start"])
+
+
+def format_break_column(break_duration: Optional[timedelta]) -> str:
+    """Format break duration for timeline column display.
+
+    Args:
+        break_duration: Break duration (None or timedelta)
+
+    Returns:
+        Formatted string "HH:MM:SS" (8 chars) or blank (8 spaces)
+    """
+    if break_duration is None or break_duration < MIN_BREAK_DURATION:
+        return " " * 8  # 8 spaces for consistent column width
+
+    return format_duration(break_duration)
+
+
 # MODULE-LEVEL SLOT GROUPING FUNCTIONS (extracted from print_timeline_report)
 # These are separated to enable unit testing and reuse
 
