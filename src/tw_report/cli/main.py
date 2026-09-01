@@ -1012,6 +1012,14 @@ def main():
     normalized_slots = [ReportTimelineSlot.from_dict(d) for d in final_dicts]
     slot_afk_time, slot_offline_time = compute_afk_offline_totals(normalized_slots)
 
+    # DEBUG
+    offline_task_slots = [s for s in normalized_slots if s.is_offline_task]
+    print(f"[DEBUG] final_dicts: {len(final_dicts)} slots", file=sys.stderr)
+    print(f"[DEBUG] normalized_slots: {len(normalized_slots)} slots", file=sys.stderr)
+    print(f"[DEBUG] offline_task_slots: {len(offline_task_slots)} slots", file=sys.stderr)
+    print(f"[DEBUG] slot_offline_time: {slot_offline_time}", file=sys.stderr)
+    print(f"[DEBUG] offline_task_durations keys: {len(offline_task_durations)} entries", file=sys.stderr)
+
     # Now determine which rendering mode to use: timeline (period-based) or hierarchical
     if grouping_mode in ["day", "week", "month", "year"]:
         TimelineReport(print_timeline_report).present(
@@ -1045,17 +1053,9 @@ def main():
             context.is_task_based_report and context.task_events is not None
         )
 
-        # Use pre-computed slot-based AFK metric for consistent TOTALS
+        # Use pre-computed slot-based metrics — same calculation as timeline report
         afk_time_calc = slot_afk_time if slot_afk_time > timedelta(0) else None
-
-        # Offline time: use offline_task_durations (includes injected OFFLINE tasks from report_data)
-        # This is different from slot-based calculation which only covers rendered slots
-        total_offline_calc = sum(
-            (duration for duration in offline_task_durations.values()),
-            timedelta(0)
-        )
-        if total_offline_calc == timedelta(0):
-            total_offline_calc = None
+        total_offline_calc = slot_offline_time if slot_offline_time > timedelta(0) else None
 
         # Total online time = Active + AFK
         total_time_calc = None

@@ -704,7 +704,12 @@ def print_timeline_report(
 
     # Calculate total AFK and OFFLINE time using the shared calculation
     # This ensures both timeline and hierarchical reports show identical TOTALS
-    total_afk_time, total_offline_time = compute_afk_offline_totals(slots)
+    # CRITICAL: Calculate totals AFTER period-based consolidation, not here
+    # Early calculation on pre-consolidation slots counts duplicates multiple times
+    # See line ~1036 for the CORRECT calculation on deduplicated slots
+    # Placeholder values will be replaced after consolidation
+    total_afk_time = timedelta(0)
+    total_offline_time = timedelta(0)
 
     # Calculate total_time_including_offline for Project Tracking percentage denominator
     # Project Tracking should be calculated as % of total time (online + offline)
@@ -974,6 +979,7 @@ def print_timeline_report(
                 period_groups[period_key] = []
             period_groups[period_key].append(slot)
 
+    # DEBUG: count offline slots by period
     # Consolidate within each period, then flatten back to list
     consolidated_slots = []
     for period_key in sorted(period_groups.keys()):
@@ -1004,8 +1010,27 @@ def print_timeline_report(
         timedelta(0),
     )
 
-    # RECALCULATE total_offline_time POST-consolidation
+    # RECALCULATE AFK and OFFLINE TOTALS POST-consolidation
     # Use consolidated slots for accuracy (avoids double-counting duplicates)
+    # This replaces the early placeholder calculation at line 707
+
+    # AFK time calculation (same logic as compute_afk_offline_totals)
+    has_consolidated_afk = any((s.afk_duration is not None for s in slots if not isinstance(s, dict)))
+    if has_consolidated_afk:
+        # Consolidated slots: AFK time is in afk_duration field
+        total_afk_time = sum(
+            (s.afk_duration or timedelta(0) for s in slots if not isinstance(s, dict) and s.afk_duration),
+            timedelta(0),
+        )
+    else:
+        # Regular slots: AFK time is in is_afk_only slots
+        total_afk_time = sum(
+            (s.actual_duration if s.actual_duration else s.duration
+             for s in slots if not isinstance(s, dict) and s.is_afk_only),
+            timedelta(0),
+        )
+
+    # OFFLINE time calculation
     def get_offline_duration(s):
         # Prefer offline_extension_duration if set (consolidated slots)
         if hasattr(s, 'offline_extension_duration') and s.offline_extension_duration:
@@ -1015,7 +1040,7 @@ def print_timeline_report(
 
     total_offline_time = sum(
         (get_offline_duration(s)
-         for s in slots if s.is_offline_task),
+         for s in slots if not isinstance(s, dict) and s.is_offline_task),
         timedelta(0),
     )
 
@@ -1357,6 +1382,8 @@ def print_timeline_report(
         full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
         print(full_line.rstrip())
         print()
+
+    # DEBUG: Verify what we're actually passing to print_report_totals
 
     print_report_totals(
         total_time_all=online_time_final,
