@@ -1048,9 +1048,16 @@ def main():
         )
     ]
 
-    # Recalculate totals from filtered, deduplicated slots
+    # Recalculate ALL metrics from filtered, deduplicated slots
     from tw_report.pipeline.timeline_render import compute_afk_offline_totals
     slot_afk_time, slot_offline_time = compute_afk_offline_totals(filtered_consolidated_slots)
+
+    # Calculate filtered active time from consolidated slots
+    # Active time = actual_duration (work time without AFK)
+    slot_active_time = sum(
+        (s.actual_duration or timedelta(0) for s in filtered_consolidated_slots),
+        timedelta(0)
+    )
 
     # Convert consolidated slots back to dicts for rendering
     consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in consolidated_slots]
@@ -1063,7 +1070,7 @@ def main():
             start_time=start_time,
             end_time=end_time,
             detail_level=args.detail_level,
-            non_afk_time=context.metrics.non_afk_time,
+            non_afk_time=slot_active_time,
             productive_time=context.metrics.productive_time,
             productive_task_time=context.metrics.productive_task_time,
             first_event_time=context.metrics.first_event_time,
@@ -1088,14 +1095,14 @@ def main():
             context.is_task_based_report and context.task_events is not None
         )
 
-        # Use pre-computed slot-based metrics — same calculation as timeline report
+        # Use filtered slot-based metrics — same calculation as timeline report
         afk_time_calc = slot_afk_time if slot_afk_time > timedelta(0) else None
         total_offline_calc = slot_offline_time if slot_offline_time > timedelta(0) else None
 
-        # Total online time = Active + AFK
+        # Total online time = Active + AFK (using filtered active time)
         total_time_calc = None
-        if context.metrics.non_afk_time:
-            total_time_calc = context.metrics.non_afk_time + (afk_time_calc or timedelta(0))
+        if slot_active_time:
+            total_time_calc = slot_active_time + (afk_time_calc or timedelta(0))
 
         HierarchicalReport(print_report).present(
             report_data=report_data,
@@ -1104,7 +1111,7 @@ def main():
             end_time=end_time,
             task_based=report_task_based,
             detail_level=args.detail_level,
-            non_afk_time=context.metrics.non_afk_time,
+            non_afk_time=slot_active_time,
             productive_time=context.metrics.productive_time,
             productive_task_time=context.metrics.productive_task_time,
             first_event_time=context.metrics.first_event_time,
