@@ -720,289 +720,300 @@ def main():
                 proj_node["total_duration"] += offline_duration
                 task_node["categories"] = offline_categories_dict
 
-    # Generate timeline report for period-based grouping (day/week/month/year)
-    # Hierarchical (by-project) is handled in the else clause
-    if grouping_mode in ["day", "week", "month", "year"]:
-        timeline_events = [
-            {
-                "event": rep.event,
-                "project": rep.project,
-                "task": rep.task,
-                "active_task": rep.active_task,
-            }
-            for rep in context.canonical_events
-        ]
+    # Generate timeline slots for BOTH period-based (day/week/month/year) and hierarchical reports
+    # Both report modes need consistent AFK/Offline calculations, so slots are built unconditionally
+    # The if/else below only controls which rendering mode (timeline vs hierarchical) is used
+
+    timeline_events = [
+        {
+            "event": rep.event,
+            "project": rep.project,
+            "task": rep.task,
+            "active_task": rep.active_task,
+        }
+        for rep in context.canonical_events
+    ]
 
 
-        # Use Timeline for internal slot management (Phase 3 migration)
-        timeline = Timeline()
+    # Use Timeline for internal slot management (Phase 3 migration)
+    timeline = Timeline()
 
-        # EVENT-BASED TIMESHEET APPROACH (2026-07-30):
-        # For timesheet modes, use per-event OFFLINE task slots (one per event)
-        # These are now included in partitioned_task_slots, so DON'T add them separately
-        # to avoid duplication. Just document the approach for clarity.
-        # (Previously added event_based_offline_slots separately at this point, but
-        # that caused double-counting with partitioned_task_slots, so we skip it now.)
+    # EVENT-BASED TIMESHEET APPROACH (2026-07-30):
+    # For timesheet modes, use per-event OFFLINE task slots (one per event)
+    # These are now included in partitioned_task_slots, so DON'T add them separately
+    # to avoid duplication. Just document the approach for clarity.
+    # (Previously added event_based_offline_slots separately at this point, but
+    # that caused double-counting with partitioned_task_slots, so we skip it now.)
 
-        # Task-only modes: taskwarrior events (no window events, no AFK correlation)
-        # This includes: task UUID mode (--task-id) and project filter mode
-        if not requires_window_data:
-            # Build slots directly from taskwarrior events (simpler format)
-            initial_slots = []
-            for rep in context.canonical_events:
-                event = rep.event
+    # Task-only modes: taskwarrior events (no window events, no AFK correlation)
+    # This includes: task UUID mode (--task-id) and project filter mode
+    if not requires_window_data:
+        # Build slots directly from taskwarrior events (simpler format)
+        initial_slots = []
+        for rep in context.canonical_events:
+            event = rep.event
 
-                # Determine slot type: regular task or untracked ACTIVE/AFK gap
-                gap_type = event.data.get("gap_type") if event.data else None
-                if gap_type == "untracked_active":
-                    # ACTIVE gap: duration is active time, afk_duration is 0
-                    slot = {
-                        "start": event.timestamp.astimezone(),
-                        "end": (event.timestamp + event.duration).astimezone(),
-                        "duration": event.duration,
-                        "actual_duration": event.duration,
-                        "afk_duration": timedelta(0),  # No AFK in this slot
-                        "project": rep.project,
-                        "task": rep.task,
-                        "category": "Task Activity",
-                        "type": "regular",
-                        "categories": [],
-                    }
-                elif gap_type == "untracked_afk":
-                    # AFK gap: afk_duration equals total duration
-                    slot = {
-                        "start": event.timestamp.astimezone(),
-                        "end": (event.timestamp + event.duration).astimezone(),
-                        "duration": event.duration,
-                        "actual_duration": event.duration,
-                        "afk_duration": event.duration,  # Entire slot is AFK
-                        "project": rep.project,
-                        "task": rep.task,
-                        "category": "Task Activity",
-                        "type": "afk",
-                        "categories": [],
-                    }
-                else:
-                    # Regular task event
-                    slot = {
-                        "start": event.timestamp.astimezone(),
-                        "end": (event.timestamp + event.duration).astimezone(),
-                        "duration": event.duration,
-                        "actual_duration": event.duration,
-                        "project": rep.project,
-                        "task": rep.task,
-                        "category": "Task Activity",
-                        "type": "regular",
-                        "categories": [],
-                    }
-                initial_slots.append(slot)
-        else:
-            # Normal mode: use partitioned task slots instead of combined ones
-            # This ensures ACTIVE and AFK time are represented in separate slots
-            initial_slots = []
+            # Determine slot type: regular task or untracked ACTIVE/AFK gap
+            gap_type = event.data.get("gap_type") if event.data else None
+            if gap_type == "untracked_active":
+                # ACTIVE gap: duration is active time, afk_duration is 0
+                slot = {
+                    "start": event.timestamp.astimezone(),
+                    "end": (event.timestamp + event.duration).astimezone(),
+                    "duration": event.duration,
+                    "actual_duration": event.duration,
+                    "afk_duration": timedelta(0),  # No AFK in this slot
+                    "project": rep.project,
+                    "task": rep.task,
+                    "category": "Task Activity",
+                    "type": "regular",
+                    "categories": [],
+                }
+            elif gap_type == "untracked_afk":
+                # AFK gap: afk_duration equals total duration
+                slot = {
+                    "start": event.timestamp.astimezone(),
+                    "end": (event.timestamp + event.duration).astimezone(),
+                    "duration": event.duration,
+                    "actual_duration": event.duration,
+                    "afk_duration": event.duration,  # Entire slot is AFK
+                    "project": rep.project,
+                    "task": rep.task,
+                    "category": "Task Activity",
+                    "type": "afk",
+                    "categories": [],
+                }
+            else:
+                # Regular task event
+                slot = {
+                    "start": event.timestamp.astimezone(),
+                    "end": (event.timestamp + event.duration).astimezone(),
+                    "duration": event.duration,
+                    "actual_duration": event.duration,
+                    "project": rep.project,
+                    "task": rep.task,
+                    "category": "Task Activity",
+                    "type": "regular",
+                    "categories": [],
+                }
+            initial_slots.append(slot)
+    else:
+        # Normal mode: use partitioned task slots instead of combined ones
+        # This ensures ACTIVE and AFK time are represented in separate slots
+        initial_slots = []
 
-        # Add initial slots to timeline (task-only or window-free modes)
-        # When requires_window_data is False, these are the only slots we have
-        # (partitioned_task_slots are generated separately when window data IS available)
-        if initial_slots:
-            timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
+    # Add initial slots to timeline (task-only or window-free modes)
+    # When requires_window_data is False, these are the only slots we have
+    # (partitioned_task_slots are generated separately when window data IS available)
+    if initial_slots:
+        timeline.add_slots([TimelineSlot.from_dict(s) for s in initial_slots])
 
-        # Inject synthetic slots for OFFLINE task events
-        # (these use aggregated task event duration from span of all events)
-        # Skip if --exclude-offline flag is set
-        if offline_task_durations and not args.exclude_offline and offline_processor:
-            # Apply user filters to OFFLINE tasks
-            search_value = getattr(args, "search", None)
-            has_filters = bool(search_value or args.project or args.task or args.app)
+    # Inject synthetic slots for OFFLINE task events
+    # (these use aggregated task event duration from span of all events)
+    # Skip if --exclude-offline flag is set
+    if offline_task_durations and not args.exclude_offline and offline_processor:
+        # Apply user filters to OFFLINE tasks
+        search_value = getattr(args, "search", None)
+        has_filters = bool(search_value or args.project or args.task or args.app)
 
-        
-            # Iterate through offline tasks (keys can be 2-element or 3-element tuples)
-            # Group by (project, task) to consolidate split groups (from task interruptions)
-            if task_events:
-                # Consolidate 3-tuple keys back to 2-tuple (project, task) for display
-                consolidated_keys = {}
-                for key in offline_task_durations.keys():
-                    base_key = (key[0], key[1]) if len(key) == 3 else key
-                    if base_key not in consolidated_keys:
-                        consolidated_keys[base_key] = []
-                    consolidated_keys[base_key].append(key)
-
-                for base_key, group_keys in consolidated_keys.items():
-                    # Extract project and task from base_key
-                    project = base_key[0]
-                    task_name = base_key[1]
-
-                    # Apply filters to OFFLINE tasks
-                    if has_filters:
-                        # Check if task matches any filter
-                        project_match = (
-                            search_value
-                            and _matches_any(project, [search_value], args.exact)
-                        ) or (
-                            args.project
-                            and _matches_any(project, args.project, args.exact)
-                        )
-                        task_match = (
-                            search_value
-                            and _matches_any(task_name, [search_value], args.exact)
-                        ) or (
-                            args.task
-                            and _matches_any(task_name, args.task, args.exact)
-                        )
-
-                        if not (project_match or task_match):
-                            continue  # Skip this OFFLINE task, doesn't match filter
-
-                        if _excluded(project, args.exclude_project) or _excluded(
-                            task_name, args.exclude_task
-                        ):
-                            continue  # Skip excluded task
-
-                    # Use canonical builder from OfflineTaskProcessor
-                    # This ensures all offline_task slots are built consistently with proper
-                    # event_duration field (critical for identification via is_offline_task).
-                    # Merge all events from all groups for this (project, task) pair
-                    task_events_for_key = []
-                    for key in group_keys:
-                        task_events_for_key.extend(offline_event_groups.get(key, []))
-                    if task_events_for_key:
-                        offline_slot_rts = offline_processor.get_synthetic_slot(
-                            key, task_events_for_key
-                        )
-                        if offline_slot_rts and offline_slot_rts.duration > timedelta(0):
-                            # Convert ReportTimelineSlot back to TimelineSlot for Timeline compatibility
-                            # (temporary bridge during migration to new model)
-                            ts = TimelineSlot(
-                                type="offline_task",
-                                start=offline_slot_rts.start,
-                                end=offline_slot_rts.end,
-                                duration=offline_slot_rts.duration,
-                                actual_duration=offline_slot_rts.actual_duration,
-                                productive_duration=offline_slot_rts.productive_duration,
-                                project=offline_slot_rts.project,
-                                task=offline_slot_rts.task,
-                                tags=offline_slot_rts.tags,
-                                categories=offline_slot_rts.categories,
-                                event_duration=offline_slot_rts.event_duration,
-                                offline_extension_duration=offline_slot_rts.offline_extension_duration,  # CRITICAL: preserve offline duration
-                            )
-                            timeline.add_from_dict(ts.to_dict())
-
-        # Timeline auto-sorts on insertion, no need to manually sort
-
-        # FIX: Fetch window events if not already loaded, needed for AFK false positive detection
-        # Even if optimization skipped windows earlier, we need them to detect offline periods
-        if not window_events and context.afk_events:
-            from tw_report.core.aw_events import WindowEvent
-            window_bucket = get_bucket_id("window")
-            window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
-            for event in window_events:
-                categorize_event(event, compiled_categories)
-
-        # Generate AFK and OFFLINE slots from uncovered AFK events (not associated with any task)
-        # Delegates false-positive detection (system offline vs. user idle) to AFKEvent.split_by_coverage()
-        afk_offline_slots = generate_afk_and_offline_slots(
-            context.afk_events,
-            context.task_events,
-            window_events=window_events,
-        )
-
-        # Generate ACTIVE slots from status="not-afk" events (keyboard/mouse activity)
-        # Partition by AFK events to split long continuous periods into AFK and pure ACTIVE portions
-        active_periods = context.bucket_events.get_active_periods()
-        active_slots = convert_active_periods_to_slots(
-            active_periods,
-            context.task_events,
-            afk_events=context.afk_events,
-        )
-
-        # Generate partitioned TaskWarrior task slots (ACTIVE/AFK/OFFLINE portions)
-        # This breaks down each task duration into its constituent components,
-        # enabling proper AFK time accountability (fixes 42-second mismatch)
-        partitioned_task_slots = generate_partitioned_task_slots(
-            context.task_events,
-            window_events,
-            context.afk_events,
-        )
-
-        # Combine AFK/offline slots with partitioned task slots and ACTIVE slots for uncovered periods
-        # OFFLINE task slots are handled separately at line 816+ (injected via offline_task_durations)
-        # This keeps OFFLINE tasks consolidated by (project, task) instead of spread across per-event slots
-        all_slot_entries = afk_offline_slots + active_slots + partitioned_task_slots
-
-        # Filter entries using unified EventFilter for consistency
-        # (replaces 50+ lines of scattered filter logic)
-        # CRITICAL: Also filter out NO_PROJECT slots if --exclude-non-project is set
-        all_slot_entries = [
-            g
-            for g in all_slot_entries
-            if event_filter.should_include_entry(g, entry_type=g.get("type", "gap"))
-            and not (args.exclude_non_project and g.get("project") == NO_PROJECT)  # Exclude bare AFK/active gaps if --exclude-non-project
-        ]
-
-        # FIX: --exclude-afk removes AFK period slots from the timeline
-        if args.exclude_afk:
-            all_slot_entries = [g for g in all_slot_entries if g.get("type") != "afk"]
-
-        # BUGFIX: Remove AFK slots for OFFLINE-tagged tasks to prevent overlap with OFFLINE synthetic slots
-        # When a user is AFK during an OFFLINE-tagged task, the OFFLINE synthetic slot already
-        # captures that period with accurate duration. Showing both AFK and OFFLINE slots creates
-        # confusing overlapping entries. Keep AFK-only entries (tasks="NO TASK") and AFK for non-OFFLINE tasks.
-        if offline_task_durations and all_slot_entries:
-            # Extract the base (project, task) keys from offline_task_durations
-            # (some keys might be 3-tuples with group_idx, so extract first 2 elements)
-            offline_tasks = set()
+    
+        # Iterate through offline tasks (keys can be 2-element or 3-element tuples)
+        # Group by (project, task) to consolidate split groups (from task interruptions)
+        if task_events:
+            # Consolidate 3-tuple keys back to 2-tuple (project, task) for display
+            consolidated_keys = {}
             for key in offline_task_durations.keys():
-                offline_tasks.add((key[0], key[1]))
+                base_key = (key[0], key[1]) if len(key) == 3 else key
+                if base_key not in consolidated_keys:
+                    consolidated_keys[base_key] = []
+                consolidated_keys[base_key].append(key)
 
-            all_slot_entries = [
-                g for g in all_slot_entries
-                if g.get("type") not in ("afk", "afk_task") or (g.get("project"), g.get("task")) not in offline_tasks
-            ]
+            for base_key, group_keys in consolidated_keys.items():
+                # Extract project and task from base_key
+                project = base_key[0]
+                task_name = base_key[1]
 
-        # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
-        # Use the standard timeline rendering which shows chronological slots
-        # Each slot renders independently: no combining of work slots with embedded AFK
+                # Apply filters to OFFLINE tasks
+                if has_filters:
+                    # Check if task matches any filter
+                    project_match = (
+                        search_value
+                        and _matches_any(project, [search_value], args.exact)
+                    ) or (
+                        args.project
+                        and _matches_any(project, args.project, args.exact)
+                    )
+                    task_match = (
+                        search_value
+                        and _matches_any(task_name, [search_value], args.exact)
+                    ) or (
+                        args.task
+                        and _matches_any(task_name, args.task, args.exact)
+                    )
 
-        # Add all slot entries to timeline (auto-sorts on insertion)
-        timeline.add_slots([TimelineSlot.from_dict(g) for g in all_slot_entries])
+                    if not (project_match or task_match):
+                        continue  # Skip this OFFLINE task, doesn't match filter
 
-        # Convert timeline to ReportEntries for type normalization
-        # CRITICAL: This converts "active_task"/"afk_task" types to standard "regular"/"afk" types
-        # that the rendering code understands. Do NOT combine work with embedded AFK here.
-        report_timeline = timeline.to_report_timeline()
+                    if _excluded(project, args.exclude_project) or _excluded(
+                        task_name, args.exclude_task
+                    ):
+                        continue  # Skip excluded task
 
-        # NOTE: consolidate_by_task() is now called in the rendering layer (print_timeline_report)
-        # so that consolidation respects the rendering period (day, week, month, year)
-        # This prevents cross-period consolidation that would create entries spanning multiple days
+                # Use canonical builder from OfflineTaskProcessor
+                # This ensures all offline_task slots are built consistently with proper
+                # event_duration field (critical for identification via is_offline_task).
+                # Merge all events from all groups for this (project, task) pair
+                task_events_for_key = []
+                for key in group_keys:
+                    task_events_for_key.extend(offline_event_groups.get(key, []))
+                if task_events_for_key:
+                    offline_slot_rts = offline_processor.get_synthetic_slot(
+                        key, task_events_for_key
+                    )
+                    if offline_slot_rts and offline_slot_rts.duration > timedelta(0):
+                        # Convert ReportTimelineSlot back to TimelineSlot for Timeline compatibility
+                        # (temporary bridge during migration to new model)
+                        ts = TimelineSlot(
+                            type="offline_task",
+                            start=offline_slot_rts.start,
+                            end=offline_slot_rts.end,
+                            duration=offline_slot_rts.duration,
+                            actual_duration=offline_slot_rts.actual_duration,
+                            productive_duration=offline_slot_rts.productive_duration,
+                            project=offline_slot_rts.project,
+                            task=offline_slot_rts.task,
+                            tags=offline_slot_rts.tags,
+                            categories=offline_slot_rts.categories,
+                            event_duration=offline_slot_rts.event_duration,
+                            offline_extension_duration=offline_slot_rts.offline_extension_duration,  # CRITICAL: preserve offline duration
+                        )
+                        timeline.add_from_dict(ts.to_dict())
 
-        final_dicts = report_timeline.as_dicts()
+    # Timeline auto-sorts on insertion, no need to manually sort
 
-        # Apply session-merging consolidation if --consolidate flag is set
-        if args.consolidate:
-            from tw_report.pipeline.consolidation import consolidate_sessions
-            before = len(final_dicts)
-            final_dicts = consolidate_sessions(final_dicts)
-            after = len(final_dicts)
+    # FIX: Fetch window events if not already loaded, needed for AFK false positive detection
+    # Even if optimization skipped windows earlier, we need them to detect offline periods
+    if not window_events and context.afk_events:
+        from tw_report.core.aw_events import WindowEvent
+        window_bucket = get_bucket_id("window")
+        window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
+        for event in window_events:
+            categorize_event(event, compiled_categories)
 
-            # Log what the consolidated slots are
-            task_summary = {}
-            preparar_slots = []
-            for slot in final_dicts:
-                task = slot.get('task', 'unknown')
-                task_summary[task] = task_summary.get(task, 0) + 1
-                if 'Preparar masa' in task:
-                    preparar_slots.append((slot['start'], slot['end'], slot['duration']))
+    # Generate AFK and OFFLINE slots from uncovered AFK events (not associated with any task)
+    # Delegates false-positive detection (system offline vs. user idle) to AFKEvent.split_by_coverage()
+    afk_offline_slots = generate_afk_and_offline_slots(
+        context.afk_events,
+        context.task_events,
+        window_events=window_events,
+    )
 
-            print(f"[CONSOLIDATION] Consolidated slots by task:", file=sys.stderr)
-            for task, count in sorted(task_summary.items()):
-                print(f"  {task}: {count} slot(s)", file=sys.stderr)
+    # Generate ACTIVE slots from status="not-afk" events (keyboard/mouse activity)
+    # Partition by AFK events to split long continuous periods into AFK and pure ACTIVE portions
+    active_periods = context.bucket_events.get_active_periods()
+    active_slots = convert_active_periods_to_slots(
+        active_periods,
+        context.task_events,
+        afk_events=context.afk_events,
+    )
 
-            if preparar_slots:
-                print(f"[CONSOLIDATION] 'Preparar masa' consolidated groups:", file=sys.stderr)
-                for i, (start, end, dur) in enumerate(preparar_slots, 1):
-                    print(f"  Group {i}: {start} to {end} ({dur})", file=sys.stderr)
+    # Generate partitioned TaskWarrior task slots (ACTIVE/AFK/OFFLINE portions)
+    # This breaks down each task duration into its constituent components,
+    # enabling proper AFK time accountability (fixes 42-second mismatch)
+    partitioned_task_slots = generate_partitioned_task_slots(
+        context.task_events,
+        window_events,
+        context.afk_events,
+    )
 
+    # Combine AFK/offline slots with partitioned task slots and ACTIVE slots for uncovered periods
+    # OFFLINE task slots are handled separately at line 816+ (injected via offline_task_durations)
+    # This keeps OFFLINE tasks consolidated by (project, task) instead of spread across per-event slots
+    all_slot_entries = afk_offline_slots + active_slots + partitioned_task_slots
+
+    # Filter entries using unified EventFilter for consistency
+    # (replaces 50+ lines of scattered filter logic)
+    # CRITICAL: Also filter out NO_PROJECT slots if --exclude-non-project is set
+    all_slot_entries = [
+        g
+        for g in all_slot_entries
+        if event_filter.should_include_entry(g, entry_type=g.get("type", "gap"))
+        and not (args.exclude_non_project and g.get("project") == NO_PROJECT)  # Exclude bare AFK/active gaps if --exclude-non-project
+    ]
+
+    # FIX: --exclude-afk removes AFK period slots from the timeline
+    if args.exclude_afk:
+        all_slot_entries = [g for g in all_slot_entries if g.get("type") != "afk"]
+
+    # BUGFIX: Remove AFK slots for OFFLINE-tagged tasks to prevent overlap with OFFLINE synthetic slots
+    # When a user is AFK during an OFFLINE-tagged task, the OFFLINE synthetic slot already
+    # captures that period with accurate duration. Showing both AFK and OFFLINE slots creates
+    # confusing overlapping entries. Keep AFK-only entries (tasks="NO TASK") and AFK for non-OFFLINE tasks.
+    if offline_task_durations and all_slot_entries:
+        # Extract the base (project, task) keys from offline_task_durations
+        # (some keys might be 3-tuples with group_idx, so extract first 2 elements)
+        offline_tasks = set()
+        for key in offline_task_durations.keys():
+            offline_tasks.add((key[0], key[1]))
+
+        all_slot_entries = [
+            g for g in all_slot_entries
+            if g.get("type") not in ("afk", "afk_task") or (g.get("project"), g.get("task")) not in offline_tasks
+        ]
+
+    # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
+    # Use the standard timeline rendering which shows chronological slots
+    # Each slot renders independently: no combining of work slots with embedded AFK
+
+    # Add all slot entries to timeline (auto-sorts on insertion)
+    timeline.add_slots([TimelineSlot.from_dict(g) for g in all_slot_entries])
+
+    # Convert timeline to ReportEntries for type normalization
+    # CRITICAL: This converts "active_task"/"afk_task" types to standard "regular"/"afk" types
+    # that the rendering code understands. Do NOT combine work with embedded AFK here.
+    report_timeline = timeline.to_report_timeline()
+
+    # NOTE: consolidate_by_task() is now called in the rendering layer (print_timeline_report)
+    # so that consolidation respects the rendering period (day, week, month, year)
+    # This prevents cross-period consolidation that would create entries spanning multiple days
+
+    final_dicts = report_timeline.as_dicts()
+
+    # Apply session-merging consolidation if --consolidate flag is set
+    if args.consolidate:
+        from tw_report.pipeline.consolidation import consolidate_sessions
+        before = len(final_dicts)
+        final_dicts = consolidate_sessions(final_dicts)
+        after = len(final_dicts)
+
+        # Log what the consolidated slots are
+        task_summary = {}
+        preparar_slots = []
+        for slot in final_dicts:
+            task = slot.get('task', 'unknown')
+            task_summary[task] = task_summary.get(task, 0) + 1
+            if 'Preparar masa' in task:
+                preparar_slots.append((slot['start'], slot['end'], slot['duration']))
+
+        print(f"[CONSOLIDATION] Consolidated slots by task:", file=sys.stderr)
+        for task, count in sorted(task_summary.items()):
+            print(f"  {task}: {count} slot(s)", file=sys.stderr)
+
+        if preparar_slots:
+            print(f"[CONSOLIDATION] 'Preparar masa' consolidated groups:", file=sys.stderr)
+            for i, (start, end, dur) in enumerate(preparar_slots, 1):
+                print(f"  Group {i}: {start} to {end} ({dur})", file=sys.stderr)
+
+    # Compute AFK/Offline totals from consolidated slots (used by both timeline and hierarchical reports)
+    # Import here to avoid circular dependency
+    from tw_report.pipeline.timeline_render import compute_afk_offline_totals
+    from tw_report.core.report_slot import ReportTimelineSlot
+
+    normalized_slots = [ReportTimelineSlot.from_dict(d) for d in final_dicts]
+    slot_afk_time, slot_offline_time = compute_afk_offline_totals(normalized_slots)
+
+    # Now determine which rendering mode to use: timeline (period-based) or hierarchical
+    if grouping_mode in ["day", "week", "month", "year"]:
         TimelineReport(print_timeline_report).present(
             slots=final_dicts,
             period=period,
@@ -1028,26 +1039,15 @@ def main():
             day_start_hour=day_start_hour,
         )
     else:
+        # Hierarchical (--by-project) report: use slot-based AFK/Offline calculations for consistency
         # If no task_events, treat as non-task-based report regardless of is_task_based_report
         report_task_based = (
             context.is_task_based_report and context.task_events is not None
         )
 
-        # Calculate AFK time from raw AFK events (filter by status='afk' only)
-        # AFK bucket contains both 'afk' (idle) and 'not-afk' (active) entries that tile the period
-        # Only sum the idle entries to get true AFK duration; mirrors the pattern at line 348-349
-        afk_only_events = filter_keyvals(afk_events, "status", ["afk"])
-        afk_time_calc = sum((e.duration for e in afk_only_events), timedelta(0))
-        if afk_time_calc == timedelta(0):
-            afk_time_calc = None
-
-        # Calculate total offline time from OFFLINE tasks
-        total_offline_calc = sum(
-            (duration for duration in offline_task_durations.values()),
-            timedelta(0)
-        )
-        if total_offline_calc == timedelta(0):
-            total_offline_calc = None
+        # Use pre-computed slot-based AFK/Offline metrics for consistent TOTALS
+        afk_time_calc = slot_afk_time if slot_afk_time > timedelta(0) else None
+        total_offline_calc = slot_offline_time if slot_offline_time > timedelta(0) else None
 
         # Total online time = Active + AFK
         total_time_calc = None

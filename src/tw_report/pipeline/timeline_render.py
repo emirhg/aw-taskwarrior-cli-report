@@ -58,7 +58,7 @@ This approach was chosen over fixed-column padding because:
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union
+from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union, Tuple
 from itertools import groupby
 import re
 from aw_transform import filter_keyvals
@@ -88,6 +88,48 @@ from tw_report.utils.formatting import (
 
 # MODULE-LEVEL SLOT GROUPING FUNCTIONS (extracted from print_timeline_report)
 # These are separated to enable unit testing and reuse
+
+
+def compute_afk_offline_totals(slots: List["ReportTimelineSlot"]) -> Tuple[timedelta, timedelta]:
+    """Compute total AFK and Offline duration from normalized report slots.
+
+    This calculation is used by both timeline and hierarchical reports to ensure
+    consistent TOTALS display. It mirrors the logic at print_timeline_report():663-701.
+
+    Returns:
+        (total_afk_time, total_offline_time) tuple of timedeltas
+    """
+    # Check if slots have afk_duration field (from consolidation)
+    has_consolidated_afk = any(s.afk_duration is not None for s in slots)
+
+    if has_consolidated_afk:
+        # Consolidated slots: AFK time is in afk_duration field
+        total_afk_time = sum(
+            (slot.afk_duration or timedelta(0) for slot in slots),
+            timedelta(0),
+        )
+    else:
+        # Regular slots: AFK time is in is_afk_only slots
+        afk_slots = [s for s in slots if s.is_afk_only]
+        total_afk_time = sum(
+            (slot.actual_duration if slot.actual_duration else slot.duration for slot in afk_slots),
+            timedelta(0),
+        )
+
+    # Calculate total OFFLINE time
+    def get_offline_duration(s):
+        # Prefer offline_extension_duration if set (consolidated slots)
+        if hasattr(s, 'offline_extension_duration') and s.offline_extension_duration:
+            return s.offline_extension_duration
+        # Fall back to duration - event_duration (pre-consolidation slots)
+        return s.duration - (s.event_duration or timedelta(0))
+
+    total_offline_time = sum(
+        (get_offline_duration(s) for s in slots if s.is_offline_task),
+        timedelta(0),
+    )
+
+    return total_afk_time, total_offline_time
 
 
 def get_slot_week_key(slot: Union[Dict, "ReportTimelineSlot"], day_start_hour: int = 4) -> str:
@@ -660,45 +702,9 @@ def print_timeline_report(
         timedelta(0),
     )
 
-    # Calculate total AFK time
-    # AFK Time = sum of "afk" status events from AFK bucket (idle periods)
-    # This is a SUBSET of Online Time, not separate from it
-    # Relationship: Online Time = Active Time + AFK Time
-    #
-    # Check if slots have afk_duration field (from consolidation)
-    has_consolidated_afk = any(s.afk_duration is not None for s in slots)
-
-    if has_consolidated_afk:
-        # Consolidated slots: AFK time is in afk_duration field
-        # NOTE: This currently only sums embedded AFK (idle during work tasks),
-        # missing standalone AFK-only periods. See task: partition-taskwarrior-events
-        total_afk_time = sum(
-            (slot.afk_duration or timedelta(0) for slot in slots),
-            timedelta(0),
-        )
-    else:
-        # Regular slots: AFK time is in is_afk_only slots
-        afk_slots = [s for s in slots if s.is_afk_only]
-
-        total_afk_time = sum(
-            (slot.actual_duration if slot.actual_duration else slot.duration for slot in afk_slots),
-            timedelta(0),
-        )
-
-    # Calculate total OFFLINE time PRE-consolidation (for summary at top)
-    # Will be recalculated POST-consolidation for TOTALS
-    def get_offline_duration(s):
-        # Prefer offline_extension_duration if set (consolidated slots)
-        if hasattr(s, 'offline_extension_duration') and s.offline_extension_duration:
-            return s.offline_extension_duration
-        # Fall back to duration - event_duration (pre-consolidation slots)
-        return s.duration - (s.event_duration or timedelta(0))
-
-    total_offline_time = sum(
-        (get_offline_duration(s)
-         for s in slots if s.is_offline_task),
-        timedelta(0),
-    )
+    # Calculate total AFK and OFFLINE time using the shared calculation
+    # This ensures both timeline and hierarchical reports show identical TOTALS
+    total_afk_time, total_offline_time = compute_afk_offline_totals(slots)
 
     # Calculate total_time_including_offline for Project Tracking percentage denominator
     # Project Tracking should be calculated as % of total time (online + offline)
