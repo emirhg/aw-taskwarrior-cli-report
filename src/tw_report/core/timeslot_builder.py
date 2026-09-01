@@ -185,6 +185,7 @@ def build_timeslot_timeline(
     # Pre-sort events by timestamp for efficient sweep
     afk_by_start = sorted(afk_events, key=lambda e: e.timestamp)
     task_by_start = sorted(task_events, key=lambda e: e.timestamp)
+    window_by_start = sorted(window_events, key=lambda e: e.timestamp)
 
     slots = []
     current = None
@@ -196,6 +197,12 @@ def build_timeslot_timeline(
         # Find active events at t_i (coverage: event.timestamp <= t_i < event.timestamp + event.duration)
         active_tasks = [e for e in task_by_start if e.timestamp <= t_i < e.timestamp + e.duration]
         active_afk = [e for e in afk_by_start if e.timestamp <= t_i < e.timestamp + e.duration]
+        active_window = [e for e in window_by_start if e.timestamp <= t_i < e.timestamp + e.duration]
+
+        # CRITICAL: Skip intervals with NO events from ANY source
+        # Only create slots when there's real data to represent
+        if not active_tasks and not active_afk and not active_window:
+            continue  # Skip this interval entirely - no events here
 
         # Tie-break for multiple overlapping tasks (data-quality anomaly)
         if len(active_tasks) > 1:
