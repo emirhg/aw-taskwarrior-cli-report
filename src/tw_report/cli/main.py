@@ -1045,9 +1045,17 @@ def main():
             context.is_task_based_report and context.task_events is not None
         )
 
-        # Use pre-computed slot-based AFK/Offline metrics for consistent TOTALS
+        # Use pre-computed slot-based AFK metric for consistent TOTALS
         afk_time_calc = slot_afk_time if slot_afk_time > timedelta(0) else None
-        total_offline_calc = slot_offline_time if slot_offline_time > timedelta(0) else None
+
+        # Offline time: use offline_task_durations (includes injected OFFLINE tasks from report_data)
+        # This is different from slot-based calculation which only covers rendered slots
+        total_offline_calc = sum(
+            (duration for duration in offline_task_durations.values()),
+            timedelta(0)
+        )
+        if total_offline_calc == timedelta(0):
+            total_offline_calc = None
 
         # Total online time = Active + AFK
         total_time_calc = None
