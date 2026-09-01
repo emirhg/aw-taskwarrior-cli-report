@@ -1033,10 +1033,13 @@ def main():
     from tw_report.pipeline.timeline_render import compute_afk_offline_totals
     slot_afk_time, slot_offline_time = compute_afk_offline_totals(consolidated_slots)
 
+    # Convert consolidated slots back to dicts for rendering
+    consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in consolidated_slots]
+
     # Now determine which rendering mode to use: timeline (period-based) or hierarchical
     if grouping_mode in ["day", "week", "month", "year"]:
         TimelineReport(print_timeline_report).present(
-            slots=final_dicts,
+            slots=consolidated_dicts,
             period=period,
             start_time=start_time,
             end_time=end_time,

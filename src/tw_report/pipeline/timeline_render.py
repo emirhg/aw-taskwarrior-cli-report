@@ -979,23 +979,18 @@ def print_timeline_report(
                 period_groups[period_key] = []
             period_groups[period_key].append(slot)
 
-    # DEBUG: count offline slots by period
-    # Consolidate within each period, then flatten back to list
-    consolidated_slots = []
-    for period_key in sorted(period_groups.keys()):
-        period_slots = period_groups[period_key]
-        # DEBUG: Show slots before consolidation for Aug 24
-        # Period-based grouping (already deduplicated globally)
-        # For consolidate-day/week/month/year modes: group slots by period boundaries
-        # Note: Global deduplication happened earlier, so these are already deduplicated
-        report_entries = ReportEntries(slots_list=period_slots)
-        consolidated = report_entries.consolidate_by_task()
-        consolidated_slots.extend(consolidated.slots_list)
-
-    # Replace slots with consolidated version
-    slots = consolidated_slots
-    # Re-sort by start time (consolidation may have changed order)
-    slots = sorted(slots, key=lambda s: s.start if not isinstance(s, dict) else s.get("start"))
+    # NOTE: Consolidation now happens in main.py before rendering,
+    # so we skip it here to avoid double-consolidation which causes
+    # small discrepancies in OFFLINE time calculations (17 sec differences).
+    # The slots arriving here are already deduplicated and consolidated.
+    # Just convert dicts to objects if needed and sort
+    normalized_slots = []
+    for slot in slots:
+        if isinstance(slot, dict):
+            normalized_slots.append(ReportTimelineSlot.from_dict(slot))
+        else:
+            normalized_slots.append(slot)
+    slots = sorted(normalized_slots, key=lambda s: s.start)
 
     # CRITICAL: Recalculate total_time_all after all filtering/deduplication
     # The previous calculation (line 555) included slots that are now filtered out.
