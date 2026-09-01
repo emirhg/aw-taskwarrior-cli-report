@@ -108,12 +108,14 @@ def print_report_summary(
     print("SUMMARY")
     print("─" * width)
 
-    # Format period with wall-clock times (local timezone)
-    start_local = _to_local_time(start_time)
-    end_local = _to_local_time(end_time)
-    start_str = start_local.strftime("%Y-%m-%d %H:%M")
-    end_str = end_local.strftime("%Y-%m-%d %H:%M")
-    print(f"Period{' ' * (32 - 6)}{period} ({start_str} to {end_str})")
+    print(f"Period{' ' * (32 - 6)}{period} ({start_time.date()} to {end_time.date()})")
+
+    # Show actual tracked activity window (first to last event) if available
+    if first_event_time and last_event_time:
+        first_time_str = _to_local_time(first_event_time).strftime("%Y-%m-%d %H:%M")
+        last_time_str = _to_local_time(last_event_time).strftime("%Y-%m-%d %H:%M")
+        tracked_window = f"{first_time_str} to {last_time_str}"
+        print(f"Tracked Activity{' ' * (32 - 16)}{tracked_window}")
 
     if non_afk_time and first_event_time and last_event_time:
         # Calculate total tracking time for percentage denominator
