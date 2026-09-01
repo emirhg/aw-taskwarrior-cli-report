@@ -134,7 +134,7 @@ class _RunAccumulator:
 def build_timeslot_timeline(
     afk_events: List[AFKEvent],
     window_events: List[WindowEvent],
-    task_events: List[TaskWarriorEvent],
+    task_events,  # Can be List[TaskWarriorEvent] or List[Event]
 ) -> List[ReportTimelineSlot]:
     """
     Build a non-overlapping timeline of classified slots from raw event sources.
@@ -146,7 +146,7 @@ def build_timeslot_timeline(
     Args:
         afk_events: AFK bucket events (status="afk" or "not-afk")
         window_events: Window bucket events (app, title, category)
-        task_events: TaskWarrior task events (project, task, tags, uuid)
+        task_events: TaskWarrior task events (project, task, tags, uuid) - can be TaskWarriorEvent or generic Event
 
     Returns:
         List of ReportTimelineSlot objects, guaranteed:
@@ -154,6 +154,10 @@ def build_timeslot_timeline(
         - Properly classified: each slot carries correct project/task, duration breakdown (actual/afk/offline)
         - Complete: covers full wall-clock span implied by input events with no gaps
     """
+    # Ensure task_events is a list (handle None case)
+    if task_events is None:
+        task_events = []
+
     # Collect all boundary points (event start and end times)
     cuts = set()
     for ev in afk_events + window_events + task_events:
@@ -166,6 +170,17 @@ def build_timeslot_timeline(
         return []  # No events, or only one instantaneous event
 
     cuts = sorted(cuts)
+
+    # Ensure all task_events are TaskWarriorEvent objects (handle generic Event objects)
+    def _ensure_taskwarrior_event(ev):
+        if isinstance(ev, TaskWarriorEvent):
+            return ev
+        # Wrap generic Event as TaskWarriorEvent
+        tw_event = TaskWarriorEvent(timestamp=ev.timestamp, duration=ev.duration)
+        tw_event.data = ev.data.copy() if ev.data else {}
+        return tw_event
+
+    task_events = [_ensure_taskwarrior_event(ev) for ev in task_events]
 
     # Pre-sort events by timestamp for efficient sweep
     afk_by_start = sorted(afk_events, key=lambda e: e.timestamp)
