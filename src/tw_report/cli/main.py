@@ -1038,9 +1038,19 @@ def main():
         consolidated = report_entries.consolidate_by_task()
         consolidated_slots.extend(consolidated.slots_list)
 
-    # Recalculate totals from deduplicated slots
+    # Apply EventFilter to consolidated slots for accurate totals
+    # Totals should only include entries that match the applied filters
+    filtered_consolidated_slots = [
+        s for s in consolidated_slots
+        if event_filter.should_include_entry(
+            {'project': s.project, 'task': s.task, 'type': 'regular'},
+            entry_type='regular'
+        )
+    ]
+
+    # Recalculate totals from filtered, deduplicated slots
     from tw_report.pipeline.timeline_render import compute_afk_offline_totals
-    slot_afk_time, slot_offline_time = compute_afk_offline_totals(consolidated_slots)
+    slot_afk_time, slot_offline_time = compute_afk_offline_totals(filtered_consolidated_slots)
 
     # Convert consolidated slots back to dicts for rendering
     consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in consolidated_slots]
