@@ -202,17 +202,19 @@ class DisplayColumns:
             task_display = " " if abbrev_project else ""
 
         # Format duration columns (no parenthesis)
+        # CRITICAL: Only show OFFLINE if there's at least 1 second of offline time
+        # (avoids showing "00:00:00" for sub-second precision rounding artifacts)
         offline_time = ""
         offline_dur = get_field("offline_extension_duration")
-        if offline_dur:
-            if isinstance(offline_dur, timedelta) and offline_dur.total_seconds() > 0:
-                offline_time = format_duration(offline_dur)
+        if isinstance(offline_dur, timedelta) and offline_dur.total_seconds() >= 1.0:
+            offline_time = format_duration(offline_dur)
 
+        # CRITICAL: Only show AFK if there's at least 1 second of AFK time
+        # (avoids showing "00:00:00" for sub-second precision rounding artifacts)
         afk_time = ""
         afk_dur = get_field("afk_duration")
-        if afk_dur:
-            if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() > 0:
-                afk_time = format_duration(afk_dur)
+        if isinstance(afk_dur, timedelta) and afk_dur.total_seconds() >= 1.0:
+            afk_time = format_duration(afk_dur)
 
         # Active time = non-AFK time during the slot (field-driven, no type discrimination)
         active_time = ""
