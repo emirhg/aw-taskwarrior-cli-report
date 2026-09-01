@@ -1,11 +1,14 @@
 from copy import deepcopy
 from datetime import timedelta
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 from aw_core.models import Event
 from aw_transform import filter_period_intersect
 
 from tw_report.pipeline.models import ReportContext, ReportEvent, ReportMetrics
+
+if TYPE_CHECKING:
+    from tw_report.core.report_slot import ReportTimelineSlot
 
 
 def _overlaps(event: Event, other: Event) -> bool:
@@ -279,6 +282,135 @@ def aggregate_hierarchy(
                 )
                 title_node["total_duration"] += event.duration
                 title_node["prod_score"] += prod_score
+
+    return report
+
+
+def aggregate_hierarchy_from_slots(
+    consolidated_slots: List["ReportTimelineSlot"],
+    task_based: bool,
+    cat_score_map: Dict[str, float],
+    get_category_score: Callable[[str, Dict[str, float]], float],
+    normalize_title: Callable[[str], str],
+) -> Dict:
+    """
+    Build hierarchical report structure from consolidated slots (Phase 2 refactor).
+
+    Replaces aggregate_hierarchy() by working with pre-built slots instead of canonical_events.
+    Slots already have categories populated by build_timeslot_timeline(), so we only need
+    to group by project/task and sum durations with productivity scoring.
+
+    Same output shape as aggregate_hierarchy() — print_report() needs zero changes.
+
+    Args:
+        consolidated_slots: List of ReportTimelineSlot with categories pre-populated
+        task_based: If True, group by project > task; if False, group by category only
+        cat_score_map: Category -> productivity score mapping
+        get_category_score: Function to look up category score
+        normalize_title: Function to normalize window titles
+
+    Returns:
+        Dict with structure:
+        - task_based=True: {project: {total_duration, prod_score, tasks: {...}}}
+        - task_based=False: {category: {total_duration, prod_score, apps: {...}}}
+    """
+    report: Dict = {}
+
+    if task_based:
+        # Group by: Project > Task > Category > App > Title
+        for slot in consolidated_slots:
+            # Skip AFK-only slots (no task assignment)
+            if not slot.project or slot.project == "No project assigned":
+                continue
+
+            # Each slot may have multiple categories; iterate over them
+            for cat_entry in (slot.categories or []):
+                category = cat_entry.get("category", "Uncategorized")
+                score = get_category_score(category, cat_score_map)
+
+                proj_node = report.setdefault(
+                    slot.project,
+                    {"total_duration": timedelta(0), "tasks": {}, "prod_score": 0.0},
+                )
+                task_node = proj_node["tasks"].setdefault(
+                    slot.task or "No task",
+                    {"total_duration": timedelta(0), "categories": {}, "prod_score": 0.0},
+                )
+                cat_node = task_node["categories"].setdefault(
+                    category,
+                    {"total_duration": timedelta(0), "apps": {}, "prod_score": 0.0},
+                )
+
+                # Iterate over apps within this category entry
+                for app_entry in (cat_entry.get("apps") or []):
+                    app_name = app_entry.get("app", "Unknown App")
+                    app_duration = app_entry.get("duration", timedelta(0))
+                    prod_score = (app_duration.total_seconds() / 3600) * score
+
+                    app_node = cat_node["apps"].setdefault(
+                        app_name, {"total_duration": timedelta(0), "prod_score": 0.0}
+                    )
+
+                    proj_node["total_duration"] += app_duration
+                    proj_node["prod_score"] += prod_score
+                    task_node["total_duration"] += app_duration
+                    task_node["prod_score"] += prod_score
+                    cat_node["total_duration"] += app_duration
+                    cat_node["prod_score"] += prod_score
+                    app_node["total_duration"] += app_duration
+                    app_node["prod_score"] += prod_score
+
+                    # Iterate over titles within this app entry
+                    for title_entry in (app_entry.get("titles") or []):
+                        title = title_entry.get("title", "No Title")
+                        normalized_title = normalize_title(title)
+                        title_duration = title_entry.get("duration", timedelta(0))
+                        title_prod_score = (title_duration.total_seconds() / 3600) * score
+
+                        title_node = app_node.setdefault("titles", {}).setdefault(
+                            normalized_title,
+                            {"total_duration": timedelta(0), "prod_score": 0.0},
+                        )
+                        title_node["total_duration"] += title_duration
+                        title_node["prod_score"] += title_prod_score
+    else:
+        # Group by: Category > App > Title (no project/task level)
+        for slot in consolidated_slots:
+            for cat_entry in (slot.categories or []):
+                category = cat_entry.get("category", "Uncategorized")
+                score = get_category_score(category, cat_score_map)
+
+                cat_node = report.setdefault(
+                    category,
+                    {"total_duration": timedelta(0), "apps": {}, "prod_score": 0.0},
+                )
+
+                for app_entry in (cat_entry.get("apps") or []):
+                    app_name = app_entry.get("app", "Unknown App")
+                    app_duration = app_entry.get("duration", timedelta(0))
+                    prod_score = (app_duration.total_seconds() / 3600) * score
+
+                    app_node = cat_node["apps"].setdefault(
+                        app_name, {"total_duration": timedelta(0), "prod_score": 0.0}
+                    )
+
+                    cat_node["total_duration"] += app_duration
+                    cat_node["prod_score"] += prod_score
+                    app_node["total_duration"] += app_duration
+                    app_node["prod_score"] += prod_score
+
+                    for title_entry in (app_entry.get("titles") or []):
+                        title = title_entry.get("title", "No Title")
+                        normalized_title = normalize_title(title)
+                        title_duration = title_entry.get("duration", timedelta(0))
+                        title_prod_score = (title_duration.total_seconds() / 3600) * score
+
+                        title_node = app_node.setdefault("titles", {}).setdefault(
+                            normalized_title,
+                            {"total_duration": timedelta(0), "prod_score": 0.0},
+                        )
+                        title_node["total_duration"] += title_duration
+                        title_node["prod_score"] += title_prod_score
 
     return report
 
