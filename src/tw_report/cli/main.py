@@ -637,6 +637,7 @@ def main():
         last_break_start=last_break_start,
         last_break_end=last_break_end,
         last_break_duration=last_break_duration,
+        detail_level=args.detail_level,
     )
     context = build_context(
         canonical_events=canonical_events,

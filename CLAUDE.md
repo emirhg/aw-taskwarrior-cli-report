@@ -158,16 +158,140 @@ New period-based features use consistent bucketing functions:
 
 These match the period token definitions in `src/tw_report/core/period.py` (`:week`, `:month`, `:year` tokens).
 
-## Recent Work & Current Issues (Session 2026-07-30)
+## Filtering and Metrics Architecture (Session 2026-08-31)
 
-### Current Status: AFK/OFFLINE Column Fixes In Progress
-- **Test Status**: 462 unit tests, 15 failing
-- **Primary Work**: Fixing AFK/OFFLINE columns display accuracy
-- **Known Issues** (from memory):
-  - AFK and OFFLINE columns substantially fixed (commits 6d42def, 2c6453b) but ACTIVE column still inflated
-  - ACTIVE time display fix identified—missing `generate_active_gap_events()` in normal mode
-  - Overlapping partition bug: TaskWarrior events fragmenting into 10+ overlapping slots
-  - Object migration data loss: Only untracked time showing in timeline output
+### Critical Rule: Filter Before Calculating Metrics
+
+**All metrics (Active Time, AFK, Offline) must be calculated from filtered data, not pre-calculated unfiltered context.**
+
+When `--project`, `--task`, or other EventFilter arguments are used, the metrics displayed must match the entries displayed:
+
+**Wrong** ❌ (used in sessions 2026-08-30):
+```python
+# This calculates metrics from ALL entries, then displays only filtered entries
+afk_time = context.metrics.non_afk_time  # UNFILTERED pre-calculated value
+display_entries = [e for e in all_entries if event_filter.should_include_entry(e)]
+```
+
+**Correct** ✅ (implemented in session 2026-08-31):
+```python
+# Filter first, then calculate metrics from filtered data
+filtered_slots = [s for s in consolidated_slots if event_filter.should_include_entry(s)]
+afk_time = compute_afk_offline_totals(filtered_slots)[0]  # Calculated from FILTERED slots
+```
+
+### Consolidation Pipeline (Main.py Flow)
+
+The proper flow in `src/tw_report/cli/main.py` (lines ~1007-1114) is:
+
+1. **Slot Generation** (unconditional, lines 1007-1005):
+   - `generate_afk_and_offline_slots()` — Creates AFK slot objects
+   - `convert_active_periods_to_slots()` — Creates active work slots
+   - `generate_partitioned_task_slots()` — Creates task-based slots
+   - Produces `final_dicts` (list of ReportTimelineSlot dicts)
+
+2. **Period Grouping** (if using consolidation modes):
+   - Group `final_dicts` by logical_date into `period_groups`
+   - Call `report_entries.consolidate_by_task()` within each period
+   - Produces `consolidated_slots` (deduplicated, period-consolidated)
+
+3. **Apply EventFilter** (ALWAYS, before metrics):
+   - `filtered_consolidated_slots = [s for s in consolidated_slots if event_filter.should_include_entry(...)]`
+   - This is the ONLY correct data to calculate metrics from
+
+4. **Calculate Metrics from Filtered Data**:
+   - `slot_afk_time, slot_offline_time = compute_afk_offline_totals(filtered_consolidated_slots)`
+   - `slot_active_time = sum(s.actual_duration for s in filtered_consolidated_slots)`
+   - These are the ONLY correct values to display
+
+5. **Render Reports**:
+   - Timeline: Pass `consolidated_dicts` (pre-consolidated from main.py)
+   - Hierarchical: Pass `report_data` (built from canonical_events) with `non_afk_time=slot_active_time`
+
+### Two Report Data Models
+
+**Timeline Report** (`src/tw_report/pipeline/timeline_render.py`):
+- Receives pre-consolidated `consolidated_dicts` from main.py
+- Uses slot-based rendering (one row per slot with breakdown columns)
+- Metrics calculated once in main.py, passed into print_timeline_report()
+- ✅ Correctly filters both display and metrics
+
+**Hierarchical Report** (`src/tw_report/pipeline/report_render.py`):
+- Receives `report_data` structure (aggregated by project hierarchy)
+- Uses aggregation-based rendering (project tree with totals)
+- Metrics calculated in main.py from filtered consolidated_slots
+- ⚠️ **Known Issue**: Displays unfiltered `report_data` entries but uses filtered metrics
+  - Timeline shows correct filtered counts AND filtered metrics
+  - Hierarchical shows correct filtered metrics but unfiltered entry list
+  - Architectural mismatch that requires filtering `report_data` itself (not yet implemented)
+
+### Pattern: Calculating Metrics Correctly
+
+When adding new metrics or report types, follow this pattern (from commits 65381e2, 3cf6de7):
+
+```python
+# 1. Consolidate slot data
+period_groups = ...  # Group by period
+consolidated_slots = [consolidate_group_by_task(group) for group in period_groups]
+
+# 2. ALWAYS filter before calculating
+filtered_slots = [s for s in consolidated_slots 
+                  if event_filter.should_include_entry({'project': s.project, 
+                                                        'task': s.task, 
+                                                        'type': 'regular'})]
+
+# 3. Calculate all metrics from FILTERED slots
+from src.tw_report.pipeline.timeline_render import compute_afk_offline_totals
+slot_afk_time, slot_offline_time = compute_afk_offline_totals(filtered_slots)
+slot_active_time = sum(s.actual_duration or timedelta(0) for s in filtered_slots)
+
+# 4. Never use context.metrics.non_afk_time or other pre-calculated unfiltered values
+# 5. Pass filtered values to report rendering
+```
+
+### Known Limitations & Future Work
+
+1. **Hierarchical report filtering** (not yet implemented):
+   - Currently displays unfiltered `report_data` while metrics are filtered
+   - Fix would require filtering the `report_data` structure itself before rendering
+   - Impact: User sees all entries in hierarchical view even when filtering by --project
+   - Timeline view is correct (both display and metrics filtered)
+
+2. **EventFilter scoping**:
+   - Currently applies at the slot level (project/task matching)
+   - App-level filtering (--app) not yet integrated into consolidation path
+   - Works in non-consolidation mode but missing from --consolidate-{day,week,month,year}
+
+## Recent Work & Current Issues (Session 2026-08-31 Complete)
+
+### Current Status: Filtering & Metrics Architecture Unified ✅
+- **Test Status**: 619 unit tests passing, 0 failing, 6 xpassed
+- **Work Completed**: Unified filtering and metrics calculation between timeline and hierarchical reports
+- **Key Fixes**:
+  - Applied EventFilter to consolidated slots before calculating metrics (commits 65381e2, 3cf6de7)
+  - Moved metrics calculation after slot filtering to ensure displayed entries match metrics
+  - Extracted `compute_afk_offline_totals()` to reuse between report types (commit 0b59c69)
+  - Fixed --project argument parsing regression (commit 21c9e76)
+  - Implemented period-based consolidation and deduplication (session 2026-08-31 start)
+
+### Key Learnings & Architectural Decisions
+
+1. **Slot Generation Runs Unconditionally** (main.py, lines ~1007-1005)
+   - Originally gated inside `if grouping_mode in ["day","week","month","year"]:`
+   - Now runs for both timeline and hierarchical paths
+   - Enables consistent metrics calculation across all report types
+   - No performance impact: no new data fetches, only in-memory interval math
+
+2. **EventFilter Must Precede Metrics** (critical pattern)
+   - Session 2026-08-30 bug: metrics calculated from unfiltered `context.metrics` while display was filtered
+   - Example: `--project Ecosistema` showed active time 50:11:23 (unfiltered) with only ~20 hours of entries visible
+   - Fix: Calculate `slot_active_time` from `filtered_consolidated_slots` instead of pre-calculated context
+   - Result: Metrics now match displayed entries exactly
+
+3. **Two Report Models Have Different Display Paths**
+   - Timeline uses `consolidated_dicts` (pre-consolidated from main.py) — filters both display and metrics ✅
+   - Hierarchical uses `report_data` (aggregated by project) — displays unfiltered entries with filtered metrics ⚠️
+   - Architectural issue remains open (hierarchical filtering not yet implemented)
 
 ### Completed Major Features & Optimizations
 

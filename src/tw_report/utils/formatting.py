@@ -192,14 +192,15 @@ def format_duration_tracked_prod(
     if tracked_duration.total_seconds() <= 0:
         return base
 
-    # Only show productivity percentage if there's actual productive time
-    if productive_within.total_seconds() > 0:
-        pct = productive_within.total_seconds() / tracked_duration.total_seconds() * 100
-        label = f"[prod {pct:>3.0f}%]"
-        return f"{base}  {label:>11}"
-    else:
-        # No productive time measured - return duration only
+    # Only show productivity percentage if productivity data is available and > 0
+    if productive_within is None or productive_within.total_seconds() <= 0:
+        # No productivity data or no productive time - return duration only
         return base
+
+    # Show productivity percentage
+    pct = productive_within.total_seconds() / tracked_duration.total_seconds() * 100
+    label = f"[prod {pct:>3.0f}%]"
+    return f"{base}  {label:>11}"
 
 
 def format_afk_label(duration: timedelta) -> str:

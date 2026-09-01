@@ -296,6 +296,7 @@ def compute_metrics(
     last_break_start,
     last_break_end,
     last_break_duration,
+    detail_level: int = 1,
 ) -> ReportMetrics:
     productive_time = timedelta(0)
     productive_task_time = timedelta(0)
@@ -304,9 +305,11 @@ def compute_metrics(
 
     # Check if events have category data (window events from ActivityWatch)
     # If no window events were fetched (AFK optimization mode), category scoring is meaningless
+    # Also, only calculate productivity metrics if detail_level >= 3, since lower levels
+    # don't display window categories (can't justify the percentages with visible data)
     has_category_data = any(rep.event.data.get("$category") for rep in canonical_events)
 
-    if has_category_data:
+    if has_category_data and detail_level >= 3:
         # Normal path: score events by category (productive/distracting/unscored)
         for report_event in canonical_events:
             event = report_event.event
