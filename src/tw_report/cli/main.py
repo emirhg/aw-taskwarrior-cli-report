@@ -505,16 +505,6 @@ def main():
     consolidated_slots = consolidated.consolidate_by_task().slots_list
     _profile(f"Consolidated to {len(consolidated_slots)} slots")
 
-    # Apply session-merging consolidation if --consolidate flag is set (EARLY, before hierarchy building)
-    # This ensures both timeline AND hierarchical reports use the same session-consolidated slots
-    if args.consolidate:
-        from tw_report.pipeline.consolidation import consolidate_sessions
-        consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in consolidated_slots]
-        consolidated_dicts = consolidate_sessions(consolidated_dicts)
-        # Convert back to ReportTimelineSlot objects
-        consolidated_slots = [ReportTimelineSlot.from_dict(d) for d in consolidated_dicts]
-        _profile(f"After session consolidation: {len(consolidated_slots)} slots")
-
     # Tracked Activity from event times (includes all buckets: AFK + window + task)
     tracked_activity_from_slots = None
     if first_event_time and last_event_time:
@@ -636,6 +626,12 @@ def main():
     # FIX: --exclude-afk removes AFK period slots from the timeline
     if args.exclude_afk:
         all_slot_entries = [g for g in all_slot_entries if g.get("type") != "afk"]
+
+    # Apply session consolidation to timeline slots if --consolidate flag is set
+    # This merges multiple work sessions with same (date, project, task) into one entry
+    if args.consolidate:
+        from tw_report.pipeline.consolidation import consolidate_sessions
+        all_slot_entries = consolidate_sessions(all_slot_entries)
 
     # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
     # Use the standard timeline rendering which shows chronological slots
