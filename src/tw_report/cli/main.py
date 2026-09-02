@@ -571,7 +571,7 @@ def main():
         metrics=metrics,
     )
     # Use new slot-based hierarchy builder (Phase 2 refactor)
-    report_data = aggregate_hierarchy_from_slots(
+    report_data, actual_task_based = aggregate_hierarchy_from_slots(
         consolidated_slots=consolidated_slots,
         task_based=(is_task_based_report and task_events is not None),
         cat_score_map=cat_score_map,
@@ -736,10 +736,9 @@ def main():
         )
     else:
         # Hierarchical (--by-project) report: use slot-based AFK/Offline calculations for consistency
-        # If no task_events, treat as non-task-based report regardless of is_task_based_report
-        report_task_based = (
-            context.is_task_based_report and context.task_events is not None
-        )
+        # Use the actual task-based mode determined by aggregate_hierarchy_from_slots
+        # (which now accounts for whether slots have project/task data)
+        report_task_based = actual_task_based
 
         # Use filtered slot-based metrics — same calculation as timeline report
         afk_time_calc = slot_afk_time if slot_afk_time > timedelta(0) else None

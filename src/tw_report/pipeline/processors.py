@@ -146,7 +146,7 @@ def aggregate_hierarchy_from_slots(
     get_category_score: Callable[[str, Dict[str, float]], float],
     normalize_title: Callable[[str], str],
     event_filter: Optional[EventFilter] = None,
-) -> Dict:
+) -> Tuple[Dict, bool]:
     """
     Build hierarchical report structure from consolidated slots (Phase 2 refactor).
 
@@ -169,19 +169,28 @@ def aggregate_hierarchy_from_slots(
         - task_based=False: {category: {total_duration, prod_score, apps: {...}}}
     """
     # Apply filter BEFORE building hierarchy (ensures display matches metrics)
+    # Use same type logic as main.py: 'afk' for "No project assigned", 'regular' otherwise
+    from tw_report.core.filtering import NO_PROJECT
+
     if event_filter:
         consolidated_slots = [
             s for s in consolidated_slots
             if event_filter.should_include_entry({
                 'project': s.project,
                 'task': s.task,
-                'type': 'regular'
+                'type': 'afk' if s.project == NO_PROJECT else 'regular'
             })
         ]
 
     report: Dict = {}
 
-    if task_based:
+    # Determine actual task_based mode: use True if ANY slot has project/task data (even NO_PROJECT)
+    # This ensures "No project assigned" time is always shown hierarchically with project/task level
+    has_any_project_task = any(s.project is not None for s in consolidated_slots)
+    should_group_by_task = task_based or has_any_project_task
+    actual_task_based = should_group_by_task  # Capture what we actually use
+
+    if should_group_by_task:
         # Group by: Project > Task > Category > App > Title
         for slot in consolidated_slots:
             # Include all slots, even AFK-only (idle time is still tracked time)
@@ -262,7 +271,26 @@ def aggregate_hierarchy_from_slots(
     else:
         # Group by: Category > App > Title (no project/task level)
         for slot in consolidated_slots:
-            for cat_entry in (slot.categories or []):
+            # If slot has no categories, create a default "Uncategorized" entry with full slot duration
+            categories_to_process = slot.categories or [
+                {
+                    "category": "Uncategorized",
+                    "apps": [
+                        {
+                            "app": "Unknown App",
+                            "duration": slot.actual_duration or timedelta(0),
+                            "titles": [
+                                {
+                                    "title": "No Title",
+                                    "duration": slot.actual_duration or timedelta(0),
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+
+            for cat_entry in categories_to_process:
                 category = cat_entry.get("category", "Uncategorized")
                 score = get_category_score(category, cat_score_map)
 
@@ -298,7 +326,7 @@ def aggregate_hierarchy_from_slots(
                         title_node["total_duration"] += title_duration
                         title_node["prod_score"] += title_prod_score
 
-    return report
+    return report, actual_task_based
 
 
 def compute_metrics(
