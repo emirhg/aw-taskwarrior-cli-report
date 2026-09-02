@@ -1421,7 +1421,7 @@ def print_timeline_report(
             daily_displayed_offline,
             daily_displayed_afk,
             daily_active,
-            daily_metrics.productive_duration, width
+            daily_metrics.productive_duration, width, daily_displayed_break
         )
         print()
         # Save final week's totals (flush at end of render loop)
