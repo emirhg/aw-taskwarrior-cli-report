@@ -3,20 +3,12 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 
 from aw_core.models import Event
-from aw_transform import filter_period_intersect
 
 from tw_report.core.filtering import EventFilter
 from tw_report.pipeline.models import ReportContext, ReportEvent, ReportMetrics
 
 if TYPE_CHECKING:
     from tw_report.core.report_slot import ReportTimelineSlot
-
-
-def _overlaps(event: Event, other: Event) -> bool:
-    return (
-        event.timestamp < other.timestamp + other.duration
-        and other.timestamp < event.timestamp + event.duration
-    )
 
 
 def window_event_max_category_score(
@@ -145,146 +137,6 @@ def resolve_report_event(
 
     task_name, project = get_task_info(active_task)
     return ReportEvent(event=event, project=project, task=task_name, active_task=active_task)
-
-
-def build_canonical_events(
-    window_events: List[Event],
-    not_afk_events: List[Event],
-    include_afk: bool,
-    task_events: Optional[List[Event]],
-    args,
-    no_project_label: str,
-    no_task_label: str,
-    categorize_event: Callable[[Event, List], None],
-    compiled_categories: List,
-    get_category_score: Callable[[str, Dict[str, float]], float],
-    cat_score_map: Dict[str, float],
-    find_active_task: Callable[[Event, List[Event]], Optional[Event]],
-    get_task_info: Callable[[Event], Tuple[str, str]],
-    matches_any: Callable[[str, Optional[List[str]], bool], bool],
-    excluded: Callable[[str, Optional[List[str]]], bool],
-) -> List[ReportEvent]:
-    active_events = (
-        window_events if include_afk else filter_period_intersect(window_events, not_afk_events)
-    )
-
-    for event in active_events:
-        categorize_event(event, compiled_categories)
-
-    no_task_mode = task_events is None or len(task_events) == 0
-    resolved: List[ReportEvent] = []
-    for event in active_events:
-        report_event = resolve_report_event(
-            event=event,
-            task_events=task_events,
-            no_task_mode=no_task_mode,
-            exclude_non_project=args.exclude_non_project,
-            no_project_label=no_project_label,
-            no_task_label=no_task_label,
-            find_active_task=find_active_task,
-            get_task_info=get_task_info,
-        )
-        if report_event is not None:
-            resolved.append(report_event)
-
-    resolved = apply_score_filters(
-        resolved, args.min_score, args.max_score, cat_score_map, get_category_score
-    )
-
-    return [rep for rep in resolved if matches_user_filters(rep, args, matches_any, excluded)]
-
-
-def aggregate_hierarchy(
-    canonical_events: List[ReportEvent],
-    task_based: bool,
-    cat_score_map: Dict[str, float],
-    get_category_score: Callable[[str, Dict[str, float]], float],
-    normalize_title: Callable[[str], str],
-) -> Dict:
-    report: Dict = {}
-
-    def get_app_name(event: Event) -> str:
-        return event.data.get("app", "Unknown App")
-
-    def get_title(event: Event) -> str:
-        return event.data.get("title", "No Title")
-
-    if task_based:
-        for report_event in canonical_events:
-            event = report_event.event
-            task_name = report_event.task
-            project = report_event.project
-            category_list = event.data.get("$category", ["Uncategorized"])
-            app_name = get_app_name(event)
-
-            for category in category_list:
-                score = get_category_score(category, cat_score_map)
-                prod_score = (event.duration.total_seconds() / 3600) * score
-
-                proj_node = report.setdefault(
-                    project,
-                    {"total_duration": timedelta(0), "tasks": {}, "prod_score": 0.0},
-                )
-                task_node = proj_node["tasks"].setdefault(
-                    task_name,
-                    {"total_duration": timedelta(0), "categories": {}, "prod_score": 0.0},
-                )
-                cat_node = task_node["categories"].setdefault(
-                    category,
-                    {"total_duration": timedelta(0), "apps": {}, "prod_score": 0.0},
-                )
-                app_node = cat_node["apps"].setdefault(
-                    app_name, {"total_duration": timedelta(0), "prod_score": 0.0}
-                )
-
-                proj_node["total_duration"] += event.duration
-                proj_node["prod_score"] += prod_score
-                task_node["total_duration"] += event.duration
-                task_node["prod_score"] += prod_score
-                cat_node["total_duration"] += event.duration
-                cat_node["prod_score"] += prod_score
-                app_node["total_duration"] += event.duration
-                app_node["prod_score"] += prod_score
-
-                title = get_title(event)
-                normalized_title = normalize_title(title)
-                title_node = app_node.setdefault("titles", {}).setdefault(
-                    normalized_title,
-                    {"total_duration": timedelta(0), "prod_score": 0.0},
-                )
-                title_node["total_duration"] += event.duration
-                title_node["prod_score"] += prod_score
-    else:
-        for report_event in canonical_events:
-            event = report_event.event
-            category_list = event.data.get("$category", ["Uncategorized"])
-            app_name = get_app_name(event)
-            for category in category_list:
-                score = get_category_score(category, cat_score_map)
-                prod_score = (event.duration.total_seconds() / 3600) * score
-
-                cat_node = report.setdefault(
-                    category,
-                    {"total_duration": timedelta(0), "apps": {}, "prod_score": 0.0},
-                )
-                app_node = cat_node["apps"].setdefault(
-                    app_name, {"total_duration": timedelta(0), "prod_score": 0.0}
-                )
-                cat_node["total_duration"] += event.duration
-                cat_node["prod_score"] += prod_score
-                app_node["total_duration"] += event.duration
-                app_node["prod_score"] += prod_score
-
-                title = event.data.get("title", "No Title")
-                normalized_title = normalize_title(title)
-                title_node = app_node.setdefault("titles", {}).setdefault(
-                    normalized_title,
-                    {"total_duration": timedelta(0), "prod_score": 0.0},
-                )
-                title_node["total_duration"] += event.duration
-                title_node["prod_score"] += prod_score
-
-    return report
 
 
 def aggregate_hierarchy_from_slots(
