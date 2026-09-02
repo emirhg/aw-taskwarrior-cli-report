@@ -37,6 +37,7 @@ class DisplayColumns:
 
     Each duration type has its own reserved column to avoid offset issues
     and make it easy to spot what type of time is recorded:
+    - BREAK: Gap between work sessions (system was idle/off)
     - OFFLINE: System was powered off (untracked wall-clock time)
     - AFK: User was idle/away (system recorded but user not active)
     - ACTIVE: User was actively working (keyboard/mouse activity)
@@ -47,6 +48,7 @@ class DisplayColumns:
     time_range: str       # "HH:MM - HH:MM" (11 chars)
     project: str          # "▶ Project name" (variable width, truncated)
     task: str             # "▶▶ Task name" (variable width, truncated)
+    break_time: str       # "HH:MM:SS" if present, else blank (8 chars)
     offline_time: str     # "(HH:MM:SS)" if present, else blank (12 chars)
     afk_time: str         # "(HH:MM:SS)" if present, else blank (12 chars)
     active_time: str      # "HH:MM:SS" (8 chars)
@@ -72,14 +74,15 @@ class DisplayColumns:
         - Task: 35 chars (left-justified, truncated)
         Calculation: 7 + 13 + 2 + 28 + 2 + 35 = 87
 
-        Right Section (Duration Breakdown): 46 display width total
+        Right Section (Duration Breakdown): 54 display width total
+        - BREAK column: 8 chars (empty or "HH:MM:SS")
         - OFFLINE column: 12 chars (empty or "(HH:MM:SS)")
         - AFK column: 12 chars (empty or "(HH:MM:SS)")
         - ACTIVE column: 8 chars (empty or "HH:MM:SS")
         - PRODUCTIVITY column: 14 chars (empty or "  [prod XXX%]")
-        Calculation: 12 + 12 + 8 + 14 = 46
+        Calculation: 8 + 12 + 12 + 8 + 14 = 54
 
-        Dynamic Padding: terminal_width - 87 - 46 - 2 (separator) = left_padding
+        Dynamic Padding: terminal_width - 87 - 54 - 2 (separator) = left_padding
         Formula: left_section + (left_padding spaces) + "  " + right_section
 
         PAST BUGS & LESSONS (why the design matters):
@@ -105,9 +108,9 @@ class DisplayColumns:
 
         CRITICAL DEPENDENCIES:
         ======================
-        1. timeline_render.py header (lines 552-586) MUST use:
+        1. timeline_render.py header MUST use:
            - Left section: 87 width
-           - Right section: 46 width (WITH 14-char productivity column)
+           - Right section: 54 width (BREAK + 12+12+8+14 chars)
            - SAME dynamic terminal_width calculation
 
         2. All ljust() calls must be ljust_display() to handle UTF-8
@@ -136,13 +139,14 @@ class DisplayColumns:
 
         # Build right section (duration breakdown)
         # Each column preserves its width even when empty
+        break_col = ljust_display(self.break_time, 8)
         offline_col = ljust_display(self.offline_time, 12)
         afk_col = ljust_display(self.afk_time, 12)
         active_col = ljust_display(self.active_time, 8)
         # Add 2 spaces separator before productivity
         productivity_col = ljust_display("  " + self.productivity, 14) if self.productivity else " " * 14
 
-        right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+        right_section = f"{break_col}{offline_col}{afk_col}{active_col}{productivity_col}"
 
         # Right-align the duration section to terminal width using display width
         # Leave 2-space separator between left and right
@@ -254,6 +258,7 @@ class DisplayColumns:
             time_range=time_range,
             project=project_display,
             task=task_display,
+            break_time="",
             offline_time=offline_time,
             afk_time=afk_time,
             active_time=active_time,

@@ -255,9 +255,39 @@ def _to_local_time(dt: datetime) -> datetime:
     return dt
 
 
-def _render_system_shutdown_separator() -> None:
-    """Print a blank line to indicate a gap (system shutdown, break, etc.)."""
-    print()
+def _render_system_shutdown_separator(break_duration: Optional[timedelta] = None, width: int = 180) -> None:
+    """Print a break row showing duration between work sessions.
+
+    Args:
+        break_duration: Duration of the break (gap between slots)
+        width: Terminal width for alignment (default 180)
+    """
+    from tw_report.utils.formatting import display_width, ljust_display
+
+    # Use the BREAK column to show break duration
+    break_col = format_break_column(break_duration)
+
+    # Left section: empty (for alignment with time column)
+    left_section = " " * 87  # Match header_left_section width
+
+    # Right section: BREAK column + empty OFFLINE/AFK/ACTIVE (8 + 12 + 12 + 8 + 14 = 54)
+    right_section = (ljust_display(break_col, 8) +
+                     ljust_display("", 12) +  # OFFLINE blank
+                     ljust_display("", 12) +  # AFK blank
+                     ljust_display("", 8) +   # ACTIVE blank
+                     ljust_display("", 14))   # PRODUCTIVITY blank
+
+    # Build break row with proper alignment
+    left_section_width = display_width(left_section)
+    right_section_width = display_width(right_section)
+    left_padding = width - left_section_width - right_section_width - 2
+
+    if left_padding < 0:
+        break_line = left_section + "  " + right_section
+    else:
+        break_line = left_section + (" " * left_padding) + "  " + right_section
+
+    print(break_line.rstrip())
 
 
 def _create_period_metrics_from_dict(
@@ -832,10 +862,11 @@ def print_timeline_report(
     header_left_section = header_text + (" " * padding_to_left_section)
 
     # CRITICAL: Right section MUST include ALL columns DisplayColumns uses
-    # Format: OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 46 total
+    # Format: BREAK(8) + OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 54 total
     # If you add/remove/resize any duration column in DisplayColumns, update here too!
-    header_right_section = (ljust_display("OFFLINE", 12) + ljust_display("AFK", 12) +
-                            ljust_display("ACTIVE", 8) + ljust_display("", 14))
+    header_right_section = (ljust_display("BREAK", 8) + ljust_display("OFFLINE", 12) +
+                            ljust_display("AFK", 12) + ljust_display("ACTIVE", 8) +
+                            ljust_display("", 14))
 
     # CRITICAL: Use SAME terminal_width as DisplayColumns for all calculations
     # Both header and data rows use this formula:
@@ -1269,7 +1300,7 @@ def print_timeline_report(
         if last_slot_end is not None:
             gap = slot.start - last_slot_end
             if gap > gap_threshold:
-                _render_system_shutdown_separator()
+                _render_system_shutdown_separator(break_duration=gap, width=width)
 
         # Extract slot properties uniformly (works for dict or object)
         def get_slot_attr(attr, default=None):
