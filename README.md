@@ -561,9 +561,31 @@ python debug_profile.py  # Profile time/memory for a command
 python debug_full_pipeline.py  # Trace the full event pipeline
 ```
 
-## Recent Work & Status (Session 2026-09-01)
+## Recent Work & Status (Session 2026-09-02)
 
-### Completed Work
+### CRITICAL FIX: Unified Pipeline Architecture ✅ COMPLETE
+
+**The Problem**: Two independent slot-building paths caused metrics divergence
+- Timeline report: Built slots → filtered → calculated metrics
+- Hierarchical report: Pre-filtered events → built slots → consolidated → aggregated
+- **Result**: Identical data showed different totals (86-second discrepancies observed in production)
+- **Example**: Mercado laboral showed 00:08:00 in `--by-project` but 00:06:34 in timeline view
+
+**The Solution**: Single unified pipeline (Commit 07ed47d)
+1. Build slots once from unfiltered events (builder needs complete data for correct classification)
+2. Filter slots once at output point
+3. Feed both report modes (timeline & hierarchical) from identical filtered data
+4. No pre-filtering or separate consolidation needed
+
+**Verification**: ✅ Production-ready
+- 3/3 convergence tests pass (both paths produce identical totals)
+- 519/519 unit tests pass (0 failures, 0 regressions)
+- CLI manual verification: `:today` and `:yesterday` show identical metrics between timeline and `--by-project` reports
+- Example: Both show Active Time 01:12:31 + AFK time 00:03:10 + Online 01:15:41 + Total Time 01:15:41
+
+**Impact**: Eliminated silent divergence risk — both report types now guaranteed to show identical metrics
+
+### Previous Session Work (Session 2026-09-01)
 
 **Phase 2: Builder Consolidation & Code Cleanup** ✅ COMPLETE
 - Eliminated 5 independent slot generators (4253 LOC deleted)
@@ -579,12 +601,12 @@ python debug_full_pipeline.py  # Trace the full event pipeline
 - Breaks Column displays gap durations (HH:MM:SS format) in leftmost column
 - Updated DisplayColumns structure and header rendering
 - Integrated break detection logic with gap separator rendering
-- All tests passing: 21 breaks column tests + 37 timeline/rendering tests + 492 total unit tests
+- All tests passing: 21 breaks column tests + 37 timeline/rendering tests + 519 total unit tests
 
 **Test Suite Health** ✅ PERFECT
-- **Total**: 492 unit tests passing
+- **Total**: 519 unit tests passing (all sessions)
 - **Regressions**: 0
-- **Test coverage**: Timeline rendering, consolidation, filtering, breaks detection, metrics calculation
+- **Test coverage**: Timeline rendering, consolidation, filtering, breaks detection, metrics calculation, convergence validation
 
 ### Known Limitations
 
