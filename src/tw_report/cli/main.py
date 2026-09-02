@@ -444,13 +444,20 @@ def main():
     # Not just not_afk_events, since slots are built from all sources
     # Window events may start before AFK events, and task events may extend beyond both
     # CRITICAL: Keep calculations in UTC, convert to local ONLY for display
+    # IMPORTANT: Exclude zero-duration events (metadata only) to match slot builder's behavior
     all_events_for_period_utc = []
     if not_afk_events:
-        all_events_for_period_utc.extend([(e.timestamp, e.timestamp + e.duration) for e in not_afk_events])
+        all_events_for_period_utc.extend(
+            [(e.timestamp, e.timestamp + e.duration) for e in not_afk_events if e.duration > timedelta(0)]
+        )
     if window_events:
-        all_events_for_period_utc.extend([(e.timestamp, e.timestamp + e.duration) for e in window_events])
+        all_events_for_period_utc.extend(
+            [(e.timestamp, e.timestamp + e.duration) for e in window_events if e.duration > timedelta(0)]
+        )
     if task_events:
-        all_events_for_period_utc.extend([(e.timestamp, e.timestamp + e.duration) for e in task_events])
+        all_events_for_period_utc.extend(
+            [(e.timestamp, e.timestamp + e.duration) for e in task_events if e.duration > timedelta(0)]
+        )
 
     first_event_time = None
     last_event_time = None
