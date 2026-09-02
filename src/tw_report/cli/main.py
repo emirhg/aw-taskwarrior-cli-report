@@ -631,7 +631,17 @@ def main():
     # This merges multiple work sessions with same (date, project, task) into one entry
     if args.consolidate:
         from tw_report.pipeline.consolidation import consolidate_sessions
-        all_slot_entries = consolidate_sessions(all_slot_entries)
+        # Filter out micro-slots (< 1 second) before consolidation
+        # These are spurious state-change events that fragment work sessions
+        min_duration = timedelta(seconds=1)
+        before = len(all_slot_entries)
+        filtered_entries = [
+            s for s in all_slot_entries
+            if s.get("duration", timedelta(0)) >= min_duration
+        ]
+
+        print(f"[CONSOLIDATE] Filtered micro-slots: {before} → {len(filtered_entries)} slots")
+        all_slot_entries = consolidate_sessions(filtered_entries)
 
     # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
     # Use the standard timeline rendering which shows chronological slots

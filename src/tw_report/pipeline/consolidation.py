@@ -48,6 +48,7 @@ def consolidate_sessions(
     slot_dicts = [_to_dict(slot) for slot in slots]
 
 
+
     # Group consecutive slots by (project, task)
     merged = []
     current_group = [slot_dicts[0]]
@@ -93,10 +94,12 @@ def _to_dict(slot: Union[Dict[str, Any], Any]) -> Dict[str, Any]:
 
 def _same_group(slot: Dict[str, Any], last_slot: Dict[str, Any]) -> bool:
     """Check if two slots belong to the same consolidation group."""
-    return (
+    same = (
         slot.get("project") == last_slot.get("project")
         and slot.get("task") == last_slot.get("task")
     )
+
+    return same
 
 
 def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
