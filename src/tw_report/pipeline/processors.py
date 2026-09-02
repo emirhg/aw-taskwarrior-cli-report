@@ -281,7 +281,7 @@ def aggregate_hierarchy_from_slots(
 
 
 def compute_metrics(
-    canonical_events: List[ReportEvent],
+    consolidated_slots: List["ReportTimelineSlot"],
     cat_score_map: Dict[str, float],
     get_category_score: Callable[[str, Dict[str, float]], float],
     non_afk_time: timedelta,
@@ -295,30 +295,42 @@ def compute_metrics(
     last_break_duration,
     detail_level: int = 1,
 ) -> ReportMetrics:
+    """Calculate productivity metrics from consolidated slots (Phase 2 refactor).
+
+    Refactored to work with ReportTimelineSlot objects directly instead of canonical_events.
+    Slots already have categories populated by the builder, enabling direct productivity scoring.
+    """
     productive_time = timedelta(0)
     productive_task_time = timedelta(0)
     distracting_time = timedelta(0)
     unscored_time = timedelta(0)
 
-    # Check if events have category data (window events from ActivityWatch)
+    # Check if slots have category data (window events from ActivityWatch)
     # If no window events were fetched (AFK optimization mode), category scoring is meaningless
     # Also, only calculate productivity metrics if detail_level >= 3, since lower levels
     # don't display window categories (can't justify the percentages with visible data)
-    has_category_data = any(rep.event.data.get("$category") for rep in canonical_events)
+    has_category_data = any(slot.categories for slot in consolidated_slots)
 
     if has_category_data and detail_level >= 3:
-        # Normal path: score events by category (productive/distracting/unscored)
-        for report_event in canonical_events:
-            event = report_event.event
-            max_score = window_event_max_category_score(event, cat_score_map, get_category_score)
-            if max_score > 0:
-                productive_time += event.duration
-                if report_event.active_task is not None:
-                    productive_task_time += event.duration
-            elif max_score < 0:
-                distracting_time += event.duration
-            else:
-                unscored_time += event.duration
+        # Score productivity by iterating through slot categories
+        for slot in consolidated_slots:
+            if not slot.categories:
+                continue
+
+            # For each slot, score its categories and accumulate productivity
+            for cat_entry in slot.categories:
+                category = cat_entry.get("category", "Uncategorized")
+                score = get_category_score(category, cat_score_map)
+                slot_duration = slot.actual_duration or timedelta(0)
+
+                if score > 0:
+                    productive_time += slot_duration
+                    if slot.task_event is not None:
+                        productive_task_time += slot_duration
+                elif score < 0:
+                    distracting_time += slot_duration
+                else:
+                    unscored_time += slot_duration
     # else: AFK optimization mode (no window events), skip category scoring entirely
 
     return ReportMetrics(
@@ -339,13 +351,17 @@ def compute_metrics(
 
 
 def build_context(
-    canonical_events: List[ReportEvent],
+    consolidated_slots: List["ReportTimelineSlot"],
     task_events: Optional[List[Event]],
     afk_events: List[Event],
     cat_score_map: Dict[str, float],
     is_task_based_report: bool,
     metrics: ReportMetrics,
 ) -> ReportContext:
+    """Build report context from consolidated slots (Phase 2 refactor).
+
+    Refactored to use slots directly instead of canonical_events bridge.
+    """
     from tw_report.pipeline.models import BucketEvents
 
     # Organize events into typed BucketEvents collection
@@ -357,7 +373,7 @@ def build_context(
 
     return ReportContext(
         bucket_events=bucket_events,
-        canonical_events=canonical_events,
+        consolidated_slots=consolidated_slots,
         cat_score_map=cat_score_map,
         is_task_based_report=is_task_based_report,
         metrics=metrics,

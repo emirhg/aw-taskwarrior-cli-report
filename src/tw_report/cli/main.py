@@ -457,36 +457,10 @@ def main():
         and not (args.exclude_non_project and s.project == NO_PROJECT)
     ]
 
-    # Legacy compatibility: Convert slots to canonical_events for existing code paths
-    # This bridge will be removed in future refactors once all code paths use slots
-    from tw_report.pipeline.models import ReportEvent
-    canonical_events = []
-
-    for slot_dict in all_slot_entries:
-        slot = ReportTimelineSlot.from_dict(slot_dict)
-
-        # Create a synthetic event for compatibility
-        from aw_core.models import Event
-        synthetic_event = Event(
-            timestamp=slot.start,
-            duration=slot.duration,
-            data={"slot": slot_dict}
-        )
-
-        rep = ReportEvent(
-            event=synthetic_event,
-            project=slot.project,
-            task=slot.task,
-            active_task=None  # Slots don't track active_task separately
-        )
-        canonical_events.append(rep)
-
-    # No OfflineTaskProcessor needed — builder handles offline/online classification
-    offline_task_durations: Dict = {}
-    offline_processor = None
-
+    # PHASE 2 REFACTOR: Metrics computed from slots directly (no canonical_events bridge)
+    # Slots already have categories populated by builder, enabling direct productivity scoring
     metrics = compute_metrics(
-        canonical_events=canonical_events,
+        consolidated_slots=consolidated_slots,
         cat_score_map=cat_score_map,
         get_category_score=get_category_score,
         non_afk_time=non_afk_time,
@@ -501,7 +475,7 @@ def main():
         detail_level=args.detail_level,
     )
     context = build_context(
-        canonical_events=canonical_events,
+        consolidated_slots=consolidated_slots,
         task_events=task_events,
         afk_events=afk_events,
         cat_score_map=cat_score_map,

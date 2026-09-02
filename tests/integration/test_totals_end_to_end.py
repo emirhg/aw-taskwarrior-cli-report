@@ -26,33 +26,41 @@ class TestMetricsCalculationWithRealEvents:
         return datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
 
     def test_simple_work_session_metrics(self, base_time):
-        """Single focused work session: all Active Time, no AFK."""
+        """Single focused work session: all Active Time, no AFK (Phase 2 refactor: slot-based)."""
         # 10:00-12:00 = 2 hours of focused work
-        afk_events = [
-            Event(
+        from tw_report.core.report_slot import ReportTimelineSlot
+        from tw_report.core.aw_events import TaskWarriorEvent
+
+        slot_duration = timedelta(hours=2)
+        slot = ReportTimelineSlot(
+            start=base_time,
+            end=base_time + slot_duration,
+            duration=slot_duration,
+            actual_duration=slot_duration,
+            productive_duration=slot_duration,
+            task_event=TaskWarriorEvent(
                 timestamp=base_time,
-                duration=timedelta(hours=2),
-                data={"status": "not-afk"},
-            )
-        ]
+                duration=slot_duration,
+                data={"project": "Work", "task": "Coding", "tags": []},
+            ),
+            categories=[{
+                "category": "Development",
+                "apps": [{
+                    "app": "IDE",
+                    "duration": slot_duration,
+                    "titles": [{"title": "main.py", "duration": slot_duration}]
+                }]
+            }],
+            window_events=[],
+            afk_events=[],
+            tags=[],
+            is_consolidated=False,
+        )
 
-        # Canonical events from window activity during work
-        class MockEvent:
-            def __init__(self, duration):
-                self.duration = duration
-                self.data = {"$category": ["Development"]}
-
-        class MockReportEvent:
-            def __init__(self, duration):
-                self.event = MockEvent(duration)
-                self.project = "Work"
-                self.task = "Coding"
-                self.active_task = None
-
-        canonical_events = [MockReportEvent(timedelta(hours=2))]
+        consolidated_slots = [slot]
 
         metrics = compute_metrics(
-            canonical_events=canonical_events,
+            consolidated_slots=consolidated_slots,
             cat_score_map={"Development": 1.0},
             get_category_score=lambda cat, m: m.get(cat, 0),
             non_afk_time=timedelta(hours=2),

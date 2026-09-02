@@ -377,11 +377,11 @@ class ReportMetrics:
 
 @dataclass(frozen=True)
 class ReportContext:
-    """Complete context for generating a report.
+    """Complete context for generating a report (Phase 2 refactor).
 
     Attributes:
         bucket_events: Typed collection of raw bucket events (AFKEvent, WindowEvent, TaskWarriorEvent)
-        canonical_events: Correlated events (TaskWarrior + ActivityWatch overlap)
+        consolidated_slots: Pre-consolidated timeline slots with categories and durations
         cat_score_map: Category productivity score mapping
         is_task_based_report: True if this is a task-based report
         metrics: Aggregated metrics for the report period
@@ -391,7 +391,7 @@ class ReportContext:
         afk_events: List of AFKEvents (via bucket_events.afk)
     """
     bucket_events: BucketEvents
-    canonical_events: List[ReportEvent]
+    consolidated_slots: list  # List[ReportTimelineSlot] - using list to avoid circular import
     cat_score_map: Dict[str, float]
     is_task_based_report: bool
     metrics: ReportMetrics
