@@ -47,6 +47,7 @@ def consolidate_sessions(
     # Convert to dicts for consistent handling
     slot_dicts = [_to_dict(slot) for slot in slots]
 
+
     # Group consecutive slots by (project, task)
     merged = []
     current_group = [slot_dicts[0]]
@@ -62,9 +63,10 @@ def consolidate_sessions(
             # Different task/project - finalize and start new group
             merged.append(_merge_group(current_group))
             current_group = [slot]
-
+        
     # Don't forget the last group
     merged.append(_merge_group(current_group))
+
 
     return merged
 
@@ -111,6 +113,7 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     if len(group) == 1:
         return group[0]
+
 
     # Calculate total duration from first start to last end
     first_slot = group[0]
