@@ -440,13 +440,24 @@ def main():
             # vs false positives (system was off). Don't clear window_events here.
 
     # Calculate metrics (used by both report types)
+    # Calculate period from ALL event sources (AFK + window + task) in UTC
+    # Not just not_afk_events, since slots are built from all sources
+    # Window events may start before AFK events, and task events may extend beyond both
+    # CRITICAL: Keep calculations in UTC, convert to local ONLY for display
+    all_events_for_period_utc = []
+    if not_afk_events:
+        all_events_for_period_utc.extend([(e.timestamp, e.timestamp + e.duration) for e in not_afk_events])
+    if window_events:
+        all_events_for_period_utc.extend([(e.timestamp, e.timestamp + e.duration) for e in window_events])
+    if task_events:
+        all_events_for_period_utc.extend([(e.timestamp, e.timestamp + e.duration) for e in task_events])
+
     first_event_time = None
     last_event_time = None
-    if not_afk_events:
-        first_event_time = min(event.timestamp.astimezone() for event in not_afk_events)
-        last_event_time = max(
-            (event.timestamp + event.duration).astimezone() for event in not_afk_events
-        )
+    if all_events_for_period_utc:
+        # Keep in UTC for all calculations
+        first_event_time = min(start for start, end in all_events_for_period_utc)
+        last_event_time = max(end for start, end in all_events_for_period_utc)
 
 
     # PHASE 2 REFACTOR: Use unified builder instead of 5 scattered generators
@@ -486,6 +497,11 @@ def main():
     consolidated = ReportEntries(slots_list=final_slots)
     consolidated_slots = consolidated.consolidate_by_task().slots_list
     _profile(f"Consolidated to {len(consolidated_slots)} slots")
+
+    # Tracked Activity from event times (includes all buckets: AFK + window + task)
+    tracked_activity_from_slots = None
+    if first_event_time and last_event_time:
+        tracked_activity_from_slots = last_event_time - first_event_time
 
     # Apply EventFilter once (unified point, replaces 3 scattered implementations)
     # This is the ONLY filter application point for slots
@@ -686,7 +702,9 @@ def main():
         timedelta(0)
     )
 
-    # Convert slots back to dicts for rendering (use raw builder output, NO consolidation)
+    # Convert slots back to dicts for rendering (use raw builder output, NO filtering)
+    # IMPORTANT: Rendering shows ALL slots (including AFK) while metrics can be filtered.
+    # This is by design — the report shows complete timeline, but summary metrics respect filters.
     consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in report_slots]
 
     # Now determine which rendering mode to use: timeline (period-based) or hierarchical
@@ -709,8 +727,8 @@ def main():
             non_afk_time=slot_active_time,
             productive_time=context.metrics.productive_time,
             productive_task_time=context.metrics.productive_task_time,
-            first_event_time=context.metrics.first_event_time,
-            last_event_time=context.metrics.last_event_time,
+            first_event_time=first_event_time,
+            last_event_time=last_event_time,
             task_based=context.is_task_based_report,
             distracting_time=context.metrics.distracting_time,
             unscored_time=context.metrics.unscored_time,
@@ -722,6 +740,7 @@ def main():
             last_break_duration=context.metrics.last_break_duration,
             afk_events=afk_events,
             day_start_hour=day_start_hour,
+            tracked_activity=tracked_activity_from_slots,
         )
     else:
         # Hierarchical (--by-project) report: use slot-based AFK/Offline calculations for consistency
