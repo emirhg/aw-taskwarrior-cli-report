@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src'))
 
 from tw_report.pipeline.timeline_render import (
     split_slots_spanning_days,
-    filter_short_slots,
     get_slot_logical_date,
     get_slot_week_key,
 )
@@ -74,31 +73,6 @@ class TestRenderingFunctionAudit:
             return False  # Re-splitting occurred
         else:
             print(f"\n✓ Consolidation preserved (still 1 slot)")
-            return True
-
-    def test_filter_short_slots_with_consolidated_slot(self, base_time):
-        """TEST: Does filter_short_slots remove consolidated slots?"""
-        # Create a consolidated slot
-        consolidated_slot = self.make_slot(
-            base_time + timedelta(hours=1),
-            base_time + timedelta(hours=3),
-            task="ConsolidatedTask",
-        )
-
-        print(f"\nINPUT: Consolidated slot")
-        print(f"  Duration: {consolidated_slot['duration']}")
-
-        # Run through filter_short_slots
-        result = filter_short_slots([consolidated_slot])
-
-        print(f"\nOUTPUT after filter_short_slots:")
-        print(f"  Count: {len(result)}")
-
-        if len(result) == 0:
-            print(f"\n✗ ISSUE FOUND: filter_short_slots removed the consolidated slot!")
-            return False
-        else:
-            print(f"✓ Consolidation preserved")
             return True
 
     def test_logical_date_calculation(self, base_time):
@@ -194,17 +168,13 @@ class TestRenderingPipelineIntegration:
         after_split = split_slots_spanning_days(slots, day_start_hour=4)
         print(f"\nAFTER split_slots_spanning_days: {len(after_split)} slots")
 
-        # Run through filter_short_slots
-        after_filter = filter_short_slots(after_split)
-        print(f"AFTER filter_short_slots: {len(after_filter)} slots")
-
         # Verify we still have our consolidated slots (not re-split)
-        if len(after_filter) == 2:
+        if len(after_split) == 2:
             print(f"✓ Consolidation preserved through pipeline")
             return True
         else:
             print(
-                f"⚠️ Consolidation altered! Input had 2, output has {len(after_filter)}"
+                f"⚠️ Consolidation altered! Input had 2, output has {len(after_split)}"
             )
             return False
 

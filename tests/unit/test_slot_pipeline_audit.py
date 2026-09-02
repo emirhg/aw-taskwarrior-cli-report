@@ -11,7 +11,6 @@ from tw_report.pipeline.timeline_render import (
     get_slot_week_key,
     get_slot_logical_date,
     split_slots_spanning_days,
-    filter_short_slots,
 )
 from tw_report.core.period import logical_date
 
