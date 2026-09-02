@@ -205,7 +205,7 @@ class TestTimelineReportTotalsInvariants:
         # Parse values from output
         active_time = _parse_duration_from_output(output, "Active Time")
         afk_time = _parse_duration_from_output(output, "AFK time")
-        online_time = _parse_duration_from_output(output, "  Online")
+        online_time = _parse_duration_from_output(output, "    Online")
 
         # Verify invariant: Online = Active + AFK
         assert active_time == timedelta(hours=1), f"Active time should be 1h, got {active_time}"
@@ -257,8 +257,8 @@ class TestTimelineReportTotalsInvariants:
         output = captured.out
 
         # Parse values from output
-        online_time = _parse_duration_from_output(output, "  Online")
-        offline_time = _parse_duration_from_output(output, "  Offline tracked")
+        online_time = _parse_duration_from_output(output, "    Online")
+        offline_time = _parse_duration_from_output(output, "    Offline")
         total_time = _parse_duration_from_output(output, "Total Time")
 
         # Verify invariant: Total = Online + Offline
@@ -324,8 +324,8 @@ class TestTimelineReportTotalsInvariants:
         # Parse values
         active_time = _parse_duration_from_output(output, "Active Time")
         afk_time = _parse_duration_from_output(output, "AFK time")
-        online_time = _parse_duration_from_output(output, "  Online")
-        offline_time = _parse_duration_from_output(output, "  Offline tracked")
+        online_time = _parse_duration_from_output(output, "    Online")
+        offline_time = _parse_duration_from_output(output, "    Offline")
         total_time = _parse_duration_from_output(output, "Total Time")
 
         # The bug would cause:
