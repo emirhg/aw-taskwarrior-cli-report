@@ -172,6 +172,7 @@ class PeriodMetrics:
         afk_duration: Time away from keyboard (subset of online_duration)
         offline_gap: Time when system was powered off
         productive_duration: Time on productive activities
+        break_duration: Time between work sessions (gaps > 5 minutes)
 
     Usage:
         Instead of:
@@ -185,7 +186,8 @@ class PeriodMetrics:
                 online=slot_duration.online_duration,
                 afk=afk_time,
                 offline=offline_time,
-                productive=productive_time
+                productive=productive_time,
+                break=break_duration
             )
     """
 
@@ -193,6 +195,7 @@ class PeriodMetrics:
     afk_duration: timedelta = timedelta(0)
     offline_gap: timedelta = timedelta(0)
     productive_duration: timedelta = timedelta(0)
+    break_duration: timedelta = timedelta(0)
 
     def add(
         self,
@@ -200,6 +203,7 @@ class PeriodMetrics:
         afk: timedelta | None = None,
         offline: timedelta | None = None,
         productive: timedelta | None = None,
+        break_time: timedelta | None = None,
     ) -> None:
         """Add durations to this period's totals.
 
@@ -208,6 +212,7 @@ class PeriodMetrics:
             afk: AFK time to add (subset of online)
             offline: Offline gap to add
             productive: Productive time to add
+            break_time: Break/gap time to add (time between work sessions)
         """
         if online and online.total_seconds() > 0:
             self.online_duration += online
@@ -217,6 +222,8 @@ class PeriodMetrics:
             self.offline_gap += offline
         if productive and productive.total_seconds() > 0:
             self.productive_duration += productive
+        if break_time and break_time.total_seconds() > 0:
+            self.break_duration += break_time
 
     def add_timeslot(
         self,

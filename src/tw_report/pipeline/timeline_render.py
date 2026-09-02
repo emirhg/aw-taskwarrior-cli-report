@@ -562,7 +562,8 @@ def format_and_print_day_total_displayed(
     displayed_afk: timedelta,
     displayed_active: timedelta,
     productive_duration: Optional[timedelta],
-    width: int = 120
+    width: int = 120,
+    displayed_break: Optional[timedelta] = None,
 ) -> None:
     """Format and print day total using actual displayed column values.
 
@@ -575,11 +576,18 @@ def format_and_print_day_total_displayed(
         displayed_active: Sum of ACTIVE column values displayed for the day
         productive_duration: Productive time in the day
         width: Terminal width for formatting
+        displayed_break: Sum of break durations (gaps > 5 minutes) for the day
     """
     from tw_report.utils.formatting import display_width, ljust_display
 
     indent = " " * 7
     day_total_label = "Day total:   "
+
+    # Format BREAK column
+    break_col = ljust_display(
+        format_duration(displayed_break) if displayed_break and displayed_break.total_seconds() > 0 else "",
+        8
+    )
 
     # Format each column using the actual displayed values
     offline_col = ljust_display(
@@ -604,7 +612,7 @@ def format_and_print_day_total_displayed(
         14
     )
 
-    right_section = f"{offline_col}{afk_col}{active_col}{productivity_col}"
+    right_section = f"{break_col}{offline_col}{afk_col}{active_col}{productivity_col}"
     left_part = ljust_display(f"{indent}{day_total_label}", 87)
     left_part_width = display_width(left_part)
     right_section_width = display_width(right_section)
@@ -1160,9 +1168,11 @@ def print_timeline_report(
     daily_displayed_offline = timedelta(0)
     daily_displayed_afk = timedelta(0)
     daily_displayed_active = timedelta(0)
+    daily_displayed_break = timedelta(0)
     weekly_displayed_offline = timedelta(0)
     weekly_displayed_afk = timedelta(0)
     weekly_displayed_active = timedelta(0)
+    weekly_displayed_break = timedelta(0)
 
     # Track pending week total to print AFTER we have authoritative online_time from AFK bucket
     # This ensures week total uses same data source (AFK bucket) as TOTALS section
@@ -1228,7 +1238,7 @@ def print_timeline_report(
                 # Use displayed values for accurate day totals instead of accumulated metrics
                 format_and_print_day_total_displayed(
                     daily_displayed_offline, daily_displayed_afk, daily_displayed_active,
-                    daily_metrics.productive_duration, width
+                    daily_metrics.productive_duration, width, daily_displayed_break
                 )
                 if not is_single_day:
                     # DEFER week total printing until after we have authoritative online_time from AFK bucket
@@ -1263,13 +1273,14 @@ def print_timeline_report(
                 # Use displayed values for accurate day totals instead of accumulated metrics
                 format_and_print_day_total_displayed(
                     daily_displayed_offline, daily_displayed_afk, daily_displayed_active,
-                    daily_metrics.productive_duration, width
+                    daily_metrics.productive_duration, width, daily_displayed_break
                 )
                 print()
             daily_metrics = PeriodMetrics()
             daily_displayed_offline = timedelta(0)
             daily_displayed_afk = timedelta(0)
             daily_displayed_active = timedelta(0)
+            daily_displayed_break = timedelta(0)
             date_str = slot_date_val.strftime("%Y-%m-%d")
             day_str = slot_date_val.strftime("%a")
             # Align same-week dates: 4 spaces + date + day
@@ -1291,6 +1302,11 @@ def print_timeline_report(
             gap = slot.start - last_slot_end
             if gap > gap_threshold:
                 _render_system_shutdown_separator(break_duration=gap, width=width)
+                # Accumulate break time to metrics
+                daily_metrics.add(break_time=gap)
+                weekly_metrics.add(break_time=gap)
+                daily_displayed_break += gap
+                weekly_displayed_break += gap
 
         # Extract slot properties uniformly (works for dict or object)
         def get_slot_attr(attr, default=None):
