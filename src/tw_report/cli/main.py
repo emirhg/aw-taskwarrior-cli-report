@@ -451,11 +451,8 @@ def main():
     )
 
     # Consolidate slots by (project, task) to merge multi-entry work sessions
-    consolidated = ReportEntries(slots_list=[s.to_dict() for s in final_slots])
-    consolidated_slots = [
-        ReportTimelineSlot.from_dict(slot_dict)
-        for slot_dict in consolidated.consolidate_by_task().slots_list
-    ]
+    consolidated = ReportEntries(slots_list=final_slots)
+    consolidated_slots = consolidated.consolidate_by_task().slots_list
 
     # Apply EventFilter once (unified point, replaces 3 scattered implementations)
     # This is the ONLY filter application point for slots
