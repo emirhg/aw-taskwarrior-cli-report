@@ -446,12 +446,24 @@ def main():
 
     # Apply EventFilter once (unified point, replaces 3 scattered implementations)
     # This is the ONLY filter application point for slots
+    # Extract apps from slot categories for app-level filtering in consolidation modes
+    def _get_apps_from_slot(slot):
+        """Extract all unique app names from slot's categories."""
+        apps = set()
+        for cat_entry in (slot.categories or []):
+            for app_entry in cat_entry.get("apps", []):
+                app_name = app_entry.get("app", "")
+                if app_name:
+                    apps.add(app_name)
+        return list(apps)
+
     all_slot_entries = [
         s.to_dict()
         for s in consolidated_slots
         if event_filter.should_include_entry({
             'project': s.project,
             'task': s.task,
+            'app': "|".join(_get_apps_from_slot(s)) or "",  # Join multiple apps with |
             'type': 'regular' if s.project != NO_PROJECT else 'afk'
         })
         and not (args.exclude_non_project and s.project == NO_PROJECT)
@@ -611,7 +623,12 @@ def main():
     filtered_slots = [
         s for s in report_slots
         if event_filter.should_include_entry(
-            {'project': s.project, 'task': s.task, 'type': 'regular'},
+            {
+                'project': s.project,
+                'task': s.task,
+                'app': "|".join(_get_apps_from_slot(s)) or "",
+                'type': 'regular'
+            },
             entry_type='regular'
         )
     ]
