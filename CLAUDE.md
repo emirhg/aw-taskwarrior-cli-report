@@ -269,6 +269,55 @@ slot_active_time = sum(s.actual_duration or timedelta(0) for s in filtered_slots
 
 ## Recent Work & Current Status (Current Session - Session 2026-09-02)
 
+### NEW: False Offline Time Elimination ✅ (Commit ab6651d)
+- **Problem**: AFK bucket startup lag (1-2 second delay) was misclassified as offline time
+  - Window event: 12:00:00 (system provably active)
+  - AFK event: 12:00:02 (AFK monitoring initialized)
+  - Gap: 2 seconds classified as "offline" (false positive)
+  - Impact: Reports showed fake offline time for work activity
+
+- **Root Cause**: Builder logic didn't check window events before classifying gaps as offline
+  - Old: "No AFK coverage = system powered off"
+  - New: "Window events exist = system powered on (even if AFK bucket lags)"
+
+- **Solution**: Check for window activity before classifying offline
+  - If window events exist in gap: classify as "online" (system provably active)
+  - If no window events: classify as "offline" (truly powered off)
+  - Applied to both task-covered and generic (no-task) intervals
+
+- **Impact**: 
+  - Fixed: 12:21-13:02 slot had 00:00:02 offline → now 00:00:00
+  - Active time: 00:40:49 → 00:41:30 (correctly attributed)
+  - Eliminates false offline time from ActivityWatch timing lag
+
+- **Tests**:
+  - test_window_activity_during_afk_bucket_gap_classification() ✅
+  - test_no_window_activity_during_gap_classified_as_offline() ✅
+
+### NEW: State Continuity Micro-Slot Merging ✅ (Commit 8118898)
+- **Problem**: AFK bucket gaps created micro-slots with gaps misclassified as offline
+  - Active slot: 12:01-12:05 (4:28 active)
+  - Micro-slot: 12:05-12:05 (0:01 marked offline - should be active)
+  - Issue: Micro-slots fragment timeline, inherit previous state
+
+- **Solution**: Merge adjacent micro-slots based on state continuity
+  - If slot B follows slot A with 1-second gap, same (project, task)
+  - Inherit previous state (active if actual_duration > 0, else afk)
+  - Reclassify gap to match previous state, then merge
+  - Result: Single continuous slot instead of two fragmented entries
+
+- **Implementation**:
+  - `_merge_adjacent_micro_slots_by_state_continuity()` — Main merge logic
+  - `_merge_slot_group()` — Consolidate adjacent slots
+  - Called automatically before builder returns slots (no API changes)
+
+- **Impact**:
+  - Cleaner timeline rendering (fewer fragmented entries)
+  - Eliminates false offline time for micro-slots
+  - Example: 12:01-12:05 (active) + gap → 12:05-12:05 (offline) merges to one continuous slot
+
+- **Tests**: 5 comprehensive unit tests covering edge cases ✅
+
 ### CRITICAL FIX: Unified Pipeline Architecture ✅ (Commit 07ed47d)
 - **Problem**: Two independent slot-building paths caused metrics divergence (86-second discrepancies)
   - Timeline report: Built slots → filtered → calculated metrics
@@ -502,24 +551,38 @@ Don't use this for:
 
 ---
 
-**Last Updated**: Session 2026-09-02 (Unified Pipeline Architecture - CRITICAL FIX COMPLETE)
+**Last Updated**: Session 2026-09-02 (Offline Time & Micro-Slot Fixes - Session Complete)
 
 **Current Status**:
-- ✅ 519/519 unit tests passing (100% pass rate)
+- ✅ 526/526 unit tests passing (100% pass rate, +7 new tests)
 - ✅ Type-deprecation refactor complete (zero canonical_events references)
 - ✅ Hierarchical filtering fixed (TDD approach, commit 06159ce)
 - ✅ Unified pipeline architecture (single slot-building path, commit 07ed47d)
-- ✅ Metrics divergence eliminated (timeline & hierarchical now produce identical results)
+- ✅ Metrics divergence eliminated (timeline & hierarchical produce identical results)
 - ✅ Empty-apps category handling (task-based slots aggregate correctly)
 - ✅ App-level filtering in consolidation modes
 - ✅ Early filtering optimization (30-40% speedup for filtered queries)
+- ✅ **NEW**: State continuity micro-slot merging (cleaner timeline, commit 8118898)
+- ✅ **NEW**: Window-event proof-of-activity detection (false offline eliminated, commit ab6651d)
 - ✅ Production-ready and fully documented
 
 **Session 2026-09-02 Achievements**:
-- Fixed critical architectural bug: two independent paths unified into single pipeline
-- Eliminated 86-second metric discrepancies between timeline and hierarchical reports
-- All convergence tests pass: both report modes produce byte-identical metrics
-- No regressions: all 519 unit tests still passing
-- Manual verification: CLI produces identical metrics for both report modes
+1. **State Continuity Micro-Slot Merging** (Commit 8118898)
+   - Merges adjacent micro-slots based on state continuity
+   - Eliminates micro-slot fragmentation in timeline
+   - 5 comprehensive unit tests covering edge cases
+
+2. **False Offline Time Elimination** (Commit ab6651d)
+   - Detects window events during AFK bucket gaps
+   - Window activity proves system is powered on
+   - Eliminates false offline classification from timing lag
+   - Example: 12:21-13:02 slot: 00:00:02 offline → 00:00:00 (fixed)
+   - 2 new unit tests for window-event proof-of-activity
+
+3. **Overall Impact**:
+   - Reports are now cleaner with fewer false offline time entries
+   - Timeline rendering shows continuous work periods instead of fragmented slots
+   - Offline time now only appears for legitimately powered-off work
+   - All offline time for offline-tagged tasks still properly tracked
 
 **Maintainers**: Emir Herrera González (user) + Claude Haiku 4.5 (AI assistant)

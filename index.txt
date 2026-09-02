@@ -5,8 +5,8 @@
 This file serves as a quick navigation guide to the tw-report project structure.
 Use Ctrl+F to search for keywords relevant to your task.
 
-Last Updated: 2026-09-02 (Unified pipeline architecture completed - metrics divergence eliminated)
-Project Status: ✅ PRODUCTION READY (519 unit tests, 0 failing - all architectural issues resolved)
+Last Updated: 2026-09-02 (State continuity & offline time fixes - session complete)
+Project Status: ✅ PRODUCTION READY (526 unit tests, 0 failing - offline time & timeline rendering optimized)
 
 ================================================================================
                           QUICK SEARCH KEYWORDS
@@ -14,6 +14,8 @@ Project Status: ✅ PRODUCTION READY (519 unit tests, 0 failing - all architectu
 
 Unified Pipeline      → cli/main.py:470-712 (single builder, single filter point, shared metrics)
 Metrics Convergence   → tests/unit/test_two_path_convergence.py (verifies both report modes match)
+State Continuity      → core/timeslot_builder.py:270+ (_merge_adjacent_micro_slots_by_state_continuity)
+Offline Time Fix      → core/timeslot_builder.py:230-252 (window events prove system is powered on)
 Timeline Rendering    → see: RENDERING & OUTPUT MODULES
 Gap Detection         → timeline_render.py:570-575, 899, 693 (visual separation for gaps > 5min)
 Duplicate Slots       → report_slot.py:545-620 (_merge_overlapping_work_slots)
