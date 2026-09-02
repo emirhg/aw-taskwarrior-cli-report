@@ -500,17 +500,6 @@ def main():
     # Both report modes need consistent AFK/Offline calculations, so slots are built unconditionally
     # The if/else below only controls which rendering mode (timeline vs hierarchical) is used
 
-    timeline_events = [
-        {
-            "event": rep.event,
-            "project": rep.project,
-            "task": rep.task,
-            "active_task": rep.active_task,
-        }
-        for rep in context.canonical_events
-    ]
-
-
     # Use Timeline for internal slot management (Phase 3 migration)
     timeline = Timeline()
 
