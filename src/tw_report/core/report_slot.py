@@ -74,13 +74,13 @@ class DisplayColumns:
         - Task: 35 chars (left-justified, truncated)
         Calculation: 7 + 13 + 2 + 28 + 2 + 35 = 87
 
-        Right Section (Duration Breakdown): 54 display width total
-        - BREAK column: 8 chars (empty or "HH:MM:SS")
+        Right Section (Duration Breakdown): 58 display width total
+        - BREAK column: 12 chars (empty or "HH:MM:SS")
         - OFFLINE column: 12 chars (empty or "(HH:MM:SS)")
         - AFK column: 12 chars (empty or "(HH:MM:SS)")
         - ACTIVE column: 8 chars (empty or "HH:MM:SS")
         - PRODUCTIVITY column: 14 chars (empty or "  [prod XXX%]")
-        Calculation: 8 + 12 + 12 + 8 + 14 = 54
+        Calculation: 12 + 12 + 12 + 8 + 14 = 58
 
         Dynamic Padding: terminal_width - 87 - 54 - 2 (separator) = left_padding
         Formula: left_section + (left_padding spaces) + "  " + right_section
@@ -110,7 +110,7 @@ class DisplayColumns:
         ======================
         1. timeline_render.py header MUST use:
            - Left section: 87 width
-           - Right section: 54 width (BREAK + 12+12+8+14 chars)
+           - Right section: 58 width (12+12+12+8+14 chars)
            - SAME dynamic terminal_width calculation
 
         2. All ljust() calls must be ljust_display() to handle UTF-8
@@ -139,7 +139,7 @@ class DisplayColumns:
 
         # Build right section (duration breakdown)
         # Each column preserves its width even when empty
-        break_col = ljust_display(self.break_time, 8)
+        break_col = ljust_display(self.break_time, 12)
         offline_col = ljust_display(self.offline_time, 12)
         afk_col = ljust_display(self.afk_time, 12)
         active_col = ljust_display(self.active_time, 8)
