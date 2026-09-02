@@ -320,10 +320,6 @@ class ReportTimelineSlot:
     def __post_init__(self) -> None:
         """Validate slot integrity: reject zero-duration slots and normalize timezones."""
         if self.duration <= timedelta(0):
-            # BUG: Month consolidation (--by-month) crashes here with zero-duration OFFLINE
-            # slots created by offline_processor.get_synthetic_slot(). Root cause: OFFLINE slot
-            # duration calculation produces zero-duration slots for certain task events.
-            # Needs fix in offline.py:get_synthetic_slot() to ensure positive duration.
             raise ValueError(
                 f"ReportTimelineSlot must have positive duration; got {self.duration} "
                 f"(start={self.start}, end={self.end}). "

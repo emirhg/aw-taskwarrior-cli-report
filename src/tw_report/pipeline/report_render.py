@@ -543,12 +543,6 @@ def print_report(
 ) -> None:
     """Print hierarchical report (project-based or category-based).
 
-    BUG: When EventFilter is applied (--project, --task), metrics are filtered
-    but report_data entries are NOT filtered. User sees all entries in hierarchical
-    view with filtered metric totals (architectural mismatch). Timeline report is
-    correct (both display and metrics filtered). Fix: filter report_data structure
-    before rendering (not yet implemented).
-
     Renders a detailed, multi-level report of activities and productivity.
     Task-based mode shows: Project > Task > Category > App > Title hierarchy.
     Category-based mode shows: Category > App > Title hierarchy.

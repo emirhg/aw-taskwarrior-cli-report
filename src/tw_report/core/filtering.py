@@ -28,12 +28,7 @@ class EventFilter:
     - Inline filtering for synthetic OFFLINE slots (lines 3720-3808)
 
     KEY FEATURE: Consistent behavior across entry types.
-
-    BUG: App-level filtering (--app) is COMPLETELY BROKEN. Returns no results
-    even with valid app names. Appears to affect both normal mode and consolidation
-    modes. Root cause unknown. Needs investigation in should_include_entry() or
-    calling code (main.py). Timeline report should show app details at detail_level>=3,
-    but filtering by --app returns empty results regardless.
+    App-level filtering (--app) is supported for both timeline and consolidation modes.
     """
 
     def __init__(
