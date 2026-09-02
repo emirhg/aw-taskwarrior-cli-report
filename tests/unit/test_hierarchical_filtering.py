@@ -140,19 +140,19 @@ class TestHierarchicalFilteringConsistency:
         )
 
         # Calculate metrics from filtered slots (what display should show)
-        total_duration = sum(s.actual_duration or timedelta(0) for s in filtered_slots)
+        total_duration = sum((s.actual_duration if isinstance(s.actual_duration, timedelta) else timedelta(0) for s in filtered_slots), timedelta(0))
 
-        # Sum all entries in hierarchy
+        # Sum all entries in hierarchy (dict values)
         hierarchy_total = timedelta(0)
-        for project in report_data:
-            hierarchy_total += project.get("total_duration", timedelta(0))
+        for project_data in report_data.values():
+            hierarchy_total += project_data.get("total_duration", timedelta(0))
 
         # They must match
         assert hierarchy_total == total_duration, \
             f"Hierarchy total ({hierarchy_total}) != metrics total ({total_duration})"
 
     def test_filtered_hierarchy_excludes_work_and_personal(self, sample_slots):
-        """Verify Work and Personal projects are NOT in filtered hierarchy."""
+        """Verify filtered hierarchy only shows filtered project's data."""
         event_filter = EventFilter(
             project_patterns=["Climb"],
             task_patterns=None,
@@ -174,13 +174,13 @@ class TestHierarchicalFilteringConsistency:
 
         report_data = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
-            task_based=False,
+            task_based=True,  # Use task-based to group by project
             cat_score_map={},
             get_category_score=lambda cat, m: 0,
             normalize_title=lambda t: t,
         )
 
-        project_names = {proj["project"] for proj in report_data}
+        project_names = set(report_data.keys())
         assert "Work" not in project_names, "Work project should not be in filtered hierarchy"
         assert "Personal" not in project_names, "Personal project should not be in filtered hierarchy"
         assert "Climb" in project_names, "Climb project must be in filtered hierarchy"
@@ -208,7 +208,7 @@ class TestHierarchicalFilteringConsistency:
 
         report_data = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
-            task_based=False,
+            task_based=True,  # Use task-based to group by project
             cat_score_map={},
             get_category_score=lambda cat, m: 0,
             normalize_title=lambda t: t,
@@ -216,7 +216,7 @@ class TestHierarchicalFilteringConsistency:
 
         # Should have Climb and Work (2 projects)
         assert len(report_data) == 2
-        project_names = {proj["project"] for proj in report_data}
+        project_names = set(report_data.keys())
         assert project_names == {"Climb", "Work"}
         assert "Personal" not in project_names
 
@@ -235,7 +235,7 @@ class TestHierarchicalFilteringConsistency:
 
         report_data = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
-            task_based=False,
+            task_based=True,  # Use task-based to group by project
             cat_score_map={},
             get_category_score=lambda cat, m: 0,
             normalize_title=lambda t: t,
@@ -243,7 +243,7 @@ class TestHierarchicalFilteringConsistency:
 
         # Should have all 3 projects
         assert len(report_data) == 3
-        project_names = {proj["project"] for proj in report_data}
+        project_names = set(report_data.keys())
         assert project_names == {"Climb", "Work", "Personal"}
 
 
@@ -298,7 +298,7 @@ class TestHierarchicalTaskBasedFiltering:
         # In task-based mode, the hierarchy is Project > Task
         # But filtering by task should exclude TaskB and TaskC
         total_projects = len(report_data)
-        total_tasks = sum(len(p.get("tasks", [])) for p in report_data)
+        total_tasks = sum(len(p.get("tasks", {})) for p in report_data.values())
 
-        # Should only show Work project with TaskA
-        assert total_tasks >= 1, "Should have at least TaskA in filtered results"
+        # Should only show Work project with TaskA (1 task)
+        assert total_tasks == 1, f"Should have exactly 1 task (TaskA), got {total_tasks}"

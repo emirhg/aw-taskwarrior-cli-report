@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 from aw_core.models import Event
 from aw_transform import filter_period_intersect
 
+from tw_report.core.filtering import EventFilter
 from tw_report.pipeline.models import ReportContext, ReportEvent, ReportMetrics
 
 if TYPE_CHECKING:
@@ -292,6 +293,7 @@ def aggregate_hierarchy_from_slots(
     cat_score_map: Dict[str, float],
     get_category_score: Callable[[str, Dict[str, float]], float],
     normalize_title: Callable[[str], str],
+    event_filter: Optional[EventFilter] = None,
 ) -> Dict:
     """
     Build hierarchical report structure from consolidated slots (Phase 2 refactor).
@@ -314,6 +316,17 @@ def aggregate_hierarchy_from_slots(
         - task_based=True: {project: {total_duration, prod_score, tasks: {...}}}
         - task_based=False: {category: {total_duration, prod_score, apps: {...}}}
     """
+    # Apply filter BEFORE building hierarchy (ensures display matches metrics)
+    if event_filter:
+        consolidated_slots = [
+            s for s in consolidated_slots
+            if event_filter.should_include_entry({
+                'project': s.project,
+                'task': s.task,
+                'type': 'regular'
+            })
+        ]
+
     report: Dict = {}
 
     if task_based:

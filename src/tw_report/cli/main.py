@@ -515,6 +515,7 @@ def main():
         cat_score_map=cat_score_map,
         get_category_score=get_category_score,
         normalize_title=normalize_title,
+        event_filter=event_filter,
     )
 
     # PHASE 2 REFACTOR: No OfflineTaskProcessor needed
