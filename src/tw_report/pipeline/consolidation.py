@@ -64,6 +64,7 @@ def consolidate_sessions(
             # Different task/project - finalize and start new group
             merged.append(_merge_group(current_group))
             current_group = [slot]
+
         
     # Don't forget the last group
     merged.append(_merge_group(current_group))

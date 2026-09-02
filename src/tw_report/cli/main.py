@@ -640,7 +640,6 @@ def main():
             if s.get("duration", timedelta(0)) >= min_duration
         ]
 
-        print(f"[CONSOLIDATE] Filtered micro-slots: {before} → {len(filtered_entries)} slots")
         all_slot_entries = consolidate_sessions(filtered_entries)
 
     # All timeline-based modes (--by-day/week/month/year and hierarchical/project)
