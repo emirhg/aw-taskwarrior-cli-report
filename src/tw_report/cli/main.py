@@ -505,6 +505,16 @@ def main():
     consolidated_slots = consolidated.consolidate_by_task().slots_list
     _profile(f"Consolidated to {len(consolidated_slots)} slots")
 
+    # Apply session-merging consolidation if --consolidate flag is set (EARLY, before hierarchy building)
+    # This ensures both timeline AND hierarchical reports use the same session-consolidated slots
+    if args.consolidate:
+        from tw_report.pipeline.consolidation import consolidate_sessions
+        consolidated_dicts = [s.to_dict() if hasattr(s, 'to_dict') else s for s in consolidated_slots]
+        consolidated_dicts = consolidate_sessions(consolidated_dicts)
+        # Convert back to ReportTimelineSlot objects
+        consolidated_slots = [ReportTimelineSlot.from_dict(d) for d in consolidated_dicts]
+        _profile(f"After session consolidation: {len(consolidated_slots)} slots")
+
     # Tracked Activity from event times (includes all buckets: AFK + window + task)
     tracked_activity_from_slots = None
     if first_event_time and last_event_time:
@@ -644,11 +654,6 @@ def main():
     # This prevents cross-period consolidation that would create entries spanning multiple days
 
     final_dicts = report_timeline.as_dicts()
-
-    # Apply session-merging consolidation if --consolidate flag is set
-    if args.consolidate:
-        from tw_report.pipeline.consolidation import consolidate_sessions
-        final_dicts = consolidate_sessions(final_dicts)
 
     # CRITICAL: Do NOT consolidate_by_task() on builder output!
     # The sweep-line builder produces GUARANTEED non-overlapping slots by construction.
