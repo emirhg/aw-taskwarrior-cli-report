@@ -648,27 +648,7 @@ def main():
     # Apply session-merging consolidation if --consolidate flag is set
     if args.consolidate:
         from tw_report.pipeline.consolidation import consolidate_sessions
-        before = len(final_dicts)
         final_dicts = consolidate_sessions(final_dicts)
-        after = len(final_dicts)
-
-        # Log what the consolidated slots are
-        task_summary = {}
-        preparar_slots = []
-        for slot in final_dicts:
-            task = slot.get('task', 'unknown')
-            task_summary[task] = task_summary.get(task, 0) + 1
-            if 'Preparar masa' in task:
-                preparar_slots.append((slot['start'], slot['end'], slot['duration']))
-
-        print(f"[CONSOLIDATION] Consolidated slots by task:", file=sys.stderr)
-        for task, count in sorted(task_summary.items()):
-            print(f"  {task}: {count} slot(s)", file=sys.stderr)
-
-        if preparar_slots:
-            print(f"[CONSOLIDATION] 'Preparar masa' consolidated groups:", file=sys.stderr)
-            for i, (start, end, dur) in enumerate(preparar_slots, 1):
-                print(f"  Group {i}: {start} to {end} ({dur})", file=sys.stderr)
 
     # CRITICAL: Do NOT consolidate_by_task() on builder output!
     # The sweep-line builder produces GUARANTEED non-overlapping slots by construction.

@@ -228,43 +228,6 @@ class TestValidationBreakAccounting:
 
         assert metrics.break_duration == timedelta(minutes=30)
 
-    def test_validation_printed_equation(self, capsys):
-        """The validation line should show the math equation clearly."""
-        base_time = datetime(2026, 8, 30, 0, 0, 0, tzinfo=timezone.utc)
-
-        slots = [
-            {
-                "project": "Work",
-                "task": "Task1",
-                "type": "activity",
-                "start": base_time.replace(hour=9),
-                "end": base_time.replace(hour=10),
-                "duration": timedelta(hours=1),
-                "actual_duration": timedelta(hours=1),
-                "productive_duration": timedelta(hours=1),
-            },
-        ]
-
-        print_timeline_report(
-            slots=slots,
-            period=":today",
-            start_time=base_time,
-            end_time=base_time + timedelta(days=1),
-            non_afk_time=timedelta(hours=1),
-            productive_time=timedelta(hours=1),
-            task_based=True,
-            total_break=timedelta(minutes=15),
-        )
-
-        captured = capsys.readouterr()
-        output = captured.out
-
-        # Verify that validation section is present and shows the accounting check
-        assert "Validation:" in output, "Validation section should be printed in TOTALS"
-        assert "Tracked Activity:" in output, "Validation should show Tracked Activity"
-        assert "Components sum:" in output, "Validation should show Components sum"
-        assert "Status:" in output, "Validation should show PASS/MISMATCH status"
-
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

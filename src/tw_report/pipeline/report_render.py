@@ -347,32 +347,6 @@ def print_report_totals(
 
     tracked_activity_str = format_duration_tracked_prod(tracked_activity, productive_time)
     print_indented_total(0, "Total Time", tracked_activity_str)
-
-    # Validation: check that all time components account for tracked activity
-    # Tracked Activity = Online Time + Offline Time + Break Time
-    # This ensures complete accounting with no gaps or double-counting
-    print(f"\nValidation:")
-    calculated_total = online_time + (offline_time if offline_time else timedelta(0)) + break_time
-    tolerance = timedelta(seconds=0)  # EXACT match required - no tolerance
-
-    if abs((calculated_total - tracked_activity).total_seconds()) <= tolerance.total_seconds() if tracked_activity else True:
-        status = "✓ PASS"
-    else:
-        status = "✗ MISMATCH"
-
-    if tracked_activity:
-        # Print with full microsecond precision to see exact discrepancy
-        tracked_secs = tracked_activity.total_seconds()
-        components_secs = calculated_total.total_seconds()
-        discrepancy_secs = tracked_secs - components_secs
-
-        print(f"  Tracked Activity:  {format_duration(tracked_activity)} ({tracked_secs:.6f}s)")
-        print(f"  Components sum:    {format_duration(calculated_total)} ({components_secs:.6f}s)")
-        print(f"  Discrepancy:       {discrepancy_secs:.6f}s")
-        print(f"  Status:            {status}")
-    else:
-        print(f"  Components: Online + Offline + Break = {format_duration(calculated_total)}")
-
     print("=" * width)
 
 
