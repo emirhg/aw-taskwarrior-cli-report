@@ -398,6 +398,7 @@ class ReportTimelineSlot:
         """Convert to dict format for backward compatibility.
 
         Returns a dict representation matching the old TimelineSlot.to_dict() format.
+        Preserves task_event data (uuid, description) so it survives consolidation.
         """
         slot_dict = {
             "start": self.start,
@@ -411,6 +412,15 @@ class ReportTimelineSlot:
             "categories": self.categories,
             "apps": self.apps or [],
         }
+
+        # Preserve task_event data so consolidation doesn't lose it
+        if self.task_event:
+            # Save UUID and description from original task_event for reconstruction
+            if self.task_event.uuid:
+                slot_dict["task_uuid"] = self.task_event.uuid
+            if self.task_event.data.get("description"):
+                slot_dict["task_description"] = self.task_event.data.get("description")
+
         # Add optional fields only if they have values (must check for None, not truthiness)
         if self.afk_duration is not None:
             slot_dict["afk_duration"] = self.afk_duration
@@ -513,6 +523,9 @@ class ReportTimelineSlot:
                     "project": project,
                     "title": task,
                     "tags": tags if tags else [],
+                    # Restore UUID and description from consolidation
+                    "uuid": d.get("task_uuid"),
+                    "description": d.get("task_description"),
                 }
             )
 

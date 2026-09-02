@@ -83,10 +83,10 @@ class TaskWarriorEvent(Event):
     def task(self) -> str:
         """Task name/identifier: explicit task field, else description, else UUID (short), else 'No task'."""
         # Prefer explicit 'task' field if present (some workflows may set this)
-        if "task" in self.data:
+        if "task" in self.data and self.data["task"]:
             return self.data["task"]
         # Fall back to description (human-readable task name from TaskWarrior)
-        if "description" in self.data:
+        if "description" in self.data and self.data["description"]:
             desc = self.data["description"]
             # Truncate to ~40 chars for display; remove URLs
             if "http" in desc:
@@ -97,9 +97,9 @@ class TaskWarriorEvent(Event):
                         return parts[0].strip()
             return desc[:50] if len(desc) > 50 else desc
         # Fall back to UUID (short form for identification)
-        if "uuid" in self.data:
+        if "uuid" in self.data and self.data["uuid"]:
             uuid_str = self.data["uuid"]
-            return uuid_str[:8] if uuid_str else "No task"
+            return uuid_str[:8]
         # Last resort
         return "No task"
 
