@@ -227,6 +227,7 @@ def print_report_totals(
     total_afk: Optional[timedelta] = None,
     total_offline: Optional[timedelta] = None,
     total_non_afk: Optional[timedelta] = None,
+    total_break: Optional[timedelta] = None,
 ) -> None:
     """Print TOTALS section with hierarchical breakdown of time composition.
 
@@ -305,7 +306,13 @@ def print_report_totals(
         offline_str = format_duration(offline_time)
         print(f"{'  Offline tracked'.ljust(label_width)}{' ' * 2}{offline_str}")
 
+    # Break time (gaps between work sessions) - only if present
+    if total_break and total_break > timedelta(0):
+        break_str = format_duration(total_break)
+        print(f"{'  Break Time'.ljust(label_width)}{' ' * 2}{break_str}")
+
     # Calculate grand total (online + offline) - last entry (no indent)
+    # Note: Break time is already accounted for within online_time, so don't add it separately
     grand_total = online_time + (offline_time if offline_time else timedelta(0))
     grand_total_str = format_duration_tracked_prod(grand_total, productive_time)
     print(f"{'Total Time'.ljust(label_width)}{grand_total_str}")

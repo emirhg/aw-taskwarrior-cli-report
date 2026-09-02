@@ -583,10 +583,10 @@ def format_and_print_day_total_displayed(
     indent = " " * 7
     day_total_label = "Day total:   "
 
-    # Format BREAK column
+    # Format BREAK column (12 chars, matching OFFLINE and AFK width)
     break_col = ljust_display(
         format_duration(displayed_break) if displayed_break and displayed_break.total_seconds() > 0 else "",
-        8
+        12
     )
 
     # Format each column using the actual displayed values
@@ -861,9 +861,9 @@ def print_timeline_report(
     header_left_section = header_text + (" " * padding_to_left_section)
 
     # CRITICAL: Right section MUST include ALL columns DisplayColumns uses
-    # Format: BREAK(8) + OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 54 total
+    # Format: BREAK(12) + OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 58 total
     # If you add/remove/resize any duration column in DisplayColumns, update here too!
-    header_right_section = (ljust_display("BREAK", 8) + ljust_display("OFFLINE", 12) +
+    header_right_section = (ljust_display("BREAK", 12) + ljust_display("OFFLINE", 12) +
                             ljust_display("AFK", 12) + ljust_display("ACTIVE", 8) +
                             ljust_display("", 14))
 
@@ -1165,6 +1165,7 @@ def print_timeline_report(
 
     # Track displayed column values separately by summing the actual rendered values
     # This avoids metric calculation bugs and uses the source of truth: what's actually displayed
+    total_break_time = timedelta(0)  # Accumulated across entire report
     daily_displayed_offline = timedelta(0)
     daily_displayed_afk = timedelta(0)
     daily_displayed_active = timedelta(0)
@@ -1305,6 +1306,7 @@ def print_timeline_report(
             weekly_metrics.add(break_time=gap)
             daily_displayed_break += gap
             weekly_displayed_break += gap
+            total_break_time += gap
             # Only show visual separator for gaps > 5 minutes
             if gap > gap_threshold:
                 _render_system_shutdown_separator(break_duration=gap, width=width)
@@ -1472,4 +1474,5 @@ def print_timeline_report(
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
         total_non_afk=active_time_final if active_time_final > timedelta(0) else None,
+        total_break=total_break_time if total_break_time > timedelta(0) else None,
     )
