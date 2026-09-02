@@ -67,7 +67,6 @@ from tw_report.core.period import logical_date
 
 if TYPE_CHECKING:
     from tw_report.core.report_slot import ReportTimelineSlot
-from tw_report.pipeline.generation import MIN_EVENT_DURATION
 from tw_report.pipeline.models import PeriodMetrics, TimeslotDuration
 from tw_report.pipeline.report_render import print_report_summary, print_report_totals
 from tw_report.utils.formatting import (
@@ -449,26 +448,6 @@ def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]], da
         return split_slots
 
 
-def filter_short_slots(slots: List[Union[Dict, "ReportTimelineSlot"]]) -> List[Union[Dict, "ReportTimelineSlot"]]:
-    """Filter out slots shorter than MIN_EVENT_DURATION.
-
-    After split_slots_spanning_days(), very small fragments can remain.
-    This filter removes them to avoid cluttering the timeline display.
-
-    Accepts both dicts and ReportTimelineSlot objects for backward compatibility.
-
-    Args:
-        slots: List of slots (dicts or ReportTimelineSlot objects)
-
-    Returns:
-        Filtered list with slots < MIN_EVENT_DURATION removed (same type as input)
-    """
-    result = []
-    for slot in slots:
-        duration = slot.get("duration", timedelta(0)) if isinstance(slot, dict) else slot.duration
-        if duration >= MIN_EVENT_DURATION:
-            result.append(slot)
-    return result
 
 
 def _render_slot_detail(slot: Union[Dict, "ReportTimelineSlot"], detail_level: int, width: int) -> None:
@@ -937,9 +916,6 @@ def print_timeline_report(
 
     # Split slots spanning multiple days
     slots = split_slots_spanning_days(slots, day_start_hour)
-
-    # Filter out slots shorter than MIN_EVENT_DURATION (tracking noise)
-    slots = filter_short_slots(slots)
 
     # Filter to only include slots within the requested date range
     # After splitting, we should only show portions that fall within [start_time, end_time)
