@@ -588,11 +588,9 @@ python debug_full_pipeline.py  # Trace the full event pipeline
 
 ### Known Limitations
 
-1. **No app-level detail in consolidation modes** — Period consolidation modes (--consolidate-day/week/month/year) show categories/apps for detail_level >= 3 only. Fine-grain `--consolidate` flag has more granular app filtering.
+1. **Performance** — `--consolidate-month` with detail_level >= 3 and large datasets may be slower due to category merging overhead.
 
-2. **Performance** — `--consolidate-month` with detail_level >= 3 and large datasets may be slower due to category merging overhead.
-
-3. **UTC assumption** — All time handling assumes UTC; local time zones not supported (by design, to match ActivityWatch behavior).
+2. **UTC assumption** — All time handling assumes UTC; local time zones not supported (by design, to match ActivityWatch behavior).
 
 ## Contributing
 
