@@ -81,21 +81,22 @@ class TaskWarriorEvent(Event):
 
     @property
     def task(self) -> str:
-        """Task name/identifier: explicit task field, else description, else UUID (short), else 'No task'."""
+        """Task name/identifier: explicit task field, else title (AW), else UUID (short), else 'No task'."""
         # Prefer explicit 'task' field if present (some workflows may set this)
         if "task" in self.data and self.data["task"]:
             return self.data["task"]
-        # Fall back to description (human-readable task name from TaskWarrior)
-        if "description" in self.data and self.data["description"]:
-            desc = self.data["description"]
-            # Truncate to ~40 chars for display; remove URLs
-            if "http" in desc:
+        # Fall back to title (human-readable task name from ActivityWatch TaskWarrior bucket)
+        # ActivityWatch stores task description in 'title' field, not 'description'
+        if "title" in self.data and self.data["title"]:
+            title = self.data["title"]
+            # Truncate to ~50 chars for display; remove URLs
+            if "http" in title:
                 # Extract just the problem name/number if it's a LeetCode URL
-                if "leetcode" in desc.lower():
-                    parts = desc.split(":")
+                if "leetcode" in title.lower():
+                    parts = title.split(":")
                     if len(parts) > 1:
                         return parts[0].strip()
-            return desc[:50] if len(desc) > 50 else desc
+            return title[:50] if len(title) > 50 else title
         # Fall back to UUID (short form for identification)
         if "uuid" in self.data and self.data["uuid"]:
             uuid_str = self.data["uuid"]
