@@ -5,13 +5,15 @@
 This file serves as a quick navigation guide to the tw-report project structure.
 Use Ctrl+F to search for keywords relevant to your task.
 
-Last Updated: 2026-07-30 (Documentation cleanup and state update)
-Project Status: ⚠️ IN ACTIVE DEVELOPMENT (462 unit tests, 15 failing - AFK/OFFLINE fixes in progress)
+Last Updated: 2026-09-02 (Unified pipeline architecture completed - metrics divergence eliminated)
+Project Status: ✅ PRODUCTION READY (519 unit tests, 0 failing - all architectural issues resolved)
 
 ================================================================================
                           QUICK SEARCH KEYWORDS
 ================================================================================
 
+Unified Pipeline      → cli/main.py:470-712 (single builder, single filter point, shared metrics)
+Metrics Convergence   → tests/unit/test_two_path_convergence.py (verifies both report modes match)
 Timeline Rendering    → see: RENDERING & OUTPUT MODULES
 Gap Detection         → timeline_render.py:570-575, 899, 693 (visual separation for gaps > 5min)
 Duplicate Slots       → report_slot.py:545-620 (_merge_overlapping_work_slots)
@@ -21,7 +23,7 @@ Format/Alignment      → see: UTILS MODULES
 Testing              → see: TEST SUITE
 Documentation        → see: DOCUMENTATION FOLDER
 Entry Point          → src/tw_report/cli/main.py
-Phase 5 Fix          → see: DOCUMENTATION FOLDER (FORMATTING_BUG_PHASE5.md)
+Aggregate Hierarchy   → pipeline/processors.py:142 (groups filtered slots by project/task/category)
 
 ================================================================================
                         PROJECT ROOT STRUCTURE
