@@ -448,7 +448,7 @@ class ReportTimelineSlot:
                 duration=slot.duration,
                 data={
                     "project": slot.project,
-                    "title": slot.task,
+                    "task": slot.task,
                     "tags": slot.tags if slot.tags else [],
                 }
             )
@@ -626,7 +626,7 @@ class ReportTimelineSlot:
                 duration=duration,
                 data={
                     "project": first_slot.project,
-                    "title": first_slot.task,
+                    "task": first_slot.task,
                     "tags": tags_union if tags_union else [],
                 }
             )
