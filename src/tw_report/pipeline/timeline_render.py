@@ -58,10 +58,8 @@ This approach was chosen over fixed-column padding because:
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, TYPE_CHECKING, Union, Tuple
-from itertools import groupby
-import re
-from aw_transform import filter_keyvals
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+
 from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
@@ -69,22 +67,17 @@ from tw_report.core.period import logical_date
 
 if TYPE_CHECKING:
     from tw_report.core.report_slot import ReportTimelineSlot
-from tw_report.core.consolidation import collapse_tasks_to_project
 from tw_report.pipeline.generation import MIN_EVENT_DURATION
-from tw_report.pipeline.models import TimeslotDuration, PeriodMetrics
+from tw_report.pipeline.models import PeriodMetrics, TimeslotDuration
 from tw_report.pipeline.report_render import print_report_summary, print_report_totals
 from tw_report.utils.formatting import (
+    format_afk_label,
     format_duration,
     format_duration_tracked_prod,
-    format_duration_with_afk,
-    format_duration_with_gaps,
-    format_afk_label,
-    abbreviate_project_path,
-    get_terminal_width,
     format_timeline_line,
+    get_terminal_width,
     truncate_title,
 )
-
 
 # BREAKS COLUMN FEATURE (Phase 3)
 # Functions for calculating and rendering break durations between work slots
@@ -427,7 +420,6 @@ def split_slots_spanning_days(slots: List[Union[Dict, "ReportTimelineSlot"]], da
         List of slots, with multi-day slots split into single-day pieces (same type as input)
     """
     from tw_report.core.report_slot import ReportTimelineSlot
-    from tw_report.core.timeline import TimelineSlot, Timeline
 
     # Handle mixed input: convert dicts to ReportTimelineSlot, process, then convert back if needed
     input_is_dict = slots and isinstance(slots[0], dict)
@@ -528,7 +520,7 @@ def format_and_print_day_total(daily_metrics, width):
     - Date change within week
     - End-of-report totals
     """
-    from tw_report.utils.formatting import ljust_display, display_width
+    from tw_report.utils.formatting import display_width, ljust_display
 
     total_day_online = daily_metrics.online_duration
     indent = " " * 7
@@ -584,7 +576,7 @@ def format_and_print_day_total_displayed(
         productive_duration: Productive time in the day
         width: Terminal width for formatting
     """
-    from tw_report.utils.formatting import ljust_display, display_width
+    from tw_report.utils.formatting import display_width, ljust_display
 
     indent = " " * 7
     day_total_label = "Day total:   "
@@ -1038,7 +1030,6 @@ def print_timeline_report(
     # This prevents cross-period consolidation that creates 24+ hour entries.
 
     from tw_report.core.period import logical_date as get_logical_date
-    from tw_report.core.report_slot import ReportEntries
 
     # Group slots by logical period
     period_groups = {}
@@ -1089,7 +1080,7 @@ def print_timeline_report(
     # This replaces the early placeholder calculation at line 707
 
     # AFK time calculation (same logic as compute_afk_offline_totals)
-    has_consolidated_afk = any((s.afk_duration is not None for s in slots if not isinstance(s, dict)))
+    has_consolidated_afk = any(s.afk_duration is not None for s in slots if not isinstance(s, dict))
     if has_consolidated_afk:
         # Consolidated slots: AFK time is in afk_duration field
         total_afk_time = sum(

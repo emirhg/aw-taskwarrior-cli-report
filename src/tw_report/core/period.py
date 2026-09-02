@@ -6,7 +6,7 @@ start/end datetime tuples for querying activity data.
 """
 
 import sys
-from datetime import datetime, timedelta, date, time
+from datetime import date, datetime, time, timedelta
 from typing import Tuple
 
 

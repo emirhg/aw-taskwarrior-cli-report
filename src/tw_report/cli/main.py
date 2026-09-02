@@ -6,14 +6,14 @@ Handles all argument parsing, data fetching, processing, and report generation.
 
 import sys
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from aw_client import ActivityWatchClient
 from aw_core.models import Event
 from aw_transform import filter_keyvals
 
 if TYPE_CHECKING:
-    from tw_report.core.aw_events import WindowEvent, AFKEvent, TaskWarriorEvent
+    pass
 
 from tw_report.cli.args import parse_args, parse_positional_args
 from tw_report.config import load_user_config, resolve_settings
@@ -27,40 +27,34 @@ from tw_report.core.events import (
     get_bucket_id,
     get_events,
 )
-from tw_report.core.filtering import EventFilter, NO_PROJECT, NO_TASK
+from tw_report.core.filtering import NO_PROJECT, EventFilter
+
 # OfflineTaskProcessor removed in Phase 2 refactor — builder handles offline classification
 from tw_report.core.period import parse_period
-from tw_report.core.task_matching import (
-    build_offline_category_structure,
-    find_active_task,
-    get_task_info,
-    task_has_offline_tag,
-)
-from tw_report.core.task_uuid_filtering import (
-    get_task_uuid,
-    get_events_by_uuid,
-)
 from tw_report.core.project_filtering import (
     _is_uuid_like,
     get_events_by_project,
     resolve_project_filter_value,
 )
+from tw_report.core.report_slot import ReportEntries
 from tw_report.core.task_filtering import (
     get_events_by_task,
     resolve_task_filter_value,
 )
+from tw_report.core.task_uuid_filtering import (
+    get_events_by_uuid,
+    get_task_uuid,
+)
 from tw_report.core.timeline import Timeline, TimelineSlot
 from tw_report.core.timeslot_builder import build_timeslot_timeline
-from tw_report.core.report_slot import ReportEntries
+
 # generate_untracked_gap_events removed in Phase 2 refactor — builder handles gaps
-from tw_report.pipeline.models import ReportContext
 from tw_report.pipeline.presenters import HierarchicalReport, TimelineReport
 from tw_report.pipeline.processors import (
+    aggregate_hierarchy_from_slots,
     build_context,
     compute_metrics,
     merge_overlapping_afk_periods,
-    aggregate_hierarchy_from_slots,
-    matches_user_filters,
 )
 from tw_report.pipeline.report_render import print_report
 from tw_report.pipeline.timeline_render import print_timeline_report

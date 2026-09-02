@@ -12,9 +12,7 @@ import re
 from datetime import timedelta
 from typing import TYPE_CHECKING, Dict, List, Optional, Pattern, Tuple
 
-from aw_core.models import Event
-
-from tw_report.exceptions import ConfigParsingError, CategoryValidationError
+from tw_report.exceptions import CategoryValidationError, ConfigParsingError
 
 if TYPE_CHECKING:
     from tw_report.core.aw_events import WindowEvent
@@ -39,7 +37,7 @@ def load_categories(filepath: str) -> List[Dict]:
         return []
 
     try:
-        with open(filepath, "r", encoding="utf-8") as f:
+        with open(filepath, encoding="utf-8") as f:
             settings = json.load(f)
             return settings.get("classes", [])
     except json.JSONDecodeError as e:
@@ -47,7 +45,7 @@ def load_categories(filepath: str) -> List[Dict]:
         raise ConfigParsingError(
             f"Malformed JSON in categories file '{filepath}': {e}"
         ) from e
-    except IOError as e:
+    except OSError as e:
         logger.error(f"Failed to read categories file '{filepath}': {e}")
         raise ConfigParsingError(
             f"Cannot read categories file '{filepath}': {e}"

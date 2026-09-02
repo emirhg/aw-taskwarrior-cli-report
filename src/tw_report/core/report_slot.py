@@ -20,15 +20,15 @@ Key design:
 """
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, time
-from typing import Any, Dict, List, Optional, Tuple, Literal, TYPE_CHECKING, Union
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
 
-from tw_report.core.timeline import TimelineSlot, TimelineSlotValidationError
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
-from tw_report.core.period import logical_date, day_boundary
+from tw_report.core.period import day_boundary, logical_date
+from tw_report.core.timeline import TimelineSlot, TimelineSlotValidationError
 
 if TYPE_CHECKING:
-    from tw_report.core.aw_events import WindowEvent, AFKEvent, TaskWarriorEvent
+    from tw_report.core.aw_events import AFKEvent, TaskWarriorEvent, WindowEvent
 
 
 @dataclass
@@ -174,8 +174,8 @@ class DisplayColumns:
         Returns:
             DisplayColumns formatted and ready to display
         """
-        from tw_report.utils.formatting import format_duration, abbreviate_project_path
         from tw_report.core.filtering import NO_PROJECT, NO_TASK
+        from tw_report.utils.formatting import abbreviate_project_path, format_duration
 
         # Helper to get slot field (works with both dicts and objects)
         def get_field(field, default=None):
@@ -743,11 +743,7 @@ class ReportTimelineSlot:
         span = (end_bucket - start_bucket).days
         if mode == "day" and span > 100:
             return [self]  # Skip splitting
-        elif mode == "week" and span // 7 > 100:
-            return [self]
-        elif mode == "month" and span // 30 > 100:  # Rough estimate
-            return [self]
-        elif mode == "year" and span // 365 > 100:
+        elif mode == "week" and span // 7 > 100 or mode == "month" and span // 30 > 100 or mode == "year" and span // 365 > 100:
             return [self]
 
         pieces = []
@@ -1560,7 +1556,6 @@ class ReportEntries:
             return ReportEntries()
 
         # DEBUG
-        import sys
         offline_before_dedup = sum(1 for s in self.slots_list if (s.get('event_duration') is not None if isinstance(s, dict) else getattr(s, 'event_duration', None) is not None))
 
         # CRITICAL: Deduplicate identical (start, end, project, task) before consolidating

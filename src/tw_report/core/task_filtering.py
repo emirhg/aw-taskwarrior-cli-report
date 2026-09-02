@@ -10,8 +10,6 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from aw_core.models import Event
-
 if TYPE_CHECKING:
     from tw_report.core.aw_events import TaskWarriorEvent
 
@@ -49,9 +47,9 @@ def get_events_by_task(
         ...     client, tw_bucket, start, end, task="Documentar"
         ... )
     """
+    from tw_report.core.aw_events import TaskWarriorEvent
     from tw_report.core.events import get_events
     from tw_report.core.task_matching import get_task_info
-    from tw_report.core.aw_events import TaskWarriorEvent
 
     # Fetch all taskwarrior events in range from the bucket, re-wrapped as TaskWarriorEvent
     all_events = get_events(client, bucket_id, start, end, event_cls=TaskWarriorEvent)

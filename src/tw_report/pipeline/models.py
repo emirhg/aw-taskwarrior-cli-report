@@ -220,7 +220,7 @@ class PeriodMetrics:
 
     def add_timeslot(
         self,
-        slot_duration: "TimeslotDuration",
+        slot_duration: TimeslotDuration,
         productive: Optional[timedelta] = None,
     ) -> None:
         """Add a TimeslotDuration to this period's totals.

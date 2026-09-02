@@ -9,10 +9,10 @@ import re
 import shutil
 import unicodedata
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
-    from tw_report.pipeline.models import TimeslotDuration
+    pass
 
 
 def _get_timeslot_duration_class() -> type:

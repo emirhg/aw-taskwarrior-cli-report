@@ -9,12 +9,10 @@ typed exceptions and structured logging.
 import logging
 import platform
 from datetime import datetime
-from typing import List, Type, Optional
+from typing import List, Optional, Type
 
-from aw_core.models import Event
 from aw_client import ActivityWatchClient
-
-from tw_report.exceptions import ActivityWatchConnectionError
+from aw_core.models import Event
 
 logger = logging.getLogger(__name__)
 

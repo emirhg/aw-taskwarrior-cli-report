@@ -5,8 +5,8 @@ This module provides utility functions for consolidating timeline data,
 such as collapsing task-level rows to project-level summaries.
 """
 
-from datetime import timedelta, date
-from typing import Any, Dict, List, Tuple
+from datetime import date, timedelta
+from typing import Dict, List, Tuple
 
 
 def collapse_tasks_to_project(rows: List[Dict]) -> List[Dict]:

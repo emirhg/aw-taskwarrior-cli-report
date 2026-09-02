@@ -5,7 +5,6 @@ Renders task-based or category-based hierarchical reports with productivity
 metrics, detail levels, and sorting options. Used by the --timesheet output mode.
 """
 
-import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Union
 

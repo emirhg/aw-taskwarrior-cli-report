@@ -10,8 +10,6 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from aw_core.models import Event
 
-from tw_report.core.filtering import NO_PROJECT, NO_TASK
-
 if TYPE_CHECKING:
     from tw_report.core.aw_events import TaskWarriorEvent
 

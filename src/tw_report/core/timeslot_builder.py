@@ -23,9 +23,9 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
-from tw_report.core.aw_events import AFKEvent, WindowEvent, TaskWarriorEvent
-from tw_report.core.report_slot import ReportTimelineSlot
+from tw_report.core.aw_events import AFKEvent, TaskWarriorEvent, WindowEvent
 from tw_report.core.categories import build_categories_from_window_events
+from tw_report.core.report_slot import ReportTimelineSlot
 
 logger = logging.getLogger(__name__)
 
