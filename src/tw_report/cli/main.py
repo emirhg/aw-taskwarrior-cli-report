@@ -5,8 +5,14 @@ Handles all argument parsing, data fetching, processing, and report generation.
 """
 
 import sys
+import os
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, List, Optional, Tuple
+
+# Unbuffered output for debugging long-running commands
+if os.environ.get('TW_REPORT_DEBUG'):
+    sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
+    sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
 
 from aw_client import ActivityWatchClient
 from aw_core.models import Event
