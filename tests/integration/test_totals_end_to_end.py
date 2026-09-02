@@ -64,6 +64,7 @@ class TestMetricsCalculationWithRealEvents:
             last_break_start=None,
             last_break_end=None,
             last_break_duration=None,
+            detail_level=3,  # Required to enable category scoring for productive_time
         )
 
         # Verify metrics
