@@ -132,6 +132,12 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
         timedelta(0),
     )
 
+    # Sum afk_duration values (idle time within slots)
+    total_afk_duration = sum(
+        (slot.get("afk_duration", timedelta(0)) for slot in group if slot.get("afk_duration")),
+        timedelta(0),
+    )
+
     # Sum event_duration values (actual time spent on task, without gaps)
     total_event_duration = sum(
         (slot.get("event_duration", slot["duration"]) for slot in group),
@@ -150,6 +156,7 @@ def _merge_group(group: List[Dict[str, Any]]) -> Dict[str, Any]:
     merged["end"] = end_time
     merged["duration"] = merged_duration  # Wall-clock duration (includes gaps between sessions)
     merged["actual_duration"] = total_actual_duration  # Sum of active time (excludes AFK within slots)
+    merged["afk_duration"] = total_afk_duration if total_afk_duration > timedelta(0) else None  # Sum of AFK time
     merged["event_duration"] = total_event_duration  # Sum of event durations
 
     # Preserve offline_extension_duration if present (offline task tracking)
