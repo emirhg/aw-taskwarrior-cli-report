@@ -49,6 +49,7 @@ def print_report_summary(
     productive_task_time: Optional[timedelta] = None,
     first_event_time: Optional[datetime] = None,
     last_event_time: Optional[datetime] = None,
+    tracked_activity: Optional[timedelta] = None,
     distracting_time: Optional[timedelta] = None,
     unscored_time: Optional[timedelta] = None,
     total_score: Optional[float] = None,
@@ -107,12 +108,27 @@ def print_report_summary(
     print("SUMMARY")
     print("─" * width)
 
-    print(f"Period{' ' * (32 - 6)}{period} ({start_time.date()} to {end_time.date()})")
+    # Build period line with elapsed window if available
+    period_line = f"Period{' ' * (32 - 6)}{period}"
+    if first_event_time and last_event_time:
+        first_str = _to_local_time(first_event_time).strftime("%H:%M:%S")
+        last_str = _to_local_time(last_event_time).strftime("%H:%M:%S")
+        first_date = first_event_time.date()
+        last_date = last_event_time.date()
+        window_str = f"({first_date} {first_str} to {last_date} {last_str})"
+        period_line += f" {window_str}"
+    print(period_line)
 
     # Show actual tracked activity window (first to last event) with duration if available
-    if first_event_time and last_event_time:
+    # Use passed tracked_activity if provided, otherwise calculate from event times
+    if tracked_activity or (first_event_time and last_event_time):
         from tw_report.utils.formatting import format_duration
-        tracked_duration = last_event_time - first_event_time
+
+        if tracked_activity:
+            tracked_duration = tracked_activity
+        else:
+            tracked_duration = last_event_time - first_event_time
+
         duration_str = format_duration(tracked_duration)
         print(f"Tracked Activity{' ' * (32 - 16)}{duration_str}")
 
@@ -131,15 +147,7 @@ def print_report_summary(
         # Display online time only (clarify it's not total)
         online_time_str = format_duration(non_afk_time)
 
-        # Format time window from actual non-afk events
-        first_date = first_event_time.date()
-        last_date = last_event_time.date()
-        first_time_str = _to_local_time(first_event_time).strftime("%H:%M")
-        last_time_str = _to_local_time(last_event_time).strftime("%H:%M")
-
-        time_window = f"{first_date} {first_time_str} to {last_date} {last_time_str}"
-
-        summary_line = f"Active Time{' ' * (32 - 11)}{online_time_str} ({time_window})"
+        summary_line = f"Active Time{' ' * (32 - 11)}{online_time_str}"
         print(summary_line)
 
         if task_based:
@@ -228,6 +236,9 @@ def print_report_totals(
     total_offline: Optional[timedelta] = None,
     total_non_afk: Optional[timedelta] = None,
     total_break: Optional[timedelta] = None,
+    tracked_activity: Optional[timedelta] = None,
+    first_event_time: Optional[datetime] = None,
+    last_event_time: Optional[datetime] = None,
 ) -> None:
     """Print TOTALS section with hierarchical breakdown of time composition.
 
@@ -282,45 +293,85 @@ def print_report_totals(
         active_time = total_non_afk
 
     width = get_terminal_width()
-    label_width = 48  # Fixed column position for all values (increased for proper indentation)
+    label_width = 48
 
     print()
     print("TOTALS")
     print("─" * width)
 
-    # Breakdown of online: Active (non-AFK) and AFK as further indented sub-lines (indented 6 spaces)
+    # Helper to print indented labels with indented values
+    def print_indented_total(indent_spaces, label, value_str):
+        """Print label with indentation, value also indented to match label."""
+        label_with_indent = " " * indent_spaces + label
+        # Value indentation = label indent + separator spacing
+        value_with_indent = " " * indent_spaces + value_str
+        print(f"{label_with_indent.ljust(label_width)}{value_with_indent}")
+
+    # Breakdown of online: Active (non-AFK) and AFK (indented 6 spaces)
     if active_time and active_time > timedelta(0):
         active_str = format_duration(active_time)
-        print(f"{'      Active Time'.ljust(label_width)}{' ' * 4}{active_str}")
+        print_indented_total(6, "Active Time", active_str)
 
     if afk_time and afk_time > timedelta(0):
         afk_str = format_duration(afk_time)
-        print(f"{'      AFK time'.ljust(label_width)}{' ' * 4}{afk_str}")
+        print_indented_total(6, "AFK time", afk_str)
 
     # Online (indented 4 spaces)
     online_time_str = format_duration_tracked_prod(online_time, productive_time)
-    print(f"{'    Online'.ljust(label_width)}{' ' * 2}{online_time_str}")
+    print_indented_total(4, "Online", online_time_str)
 
     # Offline (indented 4 spaces) - only if present
     if offline_time and offline_time > timedelta(0):
         offline_str = format_duration(offline_time)
-        print(f"{'    Offline'.ljust(label_width)}{' ' * 2}{offline_str}")
+        print_indented_total(4, "Offline", offline_str)
 
     # Worked Time section (Online + Offline combined, indented 2 spaces)
     worked_time = online_time + (offline_time if offline_time else timedelta(0))
     worked_time_str = format_duration_tracked_prod(worked_time, productive_time)
-    print(f"{'  Worked Time'.ljust(label_width)}{' ' * 2}{worked_time_str}")
+    print_indented_total(2, "Worked Time", worked_time_str)
 
     # Break time (gaps between work sessions, indented 2 spaces) - only if present
     if total_break and total_break > timedelta(0):
         break_str = format_duration(total_break)
-        print(f"{'  Break Time'.ljust(label_width)}{' ' * 2}{break_str}")
+        print_indented_total(2, "Break Time", break_str)
 
-    # Calculate grand total (online + offline) - last entry (no indent)
-    # Note: Break time is already accounted for within online_time, so don't add it separately
-    grand_total = online_time + (offline_time if offline_time else timedelta(0))
-    grand_total_str = format_duration_tracked_prod(grand_total, productive_time)
-    print(f"{'Total Time'.ljust(label_width)}{grand_total_str}")
+    # Calculate grand total: use actual first-to-last event window if available
+    worked_time = online_time + (offline_time if offline_time else timedelta(0))
+    break_time = total_break if total_break else timedelta(0)
+
+    # Prefer actual event window over summed calculation
+    if first_event_time and last_event_time:
+        tracked_activity = last_event_time - first_event_time
+    else:
+        tracked_activity = worked_time + break_time
+
+    tracked_activity_str = format_duration_tracked_prod(tracked_activity, productive_time)
+    print_indented_total(0, "Total Time", tracked_activity_str)
+
+    # Validation: check that all time components account for tracked activity
+    # Tracked Activity = Online Time + Offline Time + Break Time
+    # This ensures complete accounting with no gaps or double-counting
+    print(f"\nValidation:")
+    calculated_total = online_time + (offline_time if offline_time else timedelta(0)) + break_time
+    tolerance = timedelta(seconds=0)  # EXACT match required - no tolerance
+
+    if abs((calculated_total - tracked_activity).total_seconds()) <= tolerance.total_seconds() if tracked_activity else True:
+        status = "✓ PASS"
+    else:
+        status = "✗ MISMATCH"
+
+    if tracked_activity:
+        # Print with full microsecond precision to see exact discrepancy
+        tracked_secs = tracked_activity.total_seconds()
+        components_secs = calculated_total.total_seconds()
+        discrepancy_secs = tracked_secs - components_secs
+
+        print(f"  Tracked Activity:  {format_duration(tracked_activity)} ({tracked_secs:.6f}s)")
+        print(f"  Components sum:    {format_duration(calculated_total)} ({components_secs:.6f}s)")
+        print(f"  Discrepancy:       {discrepancy_secs:.6f}s")
+        print(f"  Status:            {status}")
+    else:
+        print(f"  Components: Online + Offline + Break = {format_duration(calculated_total)}")
 
     print("=" * width)
 
