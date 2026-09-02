@@ -59,7 +59,7 @@ class TestHierarchicalFilteringConsistency:
 
     def test_unfiltered_hierarchy_shows_all_projects(self, sample_slots):
         """Baseline: unfiltered hierarchy shows all projects (task_based=True)."""
-        report_data = aggregate_hierarchy_from_slots(
+        report_data, _ = aggregate_hierarchy_from_slots(
             consolidated_slots=sample_slots,
             task_based=True,  # Group by Project > Task
             cat_score_map={},
@@ -96,7 +96,7 @@ class TestHierarchicalFilteringConsistency:
         ]
 
         # Build hierarchy from FILTERED slots
-        report_data = aggregate_hierarchy_from_slots(
+        report_data, _ = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
             task_based=True,
             cat_score_map={},
@@ -131,7 +131,7 @@ class TestHierarchicalFilteringConsistency:
         ]
 
         # Build hierarchy from filtered slots
-        report_data = aggregate_hierarchy_from_slots(
+        report_data, _ = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
             task_based=False,
             cat_score_map={},
@@ -172,7 +172,7 @@ class TestHierarchicalFilteringConsistency:
             })
         ]
 
-        report_data = aggregate_hierarchy_from_slots(
+        report_data, _ = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
             task_based=True,  # Use task-based to group by project
             cat_score_map={},
@@ -206,7 +206,7 @@ class TestHierarchicalFilteringConsistency:
             })
         ]
 
-        report_data = aggregate_hierarchy_from_slots(
+        report_data, _ = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
             task_based=True,  # Use task-based to group by project
             cat_score_map={},
@@ -233,7 +233,7 @@ class TestHierarchicalFilteringConsistency:
             })
         ]
 
-        report_data = aggregate_hierarchy_from_slots(
+        report_data, _ = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
             task_based=True,  # Use task-based to group by project
             cat_score_map={},
@@ -286,7 +286,7 @@ class TestHierarchicalTaskBasedFiltering:
             })
         ]
 
-        report_data = aggregate_hierarchy_from_slots(
+        report_data, _ = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
             task_based=True,
             cat_score_map={},
