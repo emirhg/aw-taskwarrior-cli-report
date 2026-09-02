@@ -600,7 +600,7 @@ def format_and_print_day_total_displayed(
     )
     active_col = ljust_display(
         format_duration(displayed_active) if displayed_active and displayed_active.total_seconds() > 0 else "",
-        8
+        12
     )
 
     # Calculate online time as sum of afk + active
@@ -647,6 +647,8 @@ def print_timeline_report(
     last_break_duration: Optional[timedelta] = None,
     afk_events: Optional[List[Event]] = None,
     day_start_hour: int = 4,
+    total_break: Optional[timedelta] = None,
+    tracked_activity: Optional[timedelta] = None,
 ):
     """Print a timeline report showing activity as continuous time slots with date/week headers and cumulative totals.
 
@@ -794,6 +796,11 @@ def print_timeline_report(
     total_time_including_offline = total_time_all + total_offline_time
 
     # Print SUMMARY at top
+    # Use passed tracked_activity from slots (source of truth), or calculate from event times
+    tracked_activity_span = tracked_activity
+    if tracked_activity_span is None and first_event_time and last_event_time:
+        tracked_activity_span = last_event_time - first_event_time
+
     print_report_summary(
         title=" Timeline Report ",
         period=period,
@@ -806,6 +813,7 @@ def print_timeline_report(
         productive_task_time=productive_task_time,
         first_event_time=first_event_time,
         last_event_time=last_event_time,
+        tracked_activity=tracked_activity_span,
         distracting_time=distracting_time,
         unscored_time=unscored_time,
         current_session_start=current_session_start,
@@ -861,26 +869,28 @@ def print_timeline_report(
     header_left_section = header_text + (" " * padding_to_left_section)
 
     # CRITICAL: Right section MUST include ALL columns DisplayColumns uses
-    # Format: BREAK(12) + OFFLINE(12) + AFK(12) + ACTIVE(8) + PRODUCTIVITY(14) = 58 total
+    # Format: BREAK(12) + OFFLINE(12) + AFK(12) + ACTIVE(12) + PRODUCTIVITY(14) = 62 total
     # If you add/remove/resize any duration column in DisplayColumns, update here too!
     header_right_section = (ljust_display("BREAK", 12) + ljust_display("OFFLINE", 12) +
-                            ljust_display("AFK", 12) + ljust_display("ACTIVE", 8) +
+                            ljust_display("AFK", 12) + ljust_display("ACTIVE", 12) +
                             ljust_display("", 14))
 
-    # CRITICAL: Use SAME terminal_width as DisplayColumns for all calculations
-    # Both header and data rows use this formula:
-    #   left_padding = terminal_width - left_section_width - right_section_width - 2
-    # If terminal_width differs between header and data, columns WILL NOT align.
+    # Use SAME fixed column positioning logic as DisplayColumns.format()
+    # This ensures header columns align with data columns
     terminal_width = width
+    right_section_width = 62  # Must match DisplayColumns right_section_width
+    column_start_pos = terminal_width - right_section_width
+
     left_section_width = display_width(header_left_section)
-    right_section_width = display_width(header_right_section)
-    left_padding = terminal_width - left_section_width - right_section_width - 2
 
     # Build header using IDENTICAL logic to DisplayColumns.format()
-    if left_padding < 0:
-        header_line = header_left_section + "  " + header_right_section
+    if left_section_width >= column_start_pos:
+        # Left section too long, just append right section
+        header_line = header_left_section + " " + header_right_section
     else:
-        header_line = header_left_section + (" " * left_padding) + "  " + header_right_section
+        # Pad to position right section at fixed column start position
+        left_padding = column_start_pos - left_section_width
+        header_line = header_left_section + (" " * left_padding) + header_right_section
 
     print(header_line)
 
@@ -1116,6 +1126,7 @@ def print_timeline_report(
         timedelta(0),
     )
 
+
     # ============================================================================
     # DAY/WEEK METRICS ACCUMULATION
     # ============================================================================
@@ -1228,9 +1239,9 @@ def print_timeline_report(
                 # CRITICAL: Must account for PRODUCTIVITY column (14 chars) to match DisplayColumns total_right_width (46)
                 # Left section (87) + dynamic padding + separator (2) + dashes (32 for OFFLINE+AFK+ACTIVE) + spaces (14 for PRODUCTIVITY)
                 left_padding_width = 87
-                right_section_width = 46  # OFFLINE 12 + AFK 12 + ACTIVE 8 + PRODUCTIVITY 14 (must match DisplayColumns!)
+                right_section_width = 62  # BREAK 12 + OFFLINE 12 + AFK 12 + ACTIVE 12 + PRODUCTIVITY 14 (must match DisplayColumns!)
                 dynamic_padding = width - left_padding_width - right_section_width - 2
-                dashes_for_columns = 32  # Only OFFLINE+AFK+ACTIVE get dashes, PRODUCTIVITY is spaces
+                dashes_for_columns = 48  # BREAK+OFFLINE+AFK+ACTIVE get dashes, PRODUCTIVITY is spaces
                 if dynamic_padding < 0:
                     separator_line = " " * left_padding_width + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
                 else:
@@ -1263,9 +1274,9 @@ def print_timeline_report(
                 # CRITICAL: Must account for PRODUCTIVITY column (14 chars) to match DisplayColumns total_right_width (46)
                 # Left section (87) + dynamic padding + separator (2) + dashes (32 for OFFLINE+AFK+ACTIVE) + spaces (14 for PRODUCTIVITY)
                 left_padding_width = 87
-                right_section_width = 46  # OFFLINE 12 + AFK 12 + ACTIVE 8 + PRODUCTIVITY 14 (must match DisplayColumns!)
+                right_section_width = 62  # BREAK 12 + OFFLINE 12 + AFK 12 + ACTIVE 12 + PRODUCTIVITY 14 (must match DisplayColumns!)
                 dynamic_padding = width - left_padding_width - right_section_width - 2
-                dashes_for_columns = 32  # Only OFFLINE+AFK+ACTIVE get dashes, PRODUCTIVITY is spaces
+                dashes_for_columns = 48  # BREAK+OFFLINE+AFK+ACTIVE get dashes, PRODUCTIVITY is spaces
                 if dynamic_padding < 0:
                     separator_line = " " * left_padding_width + "  " + "-" * dashes_for_columns + " " * (right_section_width - dashes_for_columns)
                 else:
@@ -1301,15 +1312,31 @@ def print_timeline_report(
         # Check for gap before rendering
         if last_slot_end is not None:
             gap = slot.start - last_slot_end
-            # Accumulate ALL gaps as break time
-            daily_metrics.add(break_time=gap)
-            weekly_metrics.add(break_time=gap)
-            daily_displayed_break += gap
-            weekly_displayed_break += gap
-            total_break_time += gap
-            # Display ALL gaps visually (even tiny ones) so report is consistent and transparent
-            if gap > timedelta(0):
-                _render_system_shutdown_separator(break_duration=gap, width=width)
+            # Accumulate only displayed breaks (>= 1 minute) to match display
+            if gap > timedelta(0) and gap >= timedelta(minutes=1):
+                daily_metrics.add(break_time=gap)
+                weekly_metrics.add(break_time=gap)
+                daily_displayed_break += gap
+                weekly_displayed_break += gap
+                total_break_time += gap
+
+                # Render minimal break entry: blank line with only duration in BREAK column
+                # No times, no label — just the break duration for identification
+                from tw_report.utils.formatting import ljust_display
+
+                right_section_width = 62  # BREAK + OFFLINE + AFK + ACTIVE columns
+                column_start_pos = width - right_section_width
+
+                # Build minimal line: blank left section + break duration in BREAK column
+                break_duration_str = format_duration(gap)
+                blank_left = " " * (column_start_pos - 1)  # Fill left with spaces
+                break_duration_padded = ljust_display(break_duration_str, 12)  # BREAK column width
+
+                # Remaining columns (OFFLINE, AFK, ACTIVE) are empty
+                remaining_cols = ljust_display("", 12) + ljust_display("", 12) + ljust_display("", 12)
+
+                break_line = blank_left + break_duration_padded + remaining_cols
+                print(break_line.rstrip())
 
         # Extract slot properties uniformly (works for dict or object)
         def get_slot_attr(attr, default=None):
@@ -1466,7 +1493,6 @@ def print_timeline_report(
         print(full_line.rstrip())
         print()
 
-    # DEBUG: Verify what we're actually passing to print_report_totals
 
     print_report_totals(
         total_time_all=online_time_final,
@@ -1474,5 +1500,8 @@ def print_timeline_report(
         total_afk=total_afk_time if total_afk_time > timedelta(0) else None,
         total_offline=total_offline_time if total_offline_time > timedelta(0) else None,
         total_non_afk=active_time_final if active_time_final > timedelta(0) else None,
-        total_break=total_break_time if total_break_time > timedelta(0) else None,
+        total_break=total_break if total_break is not None else (total_break_time if total_break_time > timedelta(0) else None),
+        tracked_activity=tracked_activity_span,
+        first_event_time=first_event_time,
+        last_event_time=last_event_time,
     )

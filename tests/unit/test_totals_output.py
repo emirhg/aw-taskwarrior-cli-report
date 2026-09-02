@@ -197,6 +197,7 @@ class TestTimelineReportTotalsInvariants:
             non_afk_time=timedelta(hours=1),  # 1 hour active
             productive_time=timedelta(hours=1),
             task_based=True,
+            total_break=timedelta(0),  # No breaks in test data
         )
 
         captured = capsys.readouterr()
@@ -251,6 +252,7 @@ class TestTimelineReportTotalsInvariants:
             non_afk_time=timedelta(hours=1),  # 1 hour active (from AFK bucket)
             productive_time=timedelta(hours=0, minutes=30),
             task_based=True,
+            total_break=timedelta(0),  # No breaks in test data
         )
 
         captured = capsys.readouterr()
@@ -316,6 +318,7 @@ class TestTimelineReportTotalsInvariants:
             non_afk_time=timedelta(hours=7, minutes=13, seconds=59),
             productive_time=timedelta(0),
             task_based=True,
+            total_break=timedelta(0),  # No breaks in test data
         )
 
         captured = capsys.readouterr()
