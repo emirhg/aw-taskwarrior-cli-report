@@ -689,7 +689,6 @@ def main():
             last_break_end=context.metrics.last_break_end,
             last_break_duration=context.metrics.last_break_duration,
             afk_events=afk_events,
-            exclude_online=exclude_online,
             day_start_hour=day_start_hour,
         )
     else:

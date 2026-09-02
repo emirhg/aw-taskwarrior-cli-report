@@ -638,7 +638,6 @@ def print_timeline_report(
     last_break_end: Optional[datetime] = None,
     last_break_duration: Optional[timedelta] = None,
     afk_events: Optional[List[Event]] = None,
-    exclude_online: bool = False,
     day_start_hour: int = 4,
 ):
     """Print a timeline report showing activity as continuous time slots with date/week headers and cumulative totals.
