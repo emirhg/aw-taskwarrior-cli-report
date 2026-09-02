@@ -47,13 +47,6 @@ def consolidate_sessions(
     # Convert to dicts for consistent handling
     slot_dicts = [_to_dict(slot) for slot in slots]
 
-    # DEBUG: Check for LeetCode 2970
-    lc2970_before = [s for s in slot_dicts if "2970" in s.get("task", "")]
-    if lc2970_before:
-        print(f"[CONSOLIDATE] Before: Found {len(lc2970_before)} LeetCode 2970 slots")
-
-
-
     # Group consecutive slots by (project, task)
     merged = []
     current_group = [slot_dicts[0]]

@@ -237,37 +237,52 @@ def aggregate_hierarchy_from_slots(
                 )
 
                 # Iterate over apps within this category entry
-                for app_entry in (cat_entry.get("apps") or []):
-                    app_name = app_entry.get("app", "Unknown App")
-                    app_duration = app_entry.get("duration", timedelta(0))
-                    prod_score = (app_duration.total_seconds() / 3600) * score
+                apps_list = cat_entry.get("apps") or []
+                if not apps_list:
+                    # If category has no apps, use the category duration directly
+                    # This handles task-based slots which have categories but no app info
+                    cat_duration = cat_entry.get("duration", slot_work_duration)
+                    prod_score = (cat_duration.total_seconds() / 3600) * score
 
-                    app_node = cat_node["apps"].setdefault(
-                        app_name, {"total_duration": timedelta(0), "prod_score": 0.0}
-                    )
-
-                    proj_node["total_duration"] += app_duration
+                    proj_node["total_duration"] += cat_duration
                     proj_node["prod_score"] += prod_score
-                    task_node["total_duration"] += app_duration
+                    task_node["total_duration"] += cat_duration
                     task_node["prod_score"] += prod_score
-                    cat_node["total_duration"] += app_duration
+                    cat_node["total_duration"] += cat_duration
                     cat_node["prod_score"] += prod_score
-                    app_node["total_duration"] += app_duration
-                    app_node["prod_score"] += prod_score
+                else:
+                    # Normal case: iterate over apps
+                    for app_entry in apps_list:
+                        app_name = app_entry.get("app", "Unknown App")
+                        app_duration = app_entry.get("duration", timedelta(0))
+                        prod_score = (app_duration.total_seconds() / 3600) * score
 
-                    # Iterate over titles within this app entry
-                    for title_entry in (app_entry.get("titles") or []):
-                        title = title_entry.get("title", "No Title")
-                        normalized_title = normalize_title(title)
-                        title_duration = title_entry.get("duration", timedelta(0))
-                        title_prod_score = (title_duration.total_seconds() / 3600) * score
-
-                        title_node = app_node.setdefault("titles", {}).setdefault(
-                            normalized_title,
-                            {"total_duration": timedelta(0), "prod_score": 0.0},
+                        app_node = cat_node["apps"].setdefault(
+                            app_name, {"total_duration": timedelta(0), "prod_score": 0.0}
                         )
-                        title_node["total_duration"] += title_duration
-                        title_node["prod_score"] += title_prod_score
+
+                        proj_node["total_duration"] += app_duration
+                        proj_node["prod_score"] += prod_score
+                        task_node["total_duration"] += app_duration
+                        task_node["prod_score"] += prod_score
+                        cat_node["total_duration"] += app_duration
+                        cat_node["prod_score"] += prod_score
+                        app_node["total_duration"] += app_duration
+                        app_node["prod_score"] += prod_score
+
+                        # Iterate over titles within this app entry
+                        for title_entry in (app_entry.get("titles") or []):
+                            title = title_entry.get("title", "No Title")
+                            normalized_title = normalize_title(title)
+                            title_duration = title_entry.get("duration", timedelta(0))
+                            title_prod_score = (title_duration.total_seconds() / 3600) * score
+
+                            title_node = app_node.setdefault("titles", {}).setdefault(
+                                normalized_title,
+                                {"total_duration": timedelta(0), "prod_score": 0.0},
+                            )
+                            title_node["total_duration"] += title_duration
+                            title_node["prod_score"] += title_prod_score
     else:
         # Group by: Category > App > Title (no project/task level)
         for slot in consolidated_slots:

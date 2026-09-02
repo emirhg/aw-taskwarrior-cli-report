@@ -5,16 +5,9 @@ This module previously contained 5 separate slot generators. As of Phase 2 refac
 all slot construction has been consolidated into build_timeslot_timeline() in
 src/tw_report/core/timeslot_builder.py.
 
-This module now only exports constants needed by timeline rendering.
-"""
+This module is now deprecated and kept only for historical reference.
 
-from datetime import timedelta
-
-# Minimum event duration threshold - set to 60s to filter ActivityWatch tracking noise
-# Events shorter than this are considered tracking artifacts and excluded from timeline display
-MIN_EVENT_DURATION = timedelta(seconds=60)
-
-# NOTE: All legacy generator functions have been removed in Phase 2 refactor:
+NOTE: All legacy generator functions have been removed in Phase 2 refactor:
 # - generate_afk_and_offline_slots() → build_timeslot_timeline()
 # - generate_partitioned_task_slots() → build_timeslot_timeline()
 # - generate_untracked_gap_events() → build_timeslot_timeline()

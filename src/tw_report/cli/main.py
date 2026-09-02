@@ -467,58 +467,13 @@ def main():
         last_event_time = max(end for start, end in all_events_for_period_utc)
 
 
-    # PHASE 2 REFACTOR: Use unified builder instead of 5 scattered generators
-    # Build non-overlapping slots directly from raw events
-    from tw_report.core.report_slot import ReportTimelineSlot
-    _profile("Starting slot building phase")
+    # UNIFIED PIPELINE (Session 2026-09-02):
+    # Single builder call feeds both timeline and hierarchical rendering.
+    # Events are NOT pre-filtered — builder needs unfiltered data to correctly classify time as task-based vs AFK.
+    # Filtering happens on slot output BEFORE metrics calculation.
+    # This ensures both report modes see identical data and metrics.
 
-    # OPTIMIZATION: Filter raw events BEFORE building slots to avoid processing unused data
-    # This significantly reduces slot-building overhead for filtered queries
-    filtered_window_events = [
-        e for e in window_events
-        if not event_filter.app_patterns or any(
-            event_filter._matches_any([e.app], [pattern])
-            for pattern in event_filter.app_patterns
-        )
-    ] if hasattr(event_filter, 'app_patterns') and event_filter.app_patterns else window_events
-
-    filtered_task_events = [
-        e for e in (task_events or [])
-        if event_filter.should_include_entry({
-            'project': e.project if hasattr(e, 'project') else e.data.get('project', ''),
-            'task': e.task if hasattr(e, 'task') else e.data.get('task', ''),
-            'type': 'regular'
-        })
-    ] if task_events else None
-
-    _profile(f"Building slots from {len(afk_events)} AFK, {len(filtered_window_events)} window, {len(filtered_task_events or [])} task events")
-    final_slots = build_timeslot_timeline(
-        afk_events=afk_events,  # Keep all AFK events (needed for time context)
-        window_events=filtered_window_events,
-        task_events=filtered_task_events or []
-    )
-    _profile(f"Built {len(final_slots)} slots")
-
-    # Filter micro-slots (< 1 second) BEFORE any consolidation
-    # This ensures both timeline and hierarchical reports use the same base data
-    min_duration = timedelta(seconds=1)
-    final_slots_filtered = [s for s in final_slots if (s.duration or timedelta(0)) >= min_duration]
-    _profile(f"Filtered micro-slots: {len(final_slots)} → {len(final_slots_filtered)}")
-
-    # Consolidate slots by (project, task) to merge multi-entry work sessions
-    _profile("Starting consolidation")
-    consolidated = ReportEntries(slots_list=final_slots_filtered)
-    consolidated_slots = consolidated.consolidate_by_task().slots_list
-    _profile(f"Consolidated to {len(consolidated_slots)} slots")
-
-    # Tracked Activity from event times (includes all buckets: AFK + window + task)
-    tracked_activity_from_slots = None
-    if first_event_time and last_event_time:
-        tracked_activity_from_slots = last_event_time - first_event_time
-
-    # Apply EventFilter once (unified point, replaces 3 scattered implementations)
-    # This is the ONLY filter application point for slots
-    # Extract apps from slot categories for app-level filtering in consolidation modes
+    # Extract apps helper (needed for app-level filtering)
     def _get_apps_from_slot(slot):
         """Extract all unique app names from slot's categories."""
         apps = set()
@@ -529,61 +484,10 @@ def main():
                     apps.add(app_name)
         return list(apps)
 
-    all_slot_entries = [
-        s.to_dict()
-        for s in consolidated_slots
-        if event_filter.should_include_entry({
-            'project': s.project,
-            'task': s.task,
-            'app': "|".join(_get_apps_from_slot(s)) or "",  # Join multiple apps with |
-            'type': 'regular' if s.project != NO_PROJECT else 'afk'
-        })
-        and not (args.exclude_non_project and s.project == NO_PROJECT)
-    ]
-
-    # PHASE 2 REFACTOR: Metrics computed from slots directly (no canonical_events bridge)
-    # Slots already have categories populated by builder, enabling direct productivity scoring
-    metrics = compute_metrics(
-        consolidated_slots=consolidated_slots,
-        cat_score_map=cat_score_map,
-        get_category_score=get_category_score,
-        non_afk_time=non_afk_time,
-        first_event_time=first_event_time,
-        last_event_time=last_event_time,
-        current_session_start=current_session_start,
-        current_session_end=current_session_end,
-        current_session_duration=current_session_duration,
-        last_break_start=last_break_start,
-        last_break_end=last_break_end,
-        last_break_duration=last_break_duration,
-        detail_level=args.detail_level,
-    )
-    context = build_context(
-        consolidated_slots=consolidated_slots,
-        task_events=task_events,
-        afk_events=afk_events,
-        cat_score_map=cat_score_map,
-        is_task_based_report=is_task_based_report,
-        metrics=metrics,
-    )
-    # Use new slot-based hierarchy builder (Phase 2 refactor)
-    # Micro-slots already filtered before consolidation above
-    report_data, actual_task_based = aggregate_hierarchy_from_slots(
-        consolidated_slots=consolidated_slots,
-        task_based=(is_task_based_report and task_events is not None),
-        cat_score_map=cat_score_map,
-        get_category_score=get_category_score,
-        normalize_title=normalize_title,
-        event_filter=event_filter,
-    )
-
-    # PHASE 2 REFACTOR: No OfflineTaskProcessor needed
-    # Builder handles offline/online classification correctly
-    # Old duration-replacement logic eliminated
-
-    # Generate timeline slots for BOTH period-based (day/week/month/year) and hierarchical reports
-    # Both report modes need consistent AFK/Offline calculations, so slots are built unconditionally
-    # The if/else below only controls which rendering mode (timeline vs hierarchical) is used
+    # Tracked Activity from event times (includes all buckets: AFK + window + task)
+    tracked_activity_from_slots = None
+    if first_event_time and last_event_time:
+        tracked_activity_from_slots = last_event_time - first_event_time
 
     # Use Timeline for internal slot management (Phase 3 migration)
     timeline = Timeline()
@@ -597,10 +501,11 @@ def main():
 
     # Build all timeline slots using the unified sweep-line builder
     # This produces guaranteed non-overlapping slots classified by active events
+    # Use unfiltered raw events — the builder needs all data to correctly classify time
     report_slots = build_timeslot_timeline(
-        afk_events=context.afk_events or [],
+        afk_events=afk_events or [],
         window_events=window_events or [],
-        task_events=context.task_events or [],
+        task_events=task_events or [],
     )
 
     # Convert ReportTimelineSlot objects to dict format for downstream processing
@@ -683,6 +588,7 @@ def main():
 
     # Apply EventFilter to slots BEFORE any metrics calculation
     # Totals should only include entries that match the applied filters
+    # CRITICAL: Type computation must distinguish 'afk' for NO_PROJECT vs 'regular' for others
     filtered_slots = [
         s for s in report_slots
         if event_filter.should_include_entry(
@@ -690,11 +596,14 @@ def main():
                 'project': s.project,
                 'task': s.task,
                 'app': "|".join(_get_apps_from_slot(s)) or "",
-                'type': 'regular'
+                'type': 'afk' if s.project == NO_PROJECT else 'regular',
             },
             entry_type='regular'
         )
     ]
+
+    # UNIFIED METRICS CALCULATION (single point for both report modes)
+    # All metrics now computed from filtered_slots (same input for both timeline and hierarchical)
 
     # Recalculate ALL metrics from filtered slots (non-overlapping by construction)
     slot_afk_time, slot_offline_time = compute_afk_offline_totals(filtered_slots)
@@ -704,6 +613,32 @@ def main():
     slot_active_time = sum(
         (s.actual_duration or timedelta(0) for s in filtered_slots),
         timedelta(0)
+    )
+
+    # Compute productivity metrics from filtered slots
+    # These are shared by both timeline and hierarchical rendering modes
+    metrics = compute_metrics(
+        consolidated_slots=filtered_slots,
+        cat_score_map=cat_score_map,
+        get_category_score=get_category_score,
+        non_afk_time=slot_active_time,
+        first_event_time=first_event_time,
+        last_event_time=last_event_time,
+        current_session_start=current_session_start,
+        current_session_end=current_session_end,
+        current_session_duration=current_session_duration,
+        last_break_start=last_break_start,
+        last_break_end=last_break_end,
+        last_break_duration=last_break_duration,
+        detail_level=args.detail_level,
+    )
+    context = build_context(
+        consolidated_slots=filtered_slots,
+        task_events=task_events,
+        afk_events=afk_events,
+        cat_score_map=cat_score_map,
+        is_task_based_report=is_task_based_report,
+        metrics=metrics,
     )
 
     # Convert slots back to dicts for rendering (use raw builder output, NO filtering)
@@ -719,7 +654,7 @@ def main():
     # 2. Year consolidation (--by-year) hangs/timeouts: Possible O(n^2) or infinite loop
     #    Likely in period grouping or consolidation logic when spanning 56+ years of history
     #    Fix needed: Performance audit of consolidate_by_period() for large datasets
-    _profile(f"Starting rendering phase with {len(consolidated_slots)} slots")
+    _profile(f"Starting rendering phase with {len(report_slots)} slots")
     if grouping_mode in ["day", "week", "month", "year"]:
         _profile(f"Rendering timeline report (period: {period})")
         TimelineReport(print_timeline_report).present(
@@ -748,8 +683,15 @@ def main():
         )
     else:
         # Hierarchical (--by-project) report: use slot-based AFK/Offline calculations for consistency
-        # Use the actual task-based mode determined by aggregate_hierarchy_from_slots
-        # (which now accounts for whether slots have project/task data)
+        # Aggregate the filtered slots into a hierarchy for display (display-only aggregation, not data calculation)
+        report_data, actual_task_based = aggregate_hierarchy_from_slots(
+            consolidated_slots=filtered_slots,
+            task_based=(is_task_based_report and task_events is not None),
+            cat_score_map=cat_score_map,
+            get_category_score=get_category_score,
+            normalize_title=normalize_title,
+            # DO NOT pass event_filter — filtered_slots are already pre-filtered
+        )
         report_task_based = actual_task_based
 
         # Use filtered slot-based metrics — same calculation as timeline report
