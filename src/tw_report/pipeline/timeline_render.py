@@ -1301,15 +1301,14 @@ def print_timeline_report(
         # Check for gap before rendering
         if last_slot_end is not None:
             gap = slot.start - last_slot_end
-            # Only count and display breaks for gaps > 5 minutes
-            if gap > gap_threshold:
-                # Accumulate breaks that are visually displayed
-                daily_metrics.add(break_time=gap)
-                weekly_metrics.add(break_time=gap)
-                daily_displayed_break += gap
-                weekly_displayed_break += gap
-                total_break_time += gap
-                # Show visual separator
+            # Accumulate ALL gaps as break time
+            daily_metrics.add(break_time=gap)
+            weekly_metrics.add(break_time=gap)
+            daily_displayed_break += gap
+            weekly_displayed_break += gap
+            total_break_time += gap
+            # Display ALL gaps visually (even tiny ones) so report is consistent and transparent
+            if gap > timedelta(0):
                 _render_system_shutdown_separator(break_duration=gap, width=width)
 
         # Extract slot properties uniformly (works for dict or object)
