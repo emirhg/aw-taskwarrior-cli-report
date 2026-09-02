@@ -19,19 +19,19 @@ class BucketEvents:
         window: Events from the window/desktop-activity bucket
         taskwarrior: Events from the taskwarrior bucket
     """
-    afk: List[Event] = field(default_factory=list)
-    window: List[Event] = field(default_factory=list)
-    taskwarrior: List[Event] = field(default_factory=list)
+    afk: list[Event] = field(default_factory=list)
+    window: list[Event] = field(default_factory=list)
+    taskwarrior: list[Event] = field(default_factory=list)
 
-    def get_afk_by_status(self, status: str) -> List[Event]:
+    def get_afk_by_status(self, status: str) -> list[Event]:
         """Get AFKEvents filtered by status ('afk' or 'not-afk')."""
         return [e for e in self.afk if e.data.get("status") == status]
 
-    def get_active_periods(self) -> List[Event]:
+    def get_active_periods(self) -> list[Event]:
         """Get all Events with status='not-afk' (active periods)."""
         return self.get_afk_by_status("not-afk")
 
-    def get_idle_periods(self) -> List[Event]:
+    def get_idle_periods(self) -> list[Event]:
         """Get all Events with status='afk' (idle periods)."""
         return self.get_afk_by_status("afk")
 
@@ -84,9 +84,9 @@ class TimeslotDuration:
             Total wall-clock = 2:15:00
     """
 
-    online_duration: Optional[timedelta] = None
-    offline_gap: Optional[timedelta] = None
-    afk_portion: Optional[timedelta] = None
+    online_duration: timedelta | None = None
+    offline_gap: timedelta | None = None
+    afk_portion: timedelta | None = None
 
     def __post_init__(self) -> None:
         """Validate that at least one duration is present."""
@@ -196,10 +196,10 @@ class PeriodMetrics:
 
     def add(
         self,
-        online: Optional[timedelta] = None,
-        afk: Optional[timedelta] = None,
-        offline: Optional[timedelta] = None,
-        productive: Optional[timedelta] = None,
+        online: timedelta | None = None,
+        afk: timedelta | None = None,
+        offline: timedelta | None = None,
+        productive: timedelta | None = None,
     ) -> None:
         """Add durations to this period's totals.
 
@@ -221,7 +221,7 @@ class PeriodMetrics:
     def add_timeslot(
         self,
         slot_duration: TimeslotDuration,
-        productive: Optional[timedelta] = None,
+        productive: timedelta | None = None,
     ) -> None:
         """Add a TimeslotDuration to this period's totals.
 
@@ -306,13 +306,13 @@ class ReportTotals:
         - productive_time >= 0
     """
 
-    online_time: Optional[timedelta] = None
-    productive_time: Optional[timedelta] = None
-    afk_time: Optional[timedelta] = None
-    offline_time: Optional[timedelta] = None
+    online_time: timedelta | None = None
+    productive_time: timedelta | None = None
+    afk_time: timedelta | None = None
+    offline_time: timedelta | None = None
 
     @property
-    def active_time(self) -> Optional[timedelta]:
+    def active_time(self) -> timedelta | None:
         """Time with keyboard/mouse focus (online_time - afk_time)."""
         if self.online_time is None:
             return None
@@ -320,7 +320,7 @@ class ReportTotals:
         return self.online_time - afk
 
     @property
-    def total_time(self) -> Optional[timedelta]:
+    def total_time(self) -> timedelta | None:
         """Total wall-clock time (online + offline)."""
         online = self.online_time or timedelta(0)
         offline = self.offline_time or timedelta(0)
@@ -340,7 +340,7 @@ class ReportTotals:
         return f"ReportTotals({', '.join(parts)})"
 
     @staticmethod
-    def _format_td(td: Optional[timedelta]) -> str:
+    def _format_td(td: timedelta | None) -> str:
         """Format timedelta as HH:MM:SS."""
         if td is None:
             return "00:00:00"
@@ -355,7 +355,7 @@ class ReportEvent:
     event: Event
     project: str
     task: str
-    active_task: Optional[Event]
+    active_task: Event | None
 
 
 @dataclass(frozen=True)
@@ -365,14 +365,14 @@ class ReportMetrics:
     distracting_time: timedelta
     unscored_time: timedelta
     non_afk_time: timedelta
-    first_event_time: Optional[datetime]
-    last_event_time: Optional[datetime]
-    current_session_start: Optional[datetime]
-    current_session_end: Optional[datetime]
-    current_session_duration: Optional[timedelta]
-    last_break_start: Optional[datetime]
-    last_break_end: Optional[datetime]
-    last_break_duration: Optional[timedelta]
+    first_event_time: datetime | None
+    last_event_time: datetime | None
+    current_session_start: datetime | None
+    current_session_end: datetime | None
+    current_session_duration: timedelta | None
+    last_break_start: datetime | None
+    last_break_end: datetime | None
+    last_break_duration: timedelta | None
 
 
 @dataclass(frozen=True)
@@ -392,16 +392,16 @@ class ReportContext:
     """
     bucket_events: BucketEvents
     consolidated_slots: list  # List[ReportTimelineSlot] - using list to avoid circular import
-    cat_score_map: Dict[str, float]
+    cat_score_map: dict[str, float]
     is_task_based_report: bool
     metrics: ReportMetrics
 
     @property
-    def task_events(self) -> Optional[List[Event]]:
+    def task_events(self) -> list[Event] | None:
         """Legacy accessor for taskwarrior events."""
         return self.bucket_events.taskwarrior if self.bucket_events.taskwarrior else None
 
     @property
-    def afk_events(self) -> List[Event]:
+    def afk_events(self) -> list[Event]:
         """Legacy accessor for afk events."""
         return self.bucket_events.afk
