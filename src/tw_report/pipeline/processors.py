@@ -184,12 +184,35 @@ def aggregate_hierarchy_from_slots(
     if task_based:
         # Group by: Project > Task > Category > App > Title
         for slot in consolidated_slots:
-            # Skip AFK-only slots (no task assignment)
-            if not slot.project or slot.project == "No project assigned":
+            # Skip AFK-only slots (no work activity)
+            if slot.is_afk_only:
                 continue
 
+            # Use slot's actual_duration as the work duration for this slot
+            slot_work_duration = slot.actual_duration or slot.duration or timedelta(0)
+
+            # If slot has no categories, create an "Uncategorized" default entry
+            # This handles "No project assigned" slots which often lack categories
+            categories_to_process = slot.categories or [
+                {
+                    "category": "Uncategorized",
+                    "apps": [
+                        {
+                            "app": "No App",
+                            "duration": slot_work_duration,
+                            "titles": [
+                                {
+                                    "title": "No Title",
+                                    "duration": slot_work_duration,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+
             # Each slot may have multiple categories; iterate over them
-            for cat_entry in (slot.categories or []):
+            for cat_entry in categories_to_process:
                 category = cat_entry.get("category", "Uncategorized")
                 score = get_category_score(category, cat_score_map)
 
