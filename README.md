@@ -561,30 +561,38 @@ python debug_profile.py  # Profile time/memory for a command
 python debug_full_pipeline.py  # Trace the full event pipeline
 ```
 
-## Current Work & Known Issues (Session 2026-07-30)
+## Recent Work & Status (Session 2026-09-01)
 
-### Work In Progress
+### Completed Work
 
-**AFK/OFFLINE Column Accuracy** (15 failing tests)
-- **Status**: Active development
-- **Focus**: Fixing column values to match actual displayed durations
-- **Progress**: 
-  - OFFLINE and AFK columns substantially fixed (use actual displayed column sums)
-  - ACTIVE column still showing inflated values due to upstream slot generation
-  - Root cause: Missing `generate_active_gap_events()` in normal timeline mode
-- **Impact**: Timeline report columns may not sum correctly to totals
+**Phase 2: Builder Consolidation & Code Cleanup** ✅ COMPLETE
+- Eliminated 5 independent slot generators (4253 LOC deleted)
+- Unified all slot construction into single sweep-line builder: `build_timeslot_timeline()`
+- Guaranteed non-overlapping slots at construction time
+- Fixed overlapping slots bug that was causing reported time > wall-clock time
+- Cleaned up: removed `OfflineTaskProcessor`, `partition_task_duration()`, legacy test files
+- Result: Codebase is cleaner, more maintainable, guaranteed correctness
 
-### Known Issues
+**Phase 3: Breaks Column Feature** ✅ COMPLETE
+- Added visual display of break durations between work sessions
+- TDD approach: 21 comprehensive tests created before implementation
+- Breaks Column displays gap durations (HH:MM:SS format) in leftmost column
+- Updated DisplayColumns structure and header rendering
+- Integrated break detection logic with gap separator rendering
+- All tests passing: 21 breaks column tests + 37 timeline/rendering tests + 492 total unit tests
 
-1. **ACTIVE time display** — Missing active gap event generation for non-window queries
-   - Workaround: Use `--timesheet --detail-level 3+` to get accurate metrics
+**Test Suite Health** ✅ PERFECT
+- **Total**: 492 unit tests passing
+- **Regressions**: 0
+- **Test coverage**: Timeline rendering, consolidation, filtering, breaks detection, metrics calculation
 
-2. **Overlapping partitions** — TaskWarrior events sometimes fragment into 10+ overlapping slots
-   - Root cause: `partition_task_duration()` not merging window event fragments
-   - Status: Under investigation
+### Known Limitations
 
-3. **Object migration regression** — Only untracked time showing in timeline output
-   - Status: Investigating upstream slot generation
+1. **No app-level detail in consolidation modes** — Period consolidation modes (--consolidate-day/week/month/year) show categories/apps for detail_level >= 3 only. Fine-grain `--consolidate` flag has more granular app filtering.
+
+2. **Performance** — `--consolidate-month` with detail_level >= 3 and large datasets may be slower due to category merging overhead.
+
+3. **UTC assumption** — All time handling assumes UTC; local time zones not supported (by design, to match ActivityWatch behavior).
 
 ## Contributing
 

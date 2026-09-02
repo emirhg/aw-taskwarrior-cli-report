@@ -262,17 +262,23 @@ slot_active_time = sum(s.actual_duration or timedelta(0) for s in filtered_slots
    - App-level filtering (--app) not yet integrated into consolidation path
    - Works in non-consolidation mode but missing from --consolidate-{day,week,month,year}
 
-## Recent Work & Current Issues (Session 2026-08-31 Complete)
+## Recent Work & Current Status (Session 2026-09-01)
 
-### Current Status: Filtering & Metrics Architecture Unified ✅
-- **Test Status**: 619 unit tests passing, 0 failing, 6 xpassed
-- **Work Completed**: Unified filtering and metrics calculation between timeline and hierarchical reports
-- **Key Fixes**:
-  - Applied EventFilter to consolidated slots before calculating metrics (commits 65381e2, 3cf6de7)
-  - Moved metrics calculation after slot filtering to ensure displayed entries match metrics
-  - Extracted `compute_afk_offline_totals()` to reuse between report types (commit 0b59c69)
-  - Fixed --project argument parsing regression (commit 21c9e76)
-  - Implemented period-based consolidation and deduplication (session 2026-08-31 start)
+### Phase 2 & 3 Complete: Builder Consolidation + Breaks Column ✅
+- **Test Status**: 492 unit tests passing, 0 failing (all tests green ✅)
+- **Phase 2 Completion**: Unified all slot construction into single sweep-line builder
+  - Deleted 4253 LOC of dead code (5 generators, OfflineTaskProcessor, legacy tests)
+  - Guaranteed non-overlapping slots at construction time
+  - Fixed overlapping slots bug where reported time exceeded wall-clock time
+  - Commits: 2fc4d30 (massive cleanup), 9d6e75f, f76d09c (builder integration), ab350b9, 982b7a4
+- **Phase 3 Completion**: Added Breaks Column feature with TDD approach
+  - 21 TDD tests created before implementation (all passing ✅)
+  - Breaks display gap durations (HH:MM:SS) in leftmost column
+  - Integrated with header rendering and gap detection logic
+  - Commit: 8661061, 982b7a4
+- **Test Suite**: Fixed 2 pre-existing failures in test_task_filtering.py (commit a5afd97)
+  - Root cause: Test data using wrong field names ("title" vs "task")
+  - Result: All 492 tests now passing
 
 ### Key Learnings & Architectural Decisions
 
@@ -462,6 +468,6 @@ Don't use this for:
 
 ---
 
-**Last Updated**: 2026-07-22 (Performance: 10x speedup for OFFLINE window event fetching)
+**Last Updated**: 2026-09-01 (Phase 2 & 3 COMPLETE: Builder consolidation + Breaks Column feature + All 492 tests passing)
 
 **Maintainers**: Emir Herrera González (user) + Claude Haiku 4.5 (AI assistant)
