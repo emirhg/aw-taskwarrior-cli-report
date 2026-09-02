@@ -184,9 +184,7 @@ def aggregate_hierarchy_from_slots(
     if task_based:
         # Group by: Project > Task > Category > App > Title
         for slot in consolidated_slots:
-            # Skip AFK-only slots (no work activity)
-            if slot.is_afk_only:
-                continue
+            # Include all slots, even AFK-only (idle time is still tracked time)
 
             # Use slot's actual_duration as the work duration for this slot
             slot_work_duration = slot.actual_duration or slot.duration or timedelta(0)
