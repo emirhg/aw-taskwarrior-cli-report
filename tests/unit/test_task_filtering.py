@@ -45,7 +45,7 @@ class TestGetEventsByTask:
                 timestamp=base_time,
                 duration=timedelta(hours=1),
                 data={
-                    "title": "Documentar presentación",
+                    "task": "Documentar presentación",
                     "project": "Antikythera",
                 },
             ),
@@ -53,7 +53,7 @@ class TestGetEventsByTask:
                 timestamp=base_time + timedelta(hours=1),
                 duration=timedelta(hours=2),
                 data={
-                    "title": "Code review",
+                    "task": "Code review",
                     "project": "Work",
                 },
             ),
@@ -61,7 +61,7 @@ class TestGetEventsByTask:
                 timestamp=base_time + timedelta(hours=3),
                 duration=timedelta(hours=1),
                 data={
-                    "title": "Documentar proceso",
+                    "task": "Documentar proceso",
                     "project": "Antikythera",
                 },
             ),
@@ -89,7 +89,7 @@ class TestGetEventsByTask:
         )
 
         assert len(result) == 2
-        assert all("Documentar" in e.data.get("title", "") for e in result)
+        assert all("Documentar" in e.data.get("task", "") for e in result)
 
     def test_get_events_by_task_case_insensitive(
         self, mock_client, time_range, sample_events
