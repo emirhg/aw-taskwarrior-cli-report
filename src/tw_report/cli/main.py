@@ -499,9 +499,15 @@ def main():
     )
     _profile(f"Built {len(final_slots)} slots")
 
+    # Filter micro-slots (< 1 second) BEFORE any consolidation
+    # This ensures both timeline and hierarchical reports use the same base data
+    min_duration = timedelta(seconds=1)
+    final_slots_filtered = [s for s in final_slots if (s.duration or timedelta(0)) >= min_duration]
+    _profile(f"Filtered micro-slots: {len(final_slots)} → {len(final_slots_filtered)}")
+
     # Consolidate slots by (project, task) to merge multi-entry work sessions
     _profile("Starting consolidation")
-    consolidated = ReportEntries(slots_list=final_slots)
+    consolidated = ReportEntries(slots_list=final_slots_filtered)
     consolidated_slots = consolidated.consolidate_by_task().slots_list
     _profile(f"Consolidated to {len(consolidated_slots)} slots")
 
@@ -561,6 +567,7 @@ def main():
         metrics=metrics,
     )
     # Use new slot-based hierarchy builder (Phase 2 refactor)
+    # Micro-slots already filtered before consolidation above
     report_data, actual_task_based = aggregate_hierarchy_from_slots(
         consolidated_slots=consolidated_slots,
         task_based=(is_task_based_report and task_events is not None),
