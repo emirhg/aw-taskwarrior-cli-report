@@ -431,10 +431,29 @@ def main():
     # Build non-overlapping slots directly from raw events
     from tw_report.core.report_slot import ReportTimelineSlot
 
+    # OPTIMIZATION: Filter raw events BEFORE building slots to avoid processing unused data
+    # This significantly reduces slot-building overhead for filtered queries
+    filtered_window_events = [
+        e for e in window_events
+        if not event_filter.app_patterns or any(
+            event_filter._matches_any([e.app], [pattern])
+            for pattern in event_filter.app_patterns
+        )
+    ] if hasattr(event_filter, 'app_patterns') and event_filter.app_patterns else window_events
+
+    filtered_task_events = [
+        e for e in (task_events or [])
+        if event_filter.should_include_entry({
+            'project': e.project if hasattr(e, 'project') else e.data.get('project', ''),
+            'task': e.task if hasattr(e, 'task') else e.data.get('task', ''),
+            'type': 'regular'
+        })
+    ] if task_events else None
+
     final_slots = build_timeslot_timeline(
-        afk_events=afk_events,
-        window_events=window_events,
-        task_events=task_events or []
+        afk_events=afk_events,  # Keep all AFK events (needed for time context)
+        window_events=filtered_window_events,
+        task_events=filtered_task_events or []
     )
 
     # Consolidate slots by (project, task) to merge multi-entry work sessions
