@@ -228,7 +228,15 @@ def build_timeslot_timeline(
             afk_status = active_afk[0].status if active_afk else None
 
             if not has_afk_coverage:
-                bucket = "offline"  # Task time but no AFK coverage → system off
+                # No AFK coverage: check for window events (strong evidence system is on)
+                # CRITICAL FIX (2026-09-02): Window events during AFK bucket gaps indicate
+                # ActivityWatch startup timing lag, not actual offline time. If window activity
+                # exists, system is provably powered on (window events only fire when system is active).
+                has_window_activity = len(active_window) > 0
+                if has_window_activity:
+                    bucket = "online"  # Window activity proves system is powered on
+                else:
+                    bucket = "offline"  # Task time but no AFK/window coverage → system truly off
             elif afk_status == "afk":
                 bucket = "embedded_afk"  # Task time + idle → embedded AFK
             else:
@@ -242,8 +250,17 @@ def build_timeslot_timeline(
             afk_status = active_afk[0].status if active_afk else None
 
             if not has_afk_coverage:
-                bucket = "offline_gap"  # No task, no AFK → system off
-                key = ("generic", "offline")
+                # No AFK coverage: check for window events (strong evidence system is on)
+                # CRITICAL FIX (2026-09-02): Window events during AFK bucket gaps indicate
+                # ActivityWatch startup timing lag, not actual offline time. If window activity
+                # exists, system is provably powered on.
+                has_window_activity = len(active_window) > 0
+                if has_window_activity:
+                    bucket = "online"  # Window activity proves system is powered on
+                    key = ("generic", "active")
+                else:
+                    bucket = "offline_gap"  # No task, no AFK, no window → system truly off
+                    key = ("generic", "offline")
             elif afk_status == "afk":
                 bucket = "afk"  # No task, AFK status → idle
                 key = ("generic", "afk")

@@ -697,3 +697,111 @@ def test_state_continuity_empty_and_single_slot():
     result = _merge_adjacent_micro_slots_by_state_continuity([slot])
     assert len(result) == 1, "Single slot should return single"
     assert result[0] is slot, "Single slot should be unchanged"
+
+
+# ============================================================================
+# Window-Event Proof-of-Activity Tests (2026-09-02)
+# ============================================================================
+
+def test_window_activity_during_afk_bucket_gap_classification():
+    """Window events prove system is on, even if AFK bucket gap exists.
+
+    Regression test for the 2-second offline misclassification issue:
+    When AFK bucket starts 2 seconds after window events, the gap was
+    misclassified as offline time. Window activity is strong proof that
+    the system is powered on (window events only fire when system is active).
+    """
+    # Scenario: Window event at 12:00, AFK event at 12:00:02 (2-second gap)
+    window_event = make_window_event(
+        timestamp=make_datetime(2026, 9, 2, 12, 0, 0),
+        duration=timedelta(seconds=40),  # Covers the gap
+        app="kitty",
+        title="terminal",
+    )
+
+    afk_event = make_afk_event(
+        timestamp=make_datetime(2026, 9, 2, 12, 0, 2),  # 2 seconds after window
+        duration=timedelta(seconds=38),  # Covers 12:00:02 to 12:00:40
+        status="not-afk",
+    )
+
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 0, 0),
+        duration=timedelta(seconds=40),
+        data={"project": "Work", "title": "coding"}
+    )
+
+    slots = build_timeslot_timeline(
+        afk_events=[afk_event],
+        window_events=[window_event],
+        task_events=[task_event],
+    )
+
+    # Should have 1 slot covering the full 40 seconds
+    assert len(slots) == 1, f"Expected 1 slot, got {len(slots)}"
+    slot = slots[0]
+
+    # Verify time span
+    assert slot.start == make_datetime(2026, 9, 2, 12, 0, 0)
+    assert slot.end == make_datetime(2026, 9, 2, 12, 0, 40)
+
+    # CRITICAL: Window activity during gap means no offline time should be created
+    # The 2-second gap should be classified as "online" (proven by window event)
+    # not "offline" (unproven system poweroff)
+    assert slot.offline_extension_duration is None or \
+           slot.offline_extension_duration == timedelta(0), \
+        f"Window activity proves system is on; no offline time should exist. Got: {slot.offline_extension_duration}"
+
+    # All 40 seconds should be active time (window + AFK both present)
+    assert slot.actual_duration == timedelta(seconds=40), \
+        f"Window activity = active time; expected 40s, got {slot.actual_duration}"
+
+
+def test_no_window_activity_during_gap_classified_as_offline():
+    """Without window events, gaps with no AFK are legitimately offline.
+
+    When task time spans a gap with no AFK or window coverage, that gap
+    is classified as offline_extension_duration (system was powered off).
+    """
+    # Scenario: Only AFK events, no window events, gap in AFK coverage
+    afk_event_1 = make_afk_event(
+        timestamp=make_datetime(2026, 9, 2, 12, 0, 0),
+        duration=timedelta(seconds=10),
+        status="not-afk",
+    )
+
+    afk_event_2 = make_afk_event(
+        timestamp=make_datetime(2026, 9, 2, 12, 0, 15),  # 5-second gap
+        duration=timedelta(seconds=10),
+        status="not-afk",
+    )
+
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 0, 0),
+        duration=timedelta(seconds=25),  # Spans both AFK events and gap
+        data={"project": "Work", "title": "coding"}
+    )
+
+    slots = build_timeslot_timeline(
+        afk_events=[afk_event_1, afk_event_2],
+        window_events=[],  # NO window events
+        task_events=[task_event],
+    )
+
+    # Builder creates 1 consolidated offline_task slot with embedded gap
+    assert len(slots) == 1, f"Expected 1 consolidated slot, got {len(slots)}"
+
+    slot = slots[0]
+    # Verify the gap is classified as offline_extension_duration
+    assert slot.offline_extension_duration == timedelta(seconds=5), \
+        f"Gap without window/AFK coverage should be offline. Got: {slot.offline_extension_duration}"
+
+    # Active time should only be the 20 seconds covered by AFK
+    assert slot.actual_duration == timedelta(seconds=20), \
+        f"Active time should be 20s (2x10s AFK coverage), got {slot.actual_duration}"
+
+    # Offline gap should be the 5-second uncovered period
+    offline_dur = slot.offline_extension_duration or timedelta(0)
+    total_breakdown = slot.actual_duration + offline_dur
+    assert total_breakdown == timedelta(seconds=25), \
+        f"Breakdown should sum to 25s (active 20s + offline 5s), got {total_breakdown}"
