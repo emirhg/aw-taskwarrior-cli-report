@@ -137,28 +137,31 @@ class DisplayColumns:
 
         left_section = f"{indent}{time_part}  {self.project}  {self.task}"
 
-        # Build right section (duration breakdown)
-        # Each column preserves its width even when empty
+        # Build right section (duration breakdown) with FIXED column positions
+        # The key insight: columns must start at the SAME position on every line
+        # regardless of left section length. This is what defines a "column"
         break_col = ljust_display(self.break_time, 12)
         offline_col = ljust_display(self.offline_time, 12)
         afk_col = ljust_display(self.afk_time, 12)
-        active_col = ljust_display(self.active_time, 8)
-        # Add 2 spaces separator before productivity
+        active_col = ljust_display(self.active_time, 12)
         productivity_col = ljust_display("  " + self.productivity, 14) if self.productivity else " " * 14
 
         right_section = f"{break_col}{offline_col}{afk_col}{active_col}{productivity_col}"
+        right_section_width = 62  # BREAK(12) + OFFLINE(12) + AFK(12) + ACTIVE(12) + PROD(14)
 
-        # Right-align the duration section to terminal width using display width
-        # Leave 2-space separator between left and right
-        total_right_width = display_width(right_section)
+        # Calculate absolute column start position: terminal_width - right_section_width
+        # This ensures columns always start at the same position
+        column_start_pos = terminal_width - right_section_width
+
         left_section_width = display_width(left_section)
-        left_padding = terminal_width - left_section_width - total_right_width - 2
 
-        # Ensure we don't create negative padding
-        if left_padding < 0:
-            full_line = left_section + "  " + right_section
+        if left_section_width >= column_start_pos:
+            # Left section too long, just append right section
+            full_line = left_section + " " + right_section
         else:
-            full_line = left_section + (" " * left_padding) + "  " + right_section
+            # Pad to position right section at fixed column start position
+            left_padding = column_start_pos - left_section_width
+            full_line = left_section + (" " * left_padding) + right_section
 
         return full_line
 
