@@ -21,92 +21,56 @@ class TestHierarchicalFilteringConsistency:
         """Base timestamp for test slots."""
         return datetime(2026, 9, 2, 10, 0, 0, tzinfo=timezone.utc)
 
+    @staticmethod
+    def _make_slot(base_time, offset_hours, duration_hours, project, task, category):
+        """Helper to create slots with categories."""
+        start = base_time + timedelta(hours=offset_hours)
+        duration = timedelta(hours=duration_hours)
+        return ReportTimelineSlot(
+            start=start,
+            end=start + duration,
+            duration=duration,
+            actual_duration=duration,
+            task_event=TaskWarriorEvent(
+                timestamp=start,
+                duration=duration,
+                data={"project": project, "task": task, "tags": []},
+            ),
+            categories=[{
+                "category": category,
+                "apps": [{
+                    "app": f"{project} App",
+                    "duration": duration,
+                    "titles": [{"title": f"{project}: {task}", "duration": duration}]
+                }]
+            }],
+        )
+
     @pytest.fixture
     def sample_slots(self, base_time):
         """Create slots for multiple projects."""
         return [
-            # Climb project - 2 hours total
-            ReportTimelineSlot(
-                start=base_time,
-                end=base_time + timedelta(hours=1),
-                duration=timedelta(hours=1),
-                actual_duration=timedelta(hours=1),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time,
-                    duration=timedelta(hours=1),
-                    data={"project": "Climb", "task": "Training", "tags": []},
-                ),
-                categories=[{
-                    "category": "Sports",
-                    "apps": [{
-                        "app": "Training App",
-                        "duration": timedelta(hours=1),
-                        "titles": [{"title": "Climb Training", "duration": timedelta(hours=1)}]
-                    }]
-                }],
-            ),
-            ReportTimelineSlot(
-                start=base_time + timedelta(hours=2),
-                end=base_time + timedelta(hours=3),
-                duration=timedelta(hours=1),
-                actual_duration=timedelta(hours=1),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time + timedelta(hours=2),
-                    duration=timedelta(hours=1),
-                    data={"project": "Climb", "task": "Prep", "tags": []},
-                ),
-            ),
-            # Work project - 3 hours total
-            ReportTimelineSlot(
-                start=base_time + timedelta(hours=4),
-                end=base_time + timedelta(hours=5),
-                duration=timedelta(hours=1),
-                actual_duration=timedelta(hours=1),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time + timedelta(hours=4),
-                    duration=timedelta(hours=1),
-                    data={"project": "Work", "task": "Coding", "tags": []},
-                ),
-            ),
-            ReportTimelineSlot(
-                start=base_time + timedelta(hours=6),
-                end=base_time + timedelta(hours=8),
-                duration=timedelta(hours=2),
-                actual_duration=timedelta(hours=2),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time + timedelta(hours=6),
-                    duration=timedelta(hours=2),
-                    data={"project": "Work", "task": "Meeting", "tags": []},
-                ),
-            ),
-            # Personal project - 1 hour total
-            ReportTimelineSlot(
-                start=base_time + timedelta(hours=9),
-                end=base_time + timedelta(hours=10),
-                duration=timedelta(hours=1),
-                actual_duration=timedelta(hours=1),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time + timedelta(hours=9),
-                    duration=timedelta(hours=1),
-                    data={"project": "Personal", "task": "Reading", "tags": []},
-                ),
-            ),
+            self._make_slot(base_time, 0, 1, "Climb", "Training", "Sports"),
+            self._make_slot(base_time, 2, 1, "Climb", "Prep", "Sports"),
+            self._make_slot(base_time, 4, 1, "Work", "Coding", "Development"),
+            self._make_slot(base_time, 6, 2, "Work", "Meeting", "Communication"),
+            self._make_slot(base_time, 9, 1, "Personal", "Reading", "Learning"),
         ]
 
-    def test_unfiltered_hierarchy_has_all_projects(self, sample_slots):
-        """Baseline: unfiltered hierarchy shows all projects."""
+    def test_unfiltered_hierarchy_shows_all_projects(self, sample_slots):
+        """Baseline: unfiltered hierarchy shows all projects (task_based=True)."""
         report_data = aggregate_hierarchy_from_slots(
             consolidated_slots=sample_slots,
-            task_based=False,
+            task_based=True,  # Group by Project > Task
             cat_score_map={},
             get_category_score=lambda cat, m: 0,
             normalize_title=lambda t: t,
         )
 
-        # Should have 3 projects
-        assert len(report_data) == 3, f"Expected 3 projects, got {len(report_data)}"
-        project_names = {proj.get("project") or proj["project_name"] for proj in report_data}
-        assert project_names == {"Climb", "Work", "Personal"}, f"Got projects: {project_names}"
+        # Should have 3 projects when grouping by project
+        assert len(report_data) == 3, f"Expected 3 projects, got {len(report_data)}: {list(report_data.keys())}"
+        project_names = set(report_data.keys())
+        assert project_names == {"Climb", "Work", "Personal"}
 
     def test_filtered_hierarchy_only_shows_climb(self, sample_slots):
         """CRITICAL: After filtering, hierarchy should ONLY show Climb project."""
@@ -134,15 +98,15 @@ class TestHierarchicalFilteringConsistency:
         # Build hierarchy from FILTERED slots
         report_data = aggregate_hierarchy_from_slots(
             consolidated_slots=filtered_slots,
-            task_based=False,
+            task_based=True,
             cat_score_map={},
             get_category_score=lambda cat, m: 0,
             normalize_title=lambda t: t,
         )
 
-        # Should have ONLY Climb project
-        assert len(report_data) == 1, f"Expected 1 project, got {len(report_data)}: {[p['project'] for p in report_data]}"
-        assert report_data[0]["project"] == "Climb"
+        # Should have ONLY Climb project (report_data is dict keyed by project name)
+        assert len(report_data) == 1, f"Expected 1 project, got {len(report_data)}: {list(report_data.keys())}"
+        assert "Climb" in report_data, f"Expected Climb in {list(report_data.keys())}"
 
     def test_filtered_hierarchy_total_matches_metrics(self, sample_slots):
         """CRITICAL: Hierarchy totals must match filtered metrics."""
@@ -293,40 +257,12 @@ class TestHierarchicalTaskBasedFiltering:
     @pytest.fixture
     def task_based_slots(self, base_time):
         """Slots for testing task-based filtering."""
+        # Reuse helper from parent class
+        helper = TestHierarchicalFilteringConsistency._make_slot
         return [
-            ReportTimelineSlot(
-                start=base_time,
-                end=base_time + timedelta(hours=1),
-                duration=timedelta(hours=1),
-                actual_duration=timedelta(hours=1),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time,
-                    duration=timedelta(hours=1),
-                    data={"project": "Work", "task": "TaskA", "tags": []},
-                ),
-            ),
-            ReportTimelineSlot(
-                start=base_time + timedelta(hours=1),
-                end=base_time + timedelta(hours=2),
-                duration=timedelta(hours=1),
-                actual_duration=timedelta(hours=1),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time + timedelta(hours=1),
-                    duration=timedelta(hours=1),
-                    data={"project": "Work", "task": "TaskB", "tags": []},
-                ),
-            ),
-            ReportTimelineSlot(
-                start=base_time + timedelta(hours=2),
-                end=base_time + timedelta(hours=3),
-                duration=timedelta(hours=1),
-                actual_duration=timedelta(hours=1),
-                task_event=TaskWarriorEvent(
-                    timestamp=base_time + timedelta(hours=2),
-                    duration=timedelta(hours=1),
-                    data={"project": "Personal", "task": "TaskC", "tags": []},
-                ),
-            ),
+            helper(base_time, 0, 1, "Work", "TaskA", "Development"),
+            helper(base_time, 1, 1, "Work", "TaskB", "Development"),
+            helper(base_time, 2, 1, "Personal", "TaskC", "Learning"),
         ]
 
     def test_task_based_filtering(self, task_based_slots):
