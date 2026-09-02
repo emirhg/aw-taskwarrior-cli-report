@@ -6,6 +6,7 @@ Handles all argument parsing, data fetching, processing, and report generation.
 
 import sys
 import os
+import time
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
@@ -13,6 +14,20 @@ from typing import TYPE_CHECKING, List, Optional, Tuple
 if os.environ.get('TW_REPORT_DEBUG'):
     sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', 1)
     sys.stderr = os.fdopen(sys.stderr.fileno(), 'w', 1)
+
+# Profiling log file
+_profile_log = None
+_profile_start = time.perf_counter()
+
+def _profile(stage_name):
+    """Log timing checkpoint to profile execution."""
+    global _profile_log, _profile_start
+    if not _profile_log and os.environ.get('TW_REPORT_PROFILE'):
+        _profile_log = open('/tmp/tw_report_profile.log', 'w', buffering=1)
+    if _profile_log:
+        elapsed = time.perf_counter() - _profile_start
+        _profile_log.write(f'[{elapsed:7.2f}s] {stage_name}\n')
+        _profile_log.flush()
 
 from aw_client import ActivityWatchClient
 from aw_core.models import Event
@@ -136,8 +151,11 @@ def _fetch_events_for_ranges(
 
 def main():
     """Main script logic: orchestrate data fetching, processing, and report generation."""
+    _profile("MAIN START")
     args = parse_args()
+    _profile("parse_args() done")
     client = ActivityWatchClient("tw-report")
+    _profile("ActivityWatchClient created")
 
     # Load config file and resolve settings (CLI args > config file > defaults)
     user_config = load_user_config()
@@ -286,7 +304,9 @@ def main():
         else:
             # No task time ranges: fetch entire period
             afk_bucket = get_bucket_id("afk")
+            _profile(f"Fetching AFK events from {start_time.date()} to {end_time.date()}")
             afk_events = get_events(client, afk_bucket, start_time, end_time, event_cls=AFKEvent)
+            _profile(f"Fetched {len(afk_events)} AFK events")
 
         # Filter AFK to only events overlapping task time ranges (if available)
         # CRITICAL: Only filter if task_time_ranges is non-empty. If no tasks exist,
@@ -331,7 +351,9 @@ def main():
     else:
         # No task time ranges: fetch entire period
         window_bucket = get_bucket_id("window")
+        _profile(f"Fetching window events from {start_time.date()} to {end_time.date()}")
         window_events = get_events(client, window_bucket, start_time, end_time, event_cls=WindowEvent)
+        _profile(f"Fetched {len(window_events)} window events")
 
     # Categorize all window events (including those during AFK periods)
     # This ensures generate_afk_and_offline_slots can extract categories for AFK slot details
@@ -430,6 +452,7 @@ def main():
     # PHASE 2 REFACTOR: Use unified builder instead of 5 scattered generators
     # Build non-overlapping slots directly from raw events
     from tw_report.core.report_slot import ReportTimelineSlot
+    _profile("Starting slot building phase")
 
     # OPTIMIZATION: Filter raw events BEFORE building slots to avoid processing unused data
     # This significantly reduces slot-building overhead for filtered queries
@@ -450,15 +473,19 @@ def main():
         })
     ] if task_events else None
 
+    _profile(f"Building slots from {len(afk_events)} AFK, {len(filtered_window_events)} window, {len(filtered_task_events or [])} task events")
     final_slots = build_timeslot_timeline(
         afk_events=afk_events,  # Keep all AFK events (needed for time context)
         window_events=filtered_window_events,
         task_events=filtered_task_events or []
     )
+    _profile(f"Built {len(final_slots)} slots")
 
     # Consolidate slots by (project, task) to merge multi-entry work sessions
+    _profile("Starting consolidation")
     consolidated = ReportEntries(slots_list=final_slots)
     consolidated_slots = consolidated.consolidate_by_task().slots_list
+    _profile(f"Consolidated to {len(consolidated_slots)} slots")
 
     # Apply EventFilter once (unified point, replaces 3 scattered implementations)
     # This is the ONLY filter application point for slots
@@ -670,7 +697,9 @@ def main():
     # 2. Year consolidation (--by-year) hangs/timeouts: Possible O(n^2) or infinite loop
     #    Likely in period grouping or consolidation logic when spanning 56+ years of history
     #    Fix needed: Performance audit of consolidate_by_period() for large datasets
+    _profile(f"Starting rendering phase with {len(consolidated_slots)} slots")
     if grouping_mode in ["day", "week", "month", "year"]:
+        _profile(f"Rendering timeline report (period: {period})")
         TimelineReport(print_timeline_report).present(
             slots=consolidated_dicts,
             period=period,
@@ -736,6 +765,8 @@ def main():
             total_offline_time=total_offline_calc,
             total_time_all=total_time_calc,
         )
+
+    _profile("MAIN END - rendering complete")
 
 
 if __name__ == "__main__":
