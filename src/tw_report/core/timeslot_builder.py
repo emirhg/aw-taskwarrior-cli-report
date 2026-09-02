@@ -263,4 +263,135 @@ def build_timeslot_timeline(
     if current is not None:
         slots.append(current.finalize(window_events))
 
+    # Apply state continuity merging to fix micro-slots from AFK bucket gaps
+    slots = _merge_adjacent_micro_slots_by_state_continuity(slots)
     return slots
+
+
+def _merge_adjacent_micro_slots_by_state_continuity(
+    slots: List[ReportTimelineSlot],
+) -> List[ReportTimelineSlot]:
+    """Merge micro-slots based on state continuity.
+
+    When AFK bucket stops recording (system shutdown), window events may fire
+    a final activity event, creating micro-slots with gaps misclassified as offline.
+    This function merges adjacent micro-slots by inheriting the previous slot's state.
+
+    Example:
+      IN:  12:01-12:05 (active, 4:28) + gap → 12:05-12:05 (offline, 0:01)
+      OUT: 12:01-12:05 (active, 4:29, no offline)
+
+    Algorithm:
+    1. Sort slots by start time (usually already sorted, but be safe)
+    2. For each slot, check if previous slot is adjacent + same (project, task)
+    3. If yes: inherit previous state (active=actual_duration>0, else afk)
+    4. Reclassify gap time to match previous state, merge into one slot
+    5. If no: keep slot as-is
+
+    Args:
+        slots: List of ReportTimelineSlot from builder
+
+    Returns:
+        List with adjacent micro-slots merged by state continuity
+    """
+    if not slots or len(slots) <= 1:
+        return slots
+
+    # Sort by start time (already sorted from builder, but be safe)
+    sorted_slots = sorted(slots, key=lambda s: s.start)
+
+    merged = []
+    i = 0
+
+    while i < len(sorted_slots):
+        current = sorted_slots[i]
+
+        # Look ahead for adjacent micro-slots with same (project, task)
+        merge_group = [current]
+        j = i + 1
+
+        while j < len(sorted_slots):
+            next_slot = sorted_slots[j]
+
+            # Check if adjacent (gap <= 1 second tolerance for rounding)
+            gap = next_slot.start - current.end
+            is_adjacent = gap <= timedelta(seconds=1)
+
+            # Check if same (project, task)
+            is_same_task = (next_slot.project == current.project and
+                           next_slot.task == current.task)
+
+            if is_adjacent and is_same_task:
+                # Inherit previous state: active if actual_duration > 0, else afk
+                prev_is_active = current.actual_duration > timedelta(0)
+
+                # Reclassify next_slot's gap to match previous state
+                if prev_is_active and next_slot.offline_extension_duration:
+                    # Convert offline gap to AFK (preserves the time, changes classification)
+                    next_slot.afk_duration = (next_slot.afk_duration or timedelta(0)) + \
+                                           next_slot.offline_extension_duration
+                    next_slot.offline_extension_duration = None
+
+                merge_group.append(next_slot)
+                current = next_slot
+                j += 1
+            else:
+                break
+
+        # Merge accumulated group
+        if len(merge_group) > 1:
+            merged_slot = _merge_slot_group(merge_group)
+            merged.append(merged_slot)
+            i = j
+        else:
+            merged.append(current)
+            i = j if j > i + 1 else i + 1
+
+    return merged
+
+
+def _merge_slot_group(group: List[ReportTimelineSlot]) -> ReportTimelineSlot:
+    """Merge a group of adjacent ReportTimelineSlots into one continuous slot.
+
+    Uses wall-clock span (min start to max end) and sums all duration components.
+
+    Args:
+        group: List of adjacent ReportTimelineSlots for same (project, task)
+
+    Returns:
+        Single ReportTimelineSlot spanning the full group
+    """
+    if not group:
+        raise ValueError("Cannot merge empty slot group")
+
+    # Sort by start (should be sorted already)
+    group = sorted(group, key=lambda s: s.start)
+
+    start = group[0].start
+    end = group[-1].end
+    duration = end - start
+
+    # Sum duration components across all slots
+    actual_duration = sum((s.actual_duration for s in group), timedelta(0))
+    productive_duration = sum((s.productive_duration for s in group), timedelta(0))
+    afk_duration = sum((s.afk_duration or timedelta(0) for s in group), timedelta(0))
+    offline_ext = sum((s.offline_extension_duration or timedelta(0) for s in group), timedelta(0))
+
+    # Use first slot's metadata
+    return ReportTimelineSlot(
+        start=start,
+        end=end,
+        duration=duration,
+        actual_duration=actual_duration,
+        productive_duration=productive_duration,
+        task_event=group[0].task_event,
+        window_events=sum((s.window_events for s in group), []),
+        afk_events=sum((s.afk_events for s in group), []),
+        afk_duration=afk_duration if afk_duration > timedelta(0) else None,
+        offline_extension_duration=offline_ext if offline_ext > timedelta(0) else None,
+        tags=group[0].tags,
+        categories=group[0].categories,
+        apps=group[0].apps,
+        source_slots=sum((s.source_slots for s in group), []),
+        is_consolidated=True,
+    )

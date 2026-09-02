@@ -474,3 +474,226 @@ class TestMultipleEventSources:
         assert slot.actual_duration == timedelta(minutes=55)  # Active portions
         # Verify categories were attached
         assert len(slot.categories) > 0
+
+
+# ============================================================================
+# State Continuity Micro-Slot Merging Tests (2026-09-02)
+# ============================================================================
+
+def test_state_continuity_merging_active_to_offline_micro_slot():
+    """Micro-slot with offline gap after active slot inherits active state."""
+    from tw_report.core.filtering import NO_PROJECT, NO_TASK
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    # Create minimal task event for "No project assigned"
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=4, seconds=28),
+        data={"project": NO_PROJECT, "title": NO_TASK}
+    )
+
+    # Active slot: 12:01-12:05 (4:28 active time)
+    active_slot = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 5),
+        duration=timedelta(minutes=4, seconds=28),
+        actual_duration=timedelta(minutes=4, seconds=28),  # Active
+        productive_duration=timedelta(0),
+        task_event=task_event,
+    )
+
+    # Micro-slot: 12:05-12:05 (0:01 marked as offline, should be reclassified)
+    micro_slot = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 5),
+        end=make_datetime(2026, 9, 2, 12, 5, 1),
+        duration=timedelta(seconds=1),
+        actual_duration=timedelta(0),
+        productive_duration=timedelta(0),
+        offline_extension_duration=timedelta(seconds=1),  # Marked as offline
+        task_event=task_event,
+    )
+
+    # Build timeline (which calls the merge function internally)
+    slots = [active_slot, micro_slot]
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    result = _merge_adjacent_micro_slots_by_state_continuity(slots)
+
+    # Should merge into one slot
+    assert len(result) == 1, f"Expected 1 merged slot, got {len(result)}"
+    merged = result[0]
+
+    # Verify merged slot spans full time
+    assert merged.start == active_slot.start, "Merged start time should match active slot start"
+    assert merged.end == micro_slot.end, "Merged end time should match micro slot end"
+
+    # Verify offline time was reclassified to active/afk (not kept as offline)
+    assert merged.offline_extension_duration is None or merged.offline_extension_duration == timedelta(0), \
+        "Offline time should be reclassified, not kept as offline_extension_duration"
+
+    # Verify total active duration is preserved
+    assert merged.actual_duration == active_slot.actual_duration, \
+        "Active duration should be preserved from original active slot"
+
+
+def test_state_continuity_merging_non_adjacent_slots():
+    """Non-adjacent slots (gap > 1 sec) should NOT merge."""
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=10),
+        data={"project": "P1", "title": "T1"}
+    )
+
+    slot1 = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 5),
+        duration=timedelta(minutes=4),
+        actual_duration=timedelta(minutes=4),
+        productive_duration=timedelta(0),
+        task_event=task_event,
+    )
+
+    # Large gap: 10 seconds
+    slot2 = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 5, 10),
+        end=make_datetime(2026, 9, 2, 12, 6),
+        duration=timedelta(minutes=1),
+        actual_duration=timedelta(minutes=1),
+        productive_duration=timedelta(0),
+        task_event=task_event,
+    )
+
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    result = _merge_adjacent_micro_slots_by_state_continuity([slot1, slot2])
+
+    # Should NOT merge (gap > 1 second)
+    assert len(result) == 2, "Non-adjacent slots should NOT merge"
+
+
+def test_state_continuity_merging_different_tasks():
+    """Slots for different tasks should NOT merge."""
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    task_event1 = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=4),
+        data={"project": "P1", "title": "T1"}
+    )
+    task_event2 = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 5),
+        duration=timedelta(minutes=1),
+        data={"project": "P1", "title": "T2"}
+    )
+
+    slot1 = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 5),
+        duration=timedelta(minutes=4),
+        actual_duration=timedelta(minutes=4),
+        productive_duration=timedelta(0),
+        task_event=task_event1,
+    )
+
+    slot2 = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 5),
+        end=make_datetime(2026, 9, 2, 12, 6),
+        duration=timedelta(minutes=1),
+        actual_duration=timedelta(0),
+        productive_duration=timedelta(0),
+        task_event=task_event2,
+    )
+
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    result = _merge_adjacent_micro_slots_by_state_continuity([slot1, slot2])
+
+    # Should NOT merge (different tasks)
+    assert len(result) == 2, "Slots with different tasks should NOT merge"
+
+
+def test_state_continuity_merging_multiple_micro_slots():
+    """Multiple consecutive micro-slots should merge into one."""
+    from tw_report.core.filtering import NO_PROJECT, NO_TASK
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=4, seconds=30),
+        data={"project": NO_PROJECT, "title": NO_TASK}
+    )
+
+    # Active slot: 12:01 to 12:05:28 (4:28 duration)
+    slot1 = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 5, 28),
+        duration=timedelta(minutes=4, seconds=28),
+        actual_duration=timedelta(minutes=4, seconds=28),  # Active
+        productive_duration=timedelta(0),
+        task_event=task_event,
+    )
+
+    # First micro-slot: 12:05:28 to 12:05:29 (1 second, marked offline)
+    slot2 = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 5, 28),
+        end=make_datetime(2026, 9, 2, 12, 5, 29),
+        duration=timedelta(seconds=1),
+        actual_duration=timedelta(0),
+        productive_duration=timedelta(0),
+        offline_extension_duration=timedelta(seconds=1),
+        task_event=task_event,
+    )
+
+    # Second micro-slot: 12:05:29 to 12:05:30 (1 second, marked offline)
+    slot3 = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 5, 29),
+        end=make_datetime(2026, 9, 2, 12, 5, 30),
+        duration=timedelta(seconds=1),
+        actual_duration=timedelta(0),
+        productive_duration=timedelta(0),
+        offline_extension_duration=timedelta(seconds=1),
+        task_event=task_event,
+    )
+
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    result = _merge_adjacent_micro_slots_by_state_continuity([slot1, slot2, slot3])
+
+    # Should merge into one slot
+    assert len(result) == 1, f"Expected 1 merged slot from 3 adjacent, got {len(result)}"
+    merged = result[0]
+
+    # Verify full span
+    assert merged.start == slot1.start
+    assert merged.end == slot3.end
+
+    # Verify total duration (4:28 + 1s + 1s = 4:30)
+    expected_total = timedelta(minutes=4, seconds=30)
+    assert merged.duration == expected_total, \
+        f"Merged duration should be {expected_total}, got {merged.duration}"
+
+
+def test_state_continuity_empty_and_single_slot():
+    """Edge cases: empty list and single slot should return unchanged."""
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    # Empty list
+    result = _merge_adjacent_micro_slots_by_state_continuity([])
+    assert result == [], "Empty list should return empty"
+
+    # Single slot
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=4),
+        data={"project": "P1", "title": "T1"}
+    )
+    slot = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 5),
+        duration=timedelta(minutes=4),
+        actual_duration=timedelta(minutes=4),
+        productive_duration=timedelta(0),
+        task_event=task_event,
+    )
+    result = _merge_adjacent_micro_slots_by_state_continuity([slot])
+    assert len(result) == 1, "Single slot should return single"
+    assert result[0] is slot, "Single slot should be unchanged"
