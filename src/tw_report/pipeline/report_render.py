@@ -288,23 +288,23 @@ def print_report_totals(
     print("TOTALS")
     print("─" * width)
 
-    # Online (indented 2 spaces)
-    online_time_str = format_duration_tracked_prod(online_time, productive_time)
-    print(f"{'  Online'.ljust(label_width)}{' ' * 2}{online_time_str}")
-
-    # Breakdown of online: Active (non-AFK) and AFK as further indented sub-lines (indented 4 spaces)
+    # Breakdown of online: Active (non-AFK) and AFK as further indented sub-lines (indented 6 spaces)
     if active_time and active_time > timedelta(0):
         active_str = format_duration(active_time)
-        print(f"{'    Active Time'.ljust(label_width)}{' ' * 4}{active_str}")
+        print(f"{'      Active Time'.ljust(label_width)}{' ' * 4}{active_str}")
 
     if afk_time and afk_time > timedelta(0):
         afk_str = format_duration(afk_time)
-        print(f"{'    AFK time'.ljust(label_width)}{' ' * 4}{afk_str}")
+        print(f"{'      AFK time'.ljust(label_width)}{' ' * 4}{afk_str}")
 
-    # Offline (indented 2 spaces) - only if present
+    # Online (indented 4 spaces)
+    online_time_str = format_duration_tracked_prod(online_time, productive_time)
+    print(f"{'    Online'.ljust(label_width)}{' ' * 2}{online_time_str}")
+
+    # Offline (indented 4 spaces) - only if present
     if offline_time and offline_time > timedelta(0):
         offline_str = format_duration(offline_time)
-        print(f"{'  Offline'.ljust(label_width)}{' ' * 2}{offline_str}")
+        print(f"{'    Offline'.ljust(label_width)}{' ' * 2}{offline_str}")
 
     # Worked Time section (Online + Offline combined, indented 2 spaces)
     worked_time = online_time + (offline_time if offline_time else timedelta(0))
