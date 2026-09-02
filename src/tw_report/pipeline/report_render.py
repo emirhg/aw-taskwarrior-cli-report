@@ -210,7 +210,7 @@ def print_report_summary(
             session_start_str = _to_local_time(current_session_start).strftime("%H:%M")
             session_end_str = _to_local_time(current_session_end).strftime("%H:%M")
             session_str = f"{format_duration(current_session_duration)} ({session_start_str} to {session_end_str})"
-            print(f"Current Session{' ' * (32 - 14)}{session_str}")
+            print(f"Current Session{' ' * (32 - len('Current Session'))}{session_str}")
 
         # Only show Last Break if it's not due to offline time
         if last_break_duration and last_break_start and last_break_end:
@@ -320,8 +320,8 @@ def print_report_totals(
     online_time_str = format_duration_tracked_prod(online_time, productive_time)
     print_indented_total(4, "Online", online_time_str)
 
-    # Offline (indented 4 spaces) - only if present
-    if offline_time and offline_time > timedelta(0):
+    # Offline (indented 4 spaces) - only if present and significant (> 1 second)
+    if offline_time and offline_time > timedelta(seconds=1):
         offline_str = format_duration(offline_time)
         print_indented_total(4, "Offline", offline_str)
 
