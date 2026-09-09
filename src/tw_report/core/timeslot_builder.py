@@ -232,7 +232,7 @@ def build_timeslot_timeline(
                 # CRITICAL: For offline-tagged tasks, always classify as offline regardless of window events.
                 # Window events during offline tasks indicate ActivityWatch was running, not that system was on.
                 # (Example: task ends, window event fires, then system shuts down - the window event is spurious)
-                is_offline_task = task_event.tags and "offline" in task_event.tags
+                is_offline_task = task_event.tags and any(t.lower() == "offline" for t in task_event.tags)
                 if is_offline_task:
                     bucket = "offline"  # Offline-tagged task → always offline
                 else:

@@ -839,7 +839,7 @@ def test_offline_tagged_task_ignores_window_events():
         data={
             "project": "Ecosistema > Orgánicos",
             "task": "Disposición de restos de cocina",
-            "tags": ["offline"],  # CRITICAL: offline tag
+            "tags": ["OFFLINE"],  # CRITICAL: offline tag (TaskWarrior uses uppercase)
         }
     )
 
