@@ -758,10 +758,14 @@ def test_window_activity_during_afk_bucket_gap_classification():
 
 
 def test_no_window_activity_during_gap_classified_as_offline():
-    """Without window events, gaps with no AFK are legitimately offline.
+    """Non-offline-tagged tasks are always online, even without AFK coverage.
 
-    When task time spans a gap with no AFK or window coverage, that gap
-    is classified as offline_extension_duration (system was powered off).
+    CRITICAL RULE: A task is only offline if explicitly tagged with OFFLINE in TaskWarrior.
+    If task is NOT tagged as offline, it's always online regardless of AFK coverage.
+    (AFK coverage gaps may indicate AW monitoring failure, not system powered off)
+
+    Scenario: Task without OFFLINE tag, no AFK coverage for part of task period
+    Expected: Entire task classified as online with full actual_duration
     """
     # Scenario: Only AFK events, no window events, gap in AFK coverage
     afk_event_1 = make_afk_event(
@@ -779,7 +783,7 @@ def test_no_window_activity_during_gap_classified_as_offline():
     task_event = TaskWarriorEvent(
         timestamp=make_datetime(2026, 9, 2, 12, 0, 0),
         duration=timedelta(seconds=25),  # Spans both AFK events and gap
-        data={"project": "Work", "title": "coding"}
+        data={"project": "Work", "title": "coding"}  # NOT tagged as offline
     )
 
     slots = build_timeslot_timeline(
@@ -788,23 +792,21 @@ def test_no_window_activity_during_gap_classified_as_offline():
         task_events=[task_event],
     )
 
-    # Builder creates 1 consolidated offline_task slot with embedded gap
+    # Builder creates 1 online task slot (no offline classification)
     assert len(slots) == 1, f"Expected 1 consolidated slot, got {len(slots)}"
 
     slot = slots[0]
-    # Verify the gap is classified as offline_extension_duration
-    assert slot.offline_extension_duration == timedelta(seconds=5), \
-        f"Gap without window/AFK coverage should be offline. Got: {slot.offline_extension_duration}"
+    # Without OFFLINE tag, entire task is online
+    assert slot.offline_extension_duration is None or slot.offline_extension_duration == timedelta(0), \
+        f"Non-offline-tagged task should have no offline_extension_duration. Got: {slot.offline_extension_duration}"
 
-    # Active time should only be the 20 seconds covered by AFK
-    assert slot.actual_duration == timedelta(seconds=20), \
-        f"Active time should be 20s (2x10s AFK coverage), got {slot.actual_duration}"
+    # Entire task duration is actual_duration (online work time)
+    assert slot.actual_duration == timedelta(seconds=25), \
+        f"Non-offline task should have full duration as actual_duration. Got: {slot.actual_duration}"
 
-    # Offline gap should be the 5-second uncovered period
-    offline_dur = slot.offline_extension_duration or timedelta(0)
-    total_breakdown = slot.actual_duration + offline_dur
-    assert total_breakdown == timedelta(seconds=25), \
-        f"Breakdown should sum to 25s (active 20s + offline 5s), got {total_breakdown}"
+    # No offline component
+    assert slot.offline_extension_duration is None or slot.offline_extension_duration == timedelta(0), \
+        f"Should have no offline time for non-offline task"
 
 
 def test_offline_tagged_task_ignores_window_events():
