@@ -617,10 +617,11 @@ class ReportTimelineSlot:
         merged_categories = _merge_categories_full(group)
 
         # event_duration: NEVER sum across slots (only used for split_at_boundaries)
-        # After consolidation, event_duration is meaningless for reporting.
-        # It was only needed to distinguish online from offline portions within a single slot.
-        # Post-consolidation, we have offline_extension_duration for the gap, so event_duration=None.
-        event_duration = None
+        # After consolidation: if there's offline_extension_duration, set event_duration=0 for TimelineSlot validation.
+        # TimelineSlot requires event_duration to be non-None when is_offline_task (i.e., has offline_extension_duration).
+        # CRITICAL: Must be set even if 0, otherwise TimelineSlot validation fails for merged offline tasks.
+        has_offline_gap = any((s.offline_extension_duration or timedelta(0)) > timedelta(0) for s in group)
+        event_duration = timedelta(0) if has_offline_gap else None
 
         # offline_extension_duration: sum directly across all slots (no type filter)
         # This field is added by AFK-false-positive detection and represents system-off time

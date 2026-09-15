@@ -441,6 +441,11 @@ def _merge_slot_group(group: List[ReportTimelineSlot]) -> ReportTimelineSlot:
     afk_duration = sum((s.afk_duration or timedelta(0) for s in group), timedelta(0))
     offline_ext = sum((s.offline_extension_duration or timedelta(0) for s in group), timedelta(0))
 
+    # event_duration: sum online portions from merged slots
+    # CRITICAL: Must be set when offline_extension_duration is set (for TimelineSlot validation)
+    event_duration = sum((s.event_duration or timedelta(0) for s in group), timedelta(0))
+    event_duration = event_duration if (offline_ext > timedelta(0) or event_duration > timedelta(0)) else None
+
     # Use first slot's metadata
     return ReportTimelineSlot(
         start=start,
@@ -453,6 +458,7 @@ def _merge_slot_group(group: List[ReportTimelineSlot]) -> ReportTimelineSlot:
         afk_events=sum((s.afk_events for s in group), []),
         afk_duration=afk_duration if afk_duration > timedelta(0) else None,
         offline_extension_duration=offline_ext if offline_ext > timedelta(0) else None,
+        event_duration=event_duration,
         tags=group[0].tags,
         categories=group[0].categories,
         apps=group[0].apps,
