@@ -204,22 +204,31 @@ class TestRegressionAuditedScenario:
         assert afk_slot.start == make_datetime(2026, 6, 27, 17, 48)
         assert afk_slot.end == make_datetime(2026, 6, 27, 17, 54)
 
-        # Find the task slot (17:54-18:45)
+        # Find the task slots (17:54-18:45)
+        # With chronological timeline, AFK and active periods are separate slots
         task_slots = [s for s in slots if s.task_event is not None]
-        assert len(task_slots) >= 1, "Expected at least one task slot"
-        task_slot = task_slots[0]
-        assert task_slot.start == make_datetime(2026, 6, 27, 17, 54)
-        assert task_slot.end == make_datetime(2026, 6, 27, 18, 45)
+        assert len(task_slots) >= 2, f"Expected 2+ task slots (AFK + active), got {len(task_slots)}"
 
-        # Verify embedded AFK within the task slot (17:54-18:20 = 26 min)
-        assert task_slot.afk_duration is not None
-        assert task_slot.afk_duration == timedelta(minutes=26), (
-            f"Task slot should have 26min embedded AFK (17:54-18:20), got {task_slot.afk_duration}"
+        # Slot 1: AFK period (17:54-18:20 = 26 min)
+        afk_task_slot = task_slots[0]
+        assert afk_task_slot.start == make_datetime(2026, 6, 27, 17, 54)
+        assert afk_task_slot.end == make_datetime(2026, 6, 27, 18, 20)
+        assert afk_task_slot.afk_duration == timedelta(minutes=26), (
+            f"AFK task slot should have 26min (17:54-18:20), got {afk_task_slot.afk_duration}"
+        )
+        assert afk_task_slot.actual_duration == timedelta(0), (
+            f"AFK slot should have 0 actual_duration, got {afk_task_slot.actual_duration}"
         )
 
-        # Verify active time (18:20-18:45 = 25 min)
-        assert task_slot.actual_duration == timedelta(minutes=25), (
-            f"Task slot should have 25min active (18:20-18:45), got {task_slot.actual_duration}"
+        # Slot 2: Active period (18:20-18:45 = 25 min)
+        active_task_slot = task_slots[1]
+        assert active_task_slot.start == make_datetime(2026, 6, 27, 18, 20)
+        assert active_task_slot.end == make_datetime(2026, 6, 27, 18, 45)
+        assert active_task_slot.actual_duration == timedelta(minutes=25), (
+            f"Active task slot should have 25min (18:20-18:45), got {active_task_slot.actual_duration}"
+        )
+        assert active_task_slot.afk_duration is None, (
+            f"Active slot should have no AFK, got {active_task_slot.afk_duration}"
         )
 
 
@@ -395,13 +404,22 @@ class TestTaskOnlyMode:
 
         assert_no_overlaps(slots)
         task_slots = [s for s in slots if s.task_event is not None]
-        assert len(task_slots) == 1
+        # With chronological timeline, different AFK states = separate slots
+        assert len(task_slots) == 2, f"Expected 2 slots (AFK + online), got {len(task_slots)}"
 
-        slot = task_slots[0]
-        # Should have 30min embedded AFK + 30min active
-        assert slot.afk_duration == timedelta(minutes=30)
-        assert slot.actual_duration == timedelta(minutes=30)
-        assert slot.offline_extension_duration is None  # Has AFK coverage throughout
+        # Slot 1: 10:00-10:30 (AFK period)
+        afk_slot = task_slots[0]
+        assert afk_slot.start == make_datetime(2026, 6, 27, 10, 0)
+        assert afk_slot.end == make_datetime(2026, 6, 27, 10, 30)
+        assert afk_slot.afk_duration == timedelta(minutes=30)
+        assert afk_slot.actual_duration == timedelta(0)
+
+        # Slot 2: 10:30-11:00 (online period)
+        online_slot = task_slots[1]
+        assert online_slot.start == make_datetime(2026, 6, 27, 10, 30)
+        assert online_slot.end == make_datetime(2026, 6, 27, 11, 0)
+        assert online_slot.actual_duration == timedelta(minutes=30)
+        assert online_slot.afk_duration is None
 
 
 # ============================================================================
@@ -466,14 +484,22 @@ class TestMultipleEventSources:
         )
         assert_task_time_conserved(slots, task)
 
-        # Verify the task slot has correct breakdown
+        # Verify the task slots have correct breakdown
+        # With chronological timeline, different AFK states = separate slots
         task_slots = [s for s in slots if s.task_event is not None]
-        assert len(task_slots) >= 1
-        slot = task_slots[0]
-        assert slot.afk_duration == timedelta(minutes=5)  # Idle period
-        assert slot.actual_duration == timedelta(minutes=55)  # Active portions
-        # Verify categories were attached
-        assert len(slot.categories) > 0
+        assert len(task_slots) >= 3, f"Expected at least 3 task slots (active+afk+active), got {len(task_slots)}"
+
+        # Calculate totals across all task slots
+        total_afk = sum((s.afk_duration or timedelta(0)).total_seconds() for s in task_slots)
+        total_active = sum((s.actual_duration or timedelta(0)).total_seconds() for s in task_slots)
+
+        # Verify totals are correct
+        assert total_afk == timedelta(minutes=5).total_seconds()  # Idle period
+        assert total_active == timedelta(minutes=55).total_seconds()  # Active portions
+
+        # Verify at least one slot has categories attached (from window events)
+        has_categories = any(len(s.categories) > 0 for s in task_slots)
+        assert has_categories, "Expected at least one slot with categories"
 
 
 # ============================================================================
@@ -852,17 +878,26 @@ def test_offline_tagged_task_partitions_by_window_events():
         task_events=[task_event],
     )
 
-    # First slot: the offline-tagged task (13:10:22 to 13:11:07)
-    task_slot = slots[0]
+    # With chronological design, offline-tagged task time is split by activity state:
+    # Slot 1: 13:10:22 - 13:11:00 (offline, no window)
+    # Slot 2: 13:11:00 - 13:11:07 (online, window activity)
+    assert len(slots) >= 2, f"Expected at least 2 slots, got {len(slots)}"
 
-    # Time with window activity (13:11:00-13:11:07) = 7 seconds → ACTIVE
-    assert task_slot.actual_duration == timedelta(seconds=7), \
-        f"Offline task should have 7s of online time (window overlap). Got: {task_slot.actual_duration}"
+    # Slot 1: offline portion (13:10:22 - 13:11:00)
+    offline_slot = slots[0]
+    assert offline_slot.start == make_datetime(2026, 9, 6, 13, 10, 22)
+    assert offline_slot.end == make_datetime(2026, 9, 6, 13, 11, 0)
+    assert offline_slot.offline_extension_duration == timedelta(seconds=38), \
+        f"First slot should be 38s offline. Got: {offline_slot.offline_extension_duration}"
 
-    # Time without activity (13:10:22-13:11:00) = 38 seconds → OFFLINE
-    assert task_slot.offline_extension_duration == timedelta(seconds=38), \
-        f"Offline task should have 38s of offline time (gap). Got: {task_slot.offline_extension_duration}"
+    # Slot 2: online portion (13:11:00 - 13:11:07)
+    online_slot = slots[1]
+    assert online_slot.start == make_datetime(2026, 9, 6, 13, 11, 0)
+    assert online_slot.end == make_datetime(2026, 9, 6, 13, 11, 7)
+    assert online_slot.actual_duration == timedelta(seconds=7), \
+        f"Second slot should be 7s online. Got: {online_slot.actual_duration}"
 
-    # Total = 45 seconds
-    assert task_slot.duration == timedelta(seconds=45), \
-        f"Total duration should be 45s. Got: {task_slot.duration}"
+    # Verify total time for the task
+    total_task_time = offline_slot.offline_extension_duration + online_slot.actual_duration
+    assert total_task_time == timedelta(seconds=45), \
+        f"Total task time should be 45s. Got: {total_task_time}"

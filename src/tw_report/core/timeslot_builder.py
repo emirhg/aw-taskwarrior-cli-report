@@ -85,8 +85,10 @@ class _RunAccumulator:
             actual_duration = self.online_duration
             afk_duration = self.embedded_afk_duration if self.embedded_afk_duration > timedelta(0) else None
             offline_ext_duration = self.offline_duration if self.offline_duration > timedelta(0) else None
-            # event_duration is online time when there's an offline component
-            event_duration = self.online_duration if offline_ext_duration else None
+            # event_duration represents online time (for offline/online split display in TimelineSlot)
+            # CRITICAL: Must be set whenever offline_extension_duration is set, even if zero
+            # This applies to chronological timeline where pure offline slots have event_duration=0
+            event_duration = self.online_duration if offline_ext_duration is not None else None
 
             # Fetch categories from window events covering this slot's span
             categories = build_categories_from_window_events(window_events, self.start, self.end)
@@ -253,7 +255,13 @@ def build_timeslot_timeline(
                 # Even without AFK coverage, task event indicates work was happening
                 bucket = "online"
 
-            key = ("task", task_event.uuid or f"_id_{id(task_event)}", task_event.project, task_event.task)
+            # CRITICAL: Include bucket in key to create separate slots for each activity state.
+            # This enables chronological timeline view: when activity type changes (offline → online → afk),
+            # a new slot is created, showing exactly when transitions occurred.
+            # Example: 04:00-06:00 (offline) creates one slot, 06:00-07:00 (online) creates another.
+            # Adjacent slots with identical (task, uuid, project, task, bucket) still merge via run-length merging.
+            # This design gives chronological detail by default; --consolidate flag merges these slots back together.
+            key = ("task", task_event.uuid or f"_id_{id(task_event)}", task_event.project, task_event.task, bucket)
         else:
             # Generic (no-task) tick: classify purely by AFK status
             task_event = None
@@ -344,12 +352,40 @@ def _merge_adjacent_micro_slots_by_state_continuity(
             # Check if adjacent (gap <= 1 second tolerance for rounding)
             gap = next_slot.start - current.end
             is_adjacent = gap <= timedelta(seconds=1)
+            # Micro-slots = AFK bucket artifacts: small gap AND very small next slot (<= 1 second)
+            # This distinguishes real activity transitions from AFK timing artifacts.
+            # Real transitions: 0-second gap at event boundary with normal duration (several seconds)
+            # AFK artifacts: small gap with tiny duration (< 1 second, often just 1-100ms)
+            next_slot_duration = next_slot.duration.total_seconds()
+            is_micro_slot = (gap < timedelta(milliseconds=100) and next_slot_duration <= 1.0)
 
             # Check if same (project, task)
             is_same_task = (next_slot.project == current.project and
                            next_slot.task == current.task)
 
-            if is_adjacent and is_same_task:
+            # CRITICAL: Merge micro-slots (AFK artifacts) regardless of state, but preserve chronological state transitions.
+            # Micro-slots (< 100ms) = AFK bucket timing artifacts → always merge
+            # Regular slots (>= 100ms) = real activity transitions → only merge if state continuous
+            is_state_continuous = True  # Default: allow merging (for micro-slots)
+
+            if not is_micro_slot:
+                # For regular slots, only merge if activity state is continuous
+                current_is_active = current.actual_duration and current.actual_duration.total_seconds() > 0
+                current_is_afk = current.afk_duration and current.afk_duration.total_seconds() > 0
+                current_is_offline = current.offline_extension_duration and current.offline_extension_duration.total_seconds() > 0
+
+                next_is_active = next_slot.actual_duration and next_slot.actual_duration.total_seconds() > 0
+                next_is_afk = next_slot.afk_duration and next_slot.afk_duration.total_seconds() > 0
+                next_is_offline = next_slot.offline_extension_duration and next_slot.offline_extension_duration.total_seconds() > 0
+
+                # State is continuous if same primary component is present in both
+                is_state_continuous = (
+                    (current_is_active and next_is_active) or
+                    (current_is_afk and next_is_afk) or
+                    (current_is_offline and next_is_offline)
+                )
+
+            if is_adjacent and is_same_task and is_state_continuous:
                 # Inherit previous state: active if actual_duration > 0, else afk
                 prev_is_active = current.actual_duration > timedelta(0)
 
