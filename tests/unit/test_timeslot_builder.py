@@ -809,71 +809,60 @@ def test_no_window_activity_during_gap_classified_as_offline():
         f"Should have no offline time for non-offline task"
 
 
-def test_offline_tagged_task_ignores_window_events():
-    """Offline-tagged tasks remain offline even if window events exist during the period.
+def test_offline_tagged_task_partitions_by_window_events():
+    """Offline-tagged tasks partition time by window events, not ignore them.
 
-    When a TaskWarrior task is explicitly tagged with "offline", it indicates work done
-    while the system was powered off. Window events during this period should be ignored
-    because they likely represent ActivityWatch initialization or nearby work, not proof
-    that the system was on during the entire offline task.
+    When a TaskWarrior task is explicitly tagged with "offline", it indicates that SOME of the
+    work may have been done without the system powered on. However, if window events exist
+    during the task period, those represent times when the system WAS powered on.
 
-    This test verifies the fix for the issue where offline-tagged tasks were being
-    misclassified as "online" due to spurious window events.
+    The correct behavior is to partition the task time:
+    - Time covered by window events → ACTIVE (online_duration)
+    - Time NOT covered by window events → OFFLINE (offline_extension_duration)
+
+    This ensures offline-tagged tasks properly track both online and offline portions.
 
     Scenario:
-    - Offline-tagged task: 13:10:22 to 13:11:07 (45 seconds)
-    - No AFK events (system was off)
-    - Window events exist during the period (spurious from AW initialization lag)
-    - Expected: Task classified as offline with 45s offline_extension_duration
+    - Offline-tagged task: 13:10:22 to 13:11:07 (45 seconds total)
+    - Window event: 13:11:00 to 13:11:30 (7 seconds overlap with task)
+    - Expected: Task split into 7s online + 38s offline
     """
     # Create window events that overlap the task period
     window_event = make_window_event(
-        timestamp=make_datetime(2026, 9, 6, 13, 11, 0),  # Overlaps task
+        timestamp=make_datetime(2026, 9, 6, 13, 11, 0),  # Overlaps task 13:11:00-13:11:07
         duration=timedelta(seconds=30),
         app="chrome",
         title="Gmail",
     )
 
-    # Create offline-tagged task with no AFK coverage
+    # Create offline-tagged task
     task_event = TaskWarriorEvent(
         timestamp=make_datetime(2026, 9, 6, 13, 10, 22),
         duration=timedelta(seconds=45),
         data={
             "project": "Ecosistema > Orgánicos",
             "task": "Disposición de restos de cocina",
-            "tags": ["OFFLINE"],  # CRITICAL: offline tag (TaskWarrior uses uppercase)
+            "tags": ["OFFLINE"],
         }
     )
 
     slots = build_timeslot_timeline(
-        afk_events=[],  # No AFK (system was powered off)
-        window_events=[window_event],  # Window events exist but should be ignored for offline task
+        afk_events=[],
+        window_events=[window_event],
         task_events=[task_event],
     )
 
-    # Builder should create 2 slots:
-    # 1. Offline task (13:10:22 to 13:11:07) - 45 seconds
-    # 2. Generic window activity (13:11:07 to 13:11:30) - remaining window event time
-    # This is correct: offline task ends at 13:11:07, window event continues to 13:11:30
-    assert len(slots) == 2, f"Expected 2 slots (offline task + remaining window), got {len(slots)}"
-
-    # First slot: the offline-tagged task
+    # First slot: the offline-tagged task (13:10:22 to 13:11:07)
     task_slot = slots[0]
-    assert task_slot.start == make_datetime(2026, 9, 6, 13, 10, 22), \
-        f"Task slot should start at 13:10:22, got {task_slot.start}"
-    assert task_slot.end == make_datetime(2026, 9, 6, 13, 11, 7), \
-        f"Task slot should end at 13:11:07, got {task_slot.end}"
 
-    # Verify the task slot is classified as offline (not online despite window events)
-    assert task_slot.offline_extension_duration == timedelta(seconds=45), \
-        f"Offline-tagged task should be offline despite window events. " \
-        f"Expected offline_extension_duration=45s, got {task_slot.offline_extension_duration}"
+    # Time with window activity (13:11:00-13:11:07) = 7 seconds → ACTIVE
+    assert task_slot.actual_duration == timedelta(seconds=7), \
+        f"Offline task should have 7s of online time (window overlap). Got: {task_slot.actual_duration}"
 
-    # Verify no active time (system was powered off during task)
-    assert task_slot.actual_duration == timedelta(0), \
-        f"Offline-tagged task should have no active time. Got: {task_slot.actual_duration}"
+    # Time without activity (13:10:22-13:11:00) = 38 seconds → OFFLINE
+    assert task_slot.offline_extension_duration == timedelta(seconds=38), \
+        f"Offline task should have 38s of offline time (gap). Got: {task_slot.offline_extension_duration}"
 
-    # Verify total duration equals offline duration
-    assert task_slot.duration == task_slot.offline_extension_duration, \
-        f"Total duration should equal offline duration. " \
-        f"Expected {task_slot.duration} == {task_slot.offline_extension_duration}"
+    # Total = 45 seconds
+    assert task_slot.duration == timedelta(seconds=45), \
+        f"Total duration should be 45s. Got: {task_slot.duration}"

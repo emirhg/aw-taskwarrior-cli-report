@@ -226,19 +226,32 @@ def build_timeslot_timeline(
             task_event = active_tasks[0]
             has_afk_coverage = len(active_afk) > 0
             afk_status = active_afk[0].status if active_afk else None
-
-            # CRITICAL RULE: Task tag is the source of truth for offline classification
-            # A task is ONLY offline if explicitly tagged with OFFLINE in TaskWarrior.
-            # If task is NOT tagged as offline, it's always online regardless of AFK coverage.
-            # (AFK coverage gaps may indicate AW monitoring failure, not system powered off)
             is_offline_task = task_event.tags and any(t.lower() == "offline" for t in task_event.tags)
 
-            if is_offline_task:
-                bucket = "offline"  # Offline-tagged task → always offline
-            elif has_afk_coverage and afk_status == "afk":
-                bucket = "embedded_afk"  # Non-offline task with idle time → embedded AFK
+            # CRITICAL: Time partitioning for offline-tagged tasks
+            # Offline tag means the task MAY include offline (non-computer) work,
+            # but we still need to partition time by AFK/window coverage:
+            # - Time WITH AFK events: classify by AFK status (online if not-afk, embedded_afk if afk)
+            # - Time WITHOUT AFK events AND WITH window events: online (computer was on)
+            # - Time WITHOUT AFK events AND WITHOUT window events: offline (computer was off)
+
+            if has_afk_coverage:
+                # AFK bucket has events: classify by their status (applies to offline and non-offline alike)
+                if afk_status == "afk":
+                    bucket = "embedded_afk"  # Idle time → embedded AFK
+                else:
+                    bucket = "online"  # Active time (not-afk) → online
+            elif is_offline_task:
+                # Offline-tagged task with no AFK coverage: check for window events
+                has_window_activity = len(active_window) > 0
+                if has_window_activity:
+                    bucket = "online"  # Window activity proves system is powered on
+                else:
+                    bucket = "offline"  # No window activity → true offline gap
             else:
-                bucket = "online"  # Non-offline task → always online (task event is source of truth)
+                # Non-offline task: always online (task event is proof of activity)
+                # Even without AFK coverage, task event indicates work was happening
+                bucket = "online"
 
             key = ("task", task_event.uuid or f"_id_{id(task_event)}", task_event.project, task_event.task)
         else:
