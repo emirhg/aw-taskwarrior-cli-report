@@ -772,4 +772,6 @@ def print_report(
         total_afk=afk_time,
         total_offline=total_offline_time,
         total_non_afk=non_afk_time or total_duration,
+        first_event_time=first_event_time,
+        last_event_time=last_event_time,
     )
