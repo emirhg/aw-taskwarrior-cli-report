@@ -666,7 +666,11 @@ def print_report(
         for project, p_data in sort_items(report_data.items()):
             p_duration = format_duration(p_data["total_duration"])
             p_score = f"({p_data['prod_score']:.2f})"
-            p_line = f"▶ Project: {project.replace('.', ' -> ')} {p_score}"
+            # Omit "Project:" label for "No project assigned" for cleaner display
+            if project == NO_PROJECT:
+                p_line = f"▶ {project} {p_score}"
+            else:
+                p_line = f"▶ Project: {project.replace('.', ' -> ')} {p_score}"
             print(p_line.ljust(width - len(p_duration) - 2) + f" {p_duration}")
 
             if detail_level < 2:
@@ -675,7 +679,11 @@ def print_report(
             for task, t_data in sort_items(p_data["tasks"].items()):
                 t_duration = format_duration(t_data["total_duration"])
                 t_score = f"({t_data['prod_score']:.2f})"
-                t_line = f"  • Task: {task} {t_score}"
+                # Omit "Task:" label for "No task assigned" for cleaner display
+                if task == "No task assigned":
+                    t_line = f"  • {task} {t_score}"
+                else:
+                    t_line = f"  • Task: {task} {t_score}"
                 print(t_line.ljust(width - len(t_duration) - 2) + f" {t_duration}")
 
                 if detail_level < 3:
@@ -766,12 +774,23 @@ def print_report(
     if afk_time:
         online_time_for_totals = (non_afk_time or timedelta(0)) + afk_time
 
+    # Calculate break time from event window if available
+    # Break time = event window - worked time
+    calculated_break_time = None
+    if first_event_time and last_event_time:
+        event_window = last_event_time - first_event_time
+        worked_time = online_time_for_totals + (total_offline_time or timedelta(0))
+        calculated_break_time = event_window - worked_time
+        if calculated_break_time < timedelta(0):
+            calculated_break_time = timedelta(0)
+
     print_report_totals(
         total_time_all=online_time_for_totals,
         total_productive_all=productive_task_time or timedelta(0),
         total_afk=afk_time,
         total_offline=total_offline_time,
         total_non_afk=non_afk_time or total_duration,
+        total_break=calculated_break_time,
         first_event_time=first_event_time,
         last_event_time=last_event_time,
     )
