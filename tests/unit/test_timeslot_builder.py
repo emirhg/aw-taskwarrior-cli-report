@@ -697,6 +697,159 @@ def test_state_continuity_merging_multiple_micro_slots():
         f"Merged duration should be {expected_total}, got {merged.duration}"
 
 
+def test_state_continuity_afk_slot_after_active_does_not_merge():
+    """A short but genuinely AFK-classified slot after an active slot must NOT merge,
+    even though it is adjacent and for the same task."""
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=5),
+        data={"project": "P1", "title": "T1"}
+    )
+
+    active_slot = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 42, 18),
+        duration=timedelta(minutes=41, seconds=18),
+        actual_duration=timedelta(minutes=41, seconds=18),
+        productive_duration=timedelta(0),
+        task_event=task_event,
+    )
+
+    # Genuinely AFK-classified (not offline), immediately adjacent, 4 seconds long.
+    afk_slot = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 42, 18),
+        end=make_datetime(2026, 9, 2, 12, 42, 22),
+        duration=timedelta(seconds=4),
+        actual_duration=timedelta(0),
+        productive_duration=timedelta(0),
+        afk_duration=timedelta(seconds=4),
+        task_event=task_event,
+    )
+
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    result = _merge_adjacent_micro_slots_by_state_continuity([active_slot, afk_slot])
+
+    assert len(result) == 2, "Genuine AFK slot must stay separate from the active slot"
+    assert result[0].actual_duration == active_slot.actual_duration
+    assert result[1].afk_duration == afk_slot.afk_duration
+
+
+def test_state_continuity_consecutive_tiny_afk_slots_do_not_absorb_into_active():
+    """Several tiny (<=1s) genuinely AFK-classified slots after a long active slot must
+    NOT be silently absorbed into the active slot's row.
+
+    Expected structure after the fix: the active slot stays its own row, and the
+    contiguous tiny AFK slots merge with EACH OTHER (same afk state, adjacent) into a
+    single separate AFK row -- 2 slots total, never 1.
+    """
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=45),
+        data={"project": "P1", "title": "T1"}
+    )
+
+    active_slot = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 42, 18),
+        duration=timedelta(minutes=41, seconds=18),
+        actual_duration=timedelta(minutes=41, seconds=18),
+        productive_duration=timedelta(0),
+        task_event=task_event,
+    )
+
+    # Three "flappy" AFK-bucket blips: each genuinely afk-classified, each <= 1s,
+    # contiguous with near-zero gaps -- exactly the shape that used to satisfy
+    # is_micro_slot and get absorbed regardless of state.
+    t1 = make_datetime(2026, 9, 2, 12, 42, 18)
+    afk1 = ReportTimelineSlot(
+        start=t1,
+        end=t1 + timedelta(seconds=1),
+        duration=timedelta(seconds=1),
+        actual_duration=timedelta(0),
+        afk_duration=timedelta(seconds=1),
+        task_event=task_event,
+    )
+    t2 = t1 + timedelta(seconds=1)
+    afk2 = ReportTimelineSlot(
+        start=t2,
+        end=t2 + timedelta(milliseconds=500),
+        duration=timedelta(milliseconds=500),
+        actual_duration=timedelta(0),
+        afk_duration=timedelta(milliseconds=500),
+        task_event=task_event,
+    )
+    t3 = t2 + timedelta(milliseconds=500)
+    afk3 = ReportTimelineSlot(
+        start=t3,
+        end=t3 + timedelta(milliseconds=500),
+        duration=timedelta(milliseconds=500),
+        actual_duration=timedelta(0),
+        afk_duration=timedelta(milliseconds=500),
+        task_event=task_event,
+    )
+
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    result = _merge_adjacent_micro_slots_by_state_continuity([active_slot, afk1, afk2, afk3])
+
+    assert len(result) == 2, (
+        "Tiny AFK blips must not be absorbed into the active slot; they should form "
+        "their own separate (merged) AFK row"
+    )
+    assert result[0].actual_duration == active_slot.actual_duration, \
+        "Active slot's duration must be unpolluted by the AFK blips"
+    assert result[0].afk_duration in (None, timedelta(0)), \
+        "Active slot must NOT have absorbed any AFK time"
+    assert result[1].afk_duration == timedelta(seconds=2), \
+        "The three AFK blips should merge together into one 2-second AFK slot"
+    assert result[1].actual_duration == timedelta(0)
+
+
+def test_state_continuity_offline_micro_slot_after_embedded_afk_reclassifies():
+    """A tiny purely-offline slot after an embedded_afk slot (not an active slot) should
+    still merge and be reclassified as AFK time -- this is the case the original code
+    failed to handle (it only special-cased 'previous was active')."""
+    from tw_report.core.aw_events import TaskWarriorEvent
+
+    task_event = TaskWarriorEvent(
+        timestamp=make_datetime(2026, 9, 2, 12, 1),
+        duration=timedelta(minutes=5),
+        data={"project": "P1", "title": "T1"}
+    )
+
+    afk_slot = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 1),
+        end=make_datetime(2026, 9, 2, 12, 5),
+        duration=timedelta(minutes=4),
+        actual_duration=timedelta(0),
+        afk_duration=timedelta(minutes=4),
+        task_event=task_event,
+    )
+
+    # Tiny purely-offline artifact immediately after the embedded_afk slot.
+    micro_offline = ReportTimelineSlot(
+        start=make_datetime(2026, 9, 2, 12, 5),
+        end=make_datetime(2026, 9, 2, 12, 5, 1),
+        duration=timedelta(seconds=1),
+        actual_duration=timedelta(0),
+        offline_extension_duration=timedelta(seconds=1),
+        task_event=task_event,
+    )
+
+    from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity
+    result = _merge_adjacent_micro_slots_by_state_continuity([afk_slot, micro_offline])
+
+    assert len(result) == 1, "Pure-offline micro-artifact after embedded_afk should merge"
+    merged = result[0]
+    assert merged.offline_extension_duration in (None, timedelta(0)), \
+        "Offline time must be reclassified, not left as offline_extension_duration"
+    assert merged.afk_duration == timedelta(minutes=4, seconds=1), \
+        "Offline artifact time should be folded into afk_duration"
+
+
 def test_state_continuity_empty_and_single_slot():
     """Edge cases: empty list and single slot should return unchanged."""
     from tw_report.core.timeslot_builder import _merge_adjacent_micro_slots_by_state_continuity

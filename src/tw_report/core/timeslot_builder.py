@@ -352,10 +352,11 @@ def _merge_adjacent_micro_slots_by_state_continuity(
             # Check if adjacent (gap <= 1 second tolerance for rounding)
             gap = next_slot.start - current.end
             is_adjacent = gap <= timedelta(seconds=1)
-            # Micro-slots = AFK bucket artifacts: small gap AND very small next slot (<= 1 second)
-            # This distinguishes real activity transitions from AFK timing artifacts.
-            # Real transitions: 0-second gap at event boundary with normal duration (several seconds)
-            # AFK artifacts: small gap with tiny duration (< 1 second, often just 1-100ms)
+            # Micro-slots = candidate AFK-bucket-stop-recording artifacts: small gap AND
+            # a very small next slot (<= 1 second). Being "micro" alone no longer justifies
+            # merging on its own — it only identifies the candidate; see
+            # is_pure_offline_micro_artifact below for the one case where it still bypasses
+            # the real state check.
             next_slot_duration = next_slot.duration.total_seconds()
             is_micro_slot = (gap < timedelta(milliseconds=100) and next_slot_duration <= 1.0)
 
@@ -363,22 +364,31 @@ def _merge_adjacent_micro_slots_by_state_continuity(
             is_same_task = (next_slot.project == current.project and
                            next_slot.task == current.task)
 
-            # CRITICAL: Merge micro-slots (AFK artifacts) regardless of state, but preserve chronological state transitions.
-            # Micro-slots (< 100ms) = AFK bucket timing artifacts → always merge
-            # Regular slots (>= 100ms) = real activity transitions → only merge if state continuous
-            is_state_continuous = True  # Default: allow merging (for micro-slots)
+            # State flags for the previous (accumulated) slot
+            current_is_active = current.actual_duration and current.actual_duration.total_seconds() > 0
+            current_is_afk = current.afk_duration and current.afk_duration.total_seconds() > 0
+            current_is_offline = current.offline_extension_duration and current.offline_extension_duration.total_seconds() > 0
 
-            if not is_micro_slot:
-                # For regular slots, only merge if activity state is continuous
-                current_is_active = current.actual_duration and current.actual_duration.total_seconds() > 0
-                current_is_afk = current.afk_duration and current.afk_duration.total_seconds() > 0
-                current_is_offline = current.offline_extension_duration and current.offline_extension_duration.total_seconds() > 0
+            # State flags for the candidate next slot
+            next_is_active = next_slot.actual_duration and next_slot.actual_duration.total_seconds() > 0
+            next_is_afk = next_slot.afk_duration and next_slot.afk_duration.total_seconds() > 0
+            next_is_offline = next_slot.offline_extension_duration and next_slot.offline_extension_duration.total_seconds() > 0
 
-                next_is_active = next_slot.actual_duration and next_slot.actual_duration.total_seconds() > 0
-                next_is_afk = next_slot.afk_duration and next_slot.afk_duration.total_seconds() > 0
-                next_is_offline = next_slot.offline_extension_duration and next_slot.offline_extension_duration.total_seconds() > 0
+            # NARROW artifact case this function was originally built for: the AFK bucket
+            # stopped recording but a window event fired once more, producing a tiny slot
+            # that is PURELY offline-classified (no active or embedded-afk time of its own).
+            # Only THIS specific shape bypasses the normal state-continuity check.
+            is_pure_offline_micro_artifact = (
+                is_micro_slot and next_is_offline and not next_is_active and not next_is_afk
+            )
 
-                # State is continuous if same primary component is present in both
+            if is_pure_offline_micro_artifact and (current_is_active or current_is_afk):
+                # Known artifact sitting next to genuine activity — always fold it in.
+                is_state_continuous = True
+            else:
+                # Everything else — including every other kind of micro-slot — must pass
+                # the same real state-continuity check used for regular slots. Being small
+                # is no longer a free pass to merge.
                 is_state_continuous = (
                     (current_is_active and next_is_active) or
                     (current_is_afk and next_is_afk) or
@@ -386,12 +396,10 @@ def _merge_adjacent_micro_slots_by_state_continuity(
                 )
 
             if is_adjacent and is_same_task and is_state_continuous:
-                # Inherit previous state: active if actual_duration > 0, else afk
-                prev_is_active = current.actual_duration > timedelta(0)
-
-                # Reclassify next_slot's gap to match previous state
-                if prev_is_active and next_slot.offline_extension_duration:
-                    # Convert offline gap to AFK (preserves the time, changes classification)
+                if is_pure_offline_micro_artifact:
+                    # Reclassify the artifact's offline time as AFK time, folded into
+                    # whichever genuine state (active or embedded_afk) preceded it.
+                    # (Handles both current_is_active and current_is_afk, unlike before.)
                     next_slot.afk_duration = (next_slot.afk_duration or timedelta(0)) + \
                                            next_slot.offline_extension_duration
                     next_slot.offline_extension_duration = None
