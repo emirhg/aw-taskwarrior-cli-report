@@ -438,9 +438,13 @@ def _merge_adjacent_micro_slots_by_state_continuity(
                     # Reclassify the artifact's offline time as AFK time, folded into
                     # whichever genuine state (active or embedded_afk) preceded it.
                     # (Handles both current_is_active and current_is_afk, unlike before.)
-                    next_slot.afk_duration = (next_slot.afk_duration or timedelta(0)) + \
-                                           next_slot.offline_extension_duration
-                    next_slot.offline_extension_duration = None
+                    # CRITICAL: Only reclassify if the artifact has meaningful duration.
+                    # Degenerate zero-duration artifacts should NOT be reclassified as they
+                    # can cause subsequent AFK slots to merge incorrectly.
+                    if next_slot.offline_extension_duration and next_slot.offline_extension_duration > timedelta(milliseconds=10):
+                        next_slot.afk_duration = (next_slot.afk_duration or timedelta(0)) + \
+                                               next_slot.offline_extension_duration
+                        next_slot.offline_extension_duration = None
 
                 merge_group.append(next_slot)
                 current = next_slot
