@@ -70,17 +70,34 @@ class _RunAccumulator:
             self.generic_offline_duration += tick_duration
 
     def extend(self, end: datetime, bucket: str, tick_duration: timedelta) -> None:
-        """Extend the run to include another tick."""
+        """Extend the run to include another tick.
+
+        NOTE: self.bucket is updated to the new bucket value (line below). This is intentional:
+        the run's "dominant" bucket type should reflect the most recent tick's classification.
+        For task-covered runs, this doesn't affect finalization (we return all accumulated
+        durations regardless). For generic runs, it determines which slot type is returned.
+        The classification_key (which determines run boundaries) is NOT updated here - that's
+        computed fresh for each tick and compared in the builder's run-length merge logic.
+        """
         self.end = end
         self.bucket = bucket  # Last tick's bucket determines the "dominant" sub-type for generic runs
         self._add_tick(bucket, tick_duration)
 
     def finalize(self, window_events: List[WindowEvent]) -> ReportTimelineSlot:
-        """Convert the accumulated run into a finalized ReportTimelineSlot."""
+        """Convert the accumulated run into a finalized ReportTimelineSlot.
+
+        IMPORTANT: This creates ONE slot per run, but the classification key in the builder
+        ensures separate runs are created for different activity states (online/embedded_afk/offline).
+        This is why the chronological timeline feature works - state transitions are represented
+        by different runs, not by merging different states into one slot.
+        """
         total_duration = self.end - self.start
 
         if self.task_event is not None:
-            # Task-covered run: combine online/embedded-afk/offline into one slot
+            # Task-covered run: slots are kept separate by classification key in the sweep-line algorithm.
+            # Each run represents one continuous time period with one primary activity state.
+            # When state changes (e.g., from online to embedded_afk), the sweep-line creates a new run.
+            # Thus this method receives runs that are already separated by state.
             # actual_duration is ONLY online time (not including embedded AFK)
             actual_duration = self.online_duration
             afk_duration = self.embedded_afk_duration if self.embedded_afk_duration > timedelta(0) else None
@@ -254,9 +271,19 @@ def build_timeslot_timeline(
 
             # CRITICAL: Time partitioning for offline-tagged tasks
             # Offline tag means the task MAY include offline (non-computer) work,
-            # but we still need to partition time by AFK/window coverage:
+            # but we still need to partition time by AFK/window coverage.
+            #
+            # PRIORITY ORDER (why this matters):
+            # 1. AFK coverage first - AFK events are the most reliable indicator of computer activity
+            # 2. Window events second - prove computer was on, even if AFK bucket has gaps
+            # 3. Offline fallback - only if no AFK or window activity exists
+            #
+            # This priority ensures we don't misclassify gaps in AFK recording as "offline time"
+            # when the computer was actually on (proven by window events).
+            #
+            # Classification flow:
             # - Time WITH AFK events: classify by AFK status (online if not-afk, embedded_afk if afk)
-            # - Time WITHOUT AFK events AND WITH window events: online (computer was on)
+            # - Time WITHOUT AFK events AND WITH window events: online (computer was provably on)
             # - Time WITHOUT AFK events AND WITHOUT window events: offline (computer was off)
 
             if has_afk_coverage:
@@ -319,9 +346,15 @@ def build_timeslot_timeline(
 
     # Flush the final accumulated run
     if current is not None:
-        slots.append(current.finalize(window_events))
+        final_slot = current.finalize(window_events)
+        # Skip degenerate zero-duration slots created at state boundaries by sweep-line algorithm.
+        # These are timing artifacts from the exact moment of state transition and serve no purpose.
+        if final_slot.duration > timedelta(milliseconds=1):
+            slots.append(final_slot)
 
     # Apply state continuity merging to fix micro-slots from AFK bucket gaps
+    # CRITICAL: This merger must NOT merge real activity state transitions (ACTIVE ≠ AFK ≠ OFFLINE).
+    # It only merges pure-offline micro-artifacts that are timing byproducts of the AFK bucket.
     slots = _merge_adjacent_micro_slots_by_state_continuity(slots)
     return slots
 
@@ -389,13 +422,22 @@ def _merge_adjacent_micro_slots_by_state_continuity(
 
             # Check if adjacent (gap <= 1 second tolerance for rounding)
             gap = next_slot.start - current.end
+            # THRESHOLD: 1 second adjacency tolerance for rounding/timing artifacts.
+            # This handles: system clock precision, sweep-line algorithm timing, event buffering.
+            # Actual adjacent slots have gap=0; gaps up to 1s are treated as adjacent for robustness.
             is_adjacent = gap <= timedelta(seconds=1)
+
             # Micro-slots = candidate AFK-bucket-stop-recording artifacts: small gap AND
             # a very small next slot (<= 1 second). Being "micro" alone no longer justifies
             # merging on its own — it only identifies the candidate; see
             # is_pure_offline_micro_artifact below for the one case where it still bypasses
             # the real state check.
             next_slot_duration = next_slot.duration.total_seconds()
+            # THRESHOLDS: gap < 100ms AND duration <= 1.0s
+            # These identify timing artifacts from AFK bucket stop-recording at system shutdown.
+            # In production data: legitimate AFK periods are typically >1s; sub-100ms gaps indicate
+            # timestamp precision issues rather than real activity boundaries. Calibrated on
+            # ActivityWatch behavior: AFK bucket often has <1ms timing artifacts.
             is_micro_slot = (gap < timedelta(milliseconds=100) and next_slot_duration <= 1.0)
 
             # Check if same (project, task)
@@ -441,6 +483,13 @@ def _merge_adjacent_micro_slots_by_state_continuity(
                     # CRITICAL: Only reclassify if the artifact has meaningful duration.
                     # Degenerate zero-duration artifacts should NOT be reclassified as they
                     # can cause subsequent AFK slots to merge incorrectly.
+                    #
+                    # THRESHOLD: 10ms minimum duration for reclassification.
+                    # Why 10ms? Artifacts from AFK bucket stop-recording are typically <1ms
+                    # (timestamp precision). The 10ms threshold filters out degenerate timing
+                    # artifacts while preserving legitimate short offline periods. This prevents
+                    # the bug where reclassifying a 0.001s artifact to AFK caused subsequent
+                    # AFK slots to merge incorrectly (afk-afk continuity matched on the artifact).
                     if next_slot.offline_extension_duration and next_slot.offline_extension_duration > timedelta(milliseconds=10):
                         next_slot.afk_duration = (next_slot.afk_duration or timedelta(0)) + \
                                                next_slot.offline_extension_duration
