@@ -145,6 +145,27 @@ def build_timeslot_timeline(
     No externally-imposed reporting window — covers exactly the span implied by the inputs.
     Callers must pre-filter events to a desired period before calling.
 
+    CRITICAL REQUIREMENT: Chronological Timeline Feature
+    =====================================================
+    The output MUST create separate rows for each activity state transition.
+
+    When a task spans different activity states (ACTIVE → embedded-AFK → ACTIVE),
+    create separate slots for EACH state, not a single merged slot.
+
+    Example (DESIRED - what users expect):
+        13:56-14:38  ACTIVE:42:18
+        14:38-14:48  AFK:9:41
+        14:48-16:19  ACTIVE:1:31:24
+
+    Example (WRONG - current broken behavior):
+        13:56-14:48  AFK:9:41  ACTIVE:42:18  ← DO NOT DO THIS
+
+    Implementation approach:
+    - Classification key at line 264 includes bucket field to separate activity states
+    - Each run with different bucket should create separate slots via run-length merging
+    - _merge_adjacent_micro_slots_by_state_continuity() must preserve state boundaries
+    - Only pure-offline micro-artifacts should merge across state transitions
+
     Args:
         afk_events: AFK bucket events (status="afk" or "not-afk")
         window_events: Window bucket events (app, title, category)
@@ -155,6 +176,7 @@ def build_timeslot_timeline(
         - Non-overlapping: no two slots share any common instant
         - Properly classified: each slot carries correct project/task, duration breakdown (actual/afk/offline)
         - Complete: covers full wall-clock span implied by input events with no gaps
+        - Chronological: separate slots for each activity state transition (ACTIVE ≠ AFK ≠ OFFLINE)
     """
     # Ensure task_events is a list (handle None case)
     if task_events is None:
@@ -307,15 +329,31 @@ def build_timeslot_timeline(
 def _merge_adjacent_micro_slots_by_state_continuity(
     slots: List[ReportTimelineSlot],
 ) -> List[ReportTimelineSlot]:
-    """Merge micro-slots based on state continuity.
+    """Merge micro-slots based on state continuity while preserving chronological transitions.
 
-    When AFK bucket stops recording (system shutdown), window events may fire
-    a final activity event, creating micro-slots with gaps misclassified as offline.
-    This function merges adjacent micro-slots by inheriting the previous slot's state.
+    CRITICAL: This function has a NARROW scope to fix only AFK bucket timing artifacts.
+    It must NOT merge slots with DIFFERENT activity states (ACTIVE vs embedded-AFK).
 
-    Example:
+    The chronological timeline feature depends on this function NOT merging real state
+    transitions (e.g., ACTIVE→AFK→ACTIVE) even if they're small micro-slots.
+
+    ONLY merge: Pure-offline micro-artifacts (tiny slots with ONLY offline_extension_duration,
+    no active or afk time) that sit next to real activity. This handles the case where the
+    AFK bucket stops recording but a window event fires once more.
+
+    DO NOT merge: Genuine AFK-classified micro-slots, even if they're <= 1 second and <100ms gap.
+    These are real activity transitions, not timing artifacts.
+
+    Example of CORRECT merging (pure-offline artifact):
       IN:  12:01-12:05 (active, 4:28) + gap → 12:05-12:05 (offline, 0:01)
-      OUT: 12:01-12:05 (active, 4:29, no offline)
+      OUT: 12:01-12:05 (active, 4:29, no offline) ✓ Merged (artifact case)
+
+    Example of INCORRECT merging (would break chronological timeline):
+      IN:  12:01-12:38 (active, 42:18) + 12:38-12:48 (embedded-afk, 9:41)
+      OUT: 12:01-12:48 (active, 42:18, afk, 9:41) ✗ DO NOT merge - should be separate rows
+
+    The real state-continuity check (lines 392-396) prevents merging unless both slots
+    have the same activity state (both active, or both afk, or both offline).
 
     Algorithm:
     1. Sort slots by start time (usually already sorted, but be safe)
