@@ -7,8 +7,11 @@ Handles all argument parsing, data fetching, processing, and report generation.
 import sys
 import os
 import time
+import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 # Unbuffered output for debugging long-running commands
 if os.environ.get('TW_REPORT_DEBUG'):
@@ -539,13 +542,33 @@ def main():
     # (Previously added event_based_offline_slots separately at this point, but
     # that caused double-counting with partitioned_task_slots, so we skip it now.)
 
+    # Deduplicate task events before building timeline (handles Phase 14 optimization edge case)
+    # When :all period queries return many events, duplicates can appear in the fetched results
+    # Deduplicating here prevents inflated time calculations and "Multiple task events" warnings
+    def _deduplicate_task_events(events):
+        """Remove duplicate task events using (timestamp, duration, task) as key."""
+        if not events:
+            return events
+        seen = set()
+        deduped = []
+        for event in events:
+            key = (event.timestamp, event.duration, getattr(event, 'task', None))
+            if key not in seen:
+                seen.add(key)
+                deduped.append(event)
+        if len(deduped) < len(events):
+            logger.warning(f"Deduplicated {len(events) - len(deduped)} duplicate task events")
+        return deduped
+
+    task_events_deduped = _deduplicate_task_events(task_events) if task_events else None
+
     # Build all timeline slots using the unified sweep-line builder
     # This produces guaranteed non-overlapping slots classified by active events
     # Use unfiltered raw events — the builder needs all data to correctly classify time
     report_slots = build_timeslot_timeline(
         afk_events=afk_events or [],
         window_events=window_events or [],
-        task_events=task_events or [],
+        task_events=task_events_deduped or [],
     )
 
     # Convert ReportTimelineSlot objects to dict format for downstream processing
