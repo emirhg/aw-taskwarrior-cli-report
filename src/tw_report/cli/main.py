@@ -546,16 +546,22 @@ def main():
     # When :all period queries return many events, duplicates can appear in the fetched results
     # Deduplicating here prevents inflated time calculations and "Multiple task events" warnings
     def _deduplicate_task_events(events):
-        """Remove duplicate task events using (timestamp, duration, task) as key."""
+        """Remove duplicate task events, collapsing heartbeat-merge artifacts.
+
+        ActivityWatch's taskwarrior watcher can leave multiple heartbeat rows
+        for the same in-progress task (same uuid + start, growing duration) when
+        an upstream merge step fails to collapse them. Group by (uuid, timestamp)
+        when a uuid is available, and keep only the longest-duration event per group.
+        """
         if not events:
             return events
-        seen = set()
-        deduped = []
+        groups = {}
         for event in events:
-            key = (event.timestamp, event.duration, getattr(event, 'task', None))
-            if key not in seen:
-                seen.add(key)
-                deduped.append(event)
+            uuid = getattr(event, 'uuid', None)
+            key = (uuid, event.timestamp) if uuid else (event.timestamp, event.duration, getattr(event, 'task', None))
+            if key not in groups or event.duration > groups[key].duration:
+                groups[key] = event
+        deduped = list(groups.values())
         if len(deduped) < len(events):
             logger.warning(f"Deduplicated {len(events) - len(deduped)} duplicate task events")
         return deduped

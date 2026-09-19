@@ -335,15 +335,15 @@ def print_report_totals(
         break_str = format_duration(total_break)
         print_indented_total(2, "Break Time", break_str)
 
-    # Calculate grand total: use actual first-to-last event window if available
+    # Total Time = Worked Time + Break Time (the two components already shown above).
+    # NOTE: Do NOT use `last_event_time - first_event_time` here — that raw event-window
+    # span includes idle time between logical days (which break_time correctly excludes,
+    # per the per-day break calculation in core/report_slot.py), so it overcounts for any
+    # multi-day period and can be wildly wrong for sparse/filtered queries over long spans
+    # (e.g. --project X :all spanning months of mostly-idle calendar time).
     worked_time = online_time + (offline_time if offline_time else timedelta(0))
     break_time = total_break if total_break else timedelta(0)
-
-    # Prefer actual event window over summed calculation
-    if first_event_time and last_event_time:
-        tracked_activity = last_event_time - first_event_time
-    else:
-        tracked_activity = worked_time + break_time
+    tracked_activity = worked_time + break_time
 
     tracked_activity_str = format_duration_tracked_prod(tracked_activity, productive_time)
     print_indented_total(0, "Total Time", tracked_activity_str)
