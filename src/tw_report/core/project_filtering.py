@@ -72,6 +72,64 @@ def get_events_by_project(
     return filtered
 
 
+def get_events_by_projects(
+    client,
+    bucket_id: str,
+    start: datetime,
+    end: datetime,
+    projects: Optional[List[str]] = None,
+) -> List["TaskWarriorEvent"]:
+    """Fetch taskwarrior events filtered by multiple project names (PHASE 14 OPTIMIZATION).
+
+    More efficient than calling get_events_by_project() multiple times because
+    it fetches all events once, then filters by all requested projects.
+
+    Filters events where the 'project' field matches ANY of the given project patterns
+    (substring matching, case-insensitive).
+
+    Args:
+        client: ActivityWatchClient instance
+        bucket_id: Full bucket ID to fetch from (typically taskwarrior bucket)
+        start: Start of time range (inclusive)
+        end: End of time range (inclusive)
+        projects: List of project name patterns to filter by (substring match)
+                 Returns all events if None or empty list.
+
+    Returns:
+        List of TaskWarriorEvent objects, filtered by projects.
+        Empty list if bucket unreachable or no matches found.
+
+    Examples:
+        >>> # Fetch events matching ANY of multiple projects
+        >>> events = get_events_by_projects(
+        ...     client, tw_bucket, start, end,
+        ...     projects=["Climb", "Mercado"]
+        ... )
+    """
+    from tw_report.core.aw_events import TaskWarriorEvent
+    from tw_report.core.events import get_events
+
+    # Fetch all taskwarrior events once
+    all_events = get_events(client, bucket_id, start, end, event_cls=TaskWarriorEvent)
+
+    # If no project filters, return all events
+    if not projects:
+        return all_events
+
+    # Filter to events matching ANY of the projects (case-insensitive substring match)
+    filtered = [
+        e for e in all_events
+        if any(p.lower() in e.data.get("project", "").lower() for p in projects)
+    ]
+
+    if filtered:
+        logger.debug(f"Filtered to {len(filtered)} events for {len(projects)} projects: {projects}")
+    else:
+        logger.debug(f"No events found matching projects: {projects}")
+
+    return filtered
+
+
 def _is_uuid_like(value: str) -> bool:
     """Check if a string is a valid UUID format.
 

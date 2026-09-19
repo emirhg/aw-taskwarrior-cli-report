@@ -55,6 +55,7 @@ from tw_report.core.period import parse_period
 from tw_report.core.project_filtering import (
     _is_uuid_like,
     get_events_by_project,
+    get_events_by_projects,
     resolve_project_filter_value,
 )
 from tw_report.core.report_slot import ReportEntries
@@ -283,10 +284,18 @@ def main():
                 client, task_bucket, start_time, end_time, task_uuid
             )
         elif args.project:
-            # Project filter mode: fetch by project first (PHASE 14 optimization)
-            task_events_early = get_events_by_project(
-                client, task_bucket, start_time, end_time, args.project[0]
-            )
+            # Project filter mode: fetch by project(s) first (PHASE 14 optimization)
+            # Support multiple projects for compound filtering (e.g., --project Climb --project Mercado)
+            if len(args.project) > 1:
+                # Multiple projects: use optimized multi-project fetch (no redundant re-fetching)
+                task_events_early = get_events_by_projects(
+                    client, task_bucket, start_time, end_time, args.project
+                )
+            else:
+                # Single project: use original function
+                task_events_early = get_events_by_project(
+                    client, task_bucket, start_time, end_time, args.project[0]
+                )
         elif args.task:
             # Task filter mode: fetch by task name first (PHASE 14 optimization)
             task_events_early = get_events_by_task(
@@ -491,6 +500,29 @@ def main():
                 if app_name:
                     apps.add(app_name)
         return list(apps)
+
+    # PHASE 14 OPTIMIZATION: App-level time range filtering
+    # If app filter is specified and task_time_ranges wasn't already optimized,
+    # extract time ranges from app-matching windows to reduce AFK data volume
+    app_time_ranges = None
+    if args.app and not task_time_ranges and window_events:
+        # Filter windows by app pattern (case-insensitive substring match)
+        app_matching_windows = []
+        for window_event in window_events:
+            window_app = window_event.data.get("app", "").lower()
+            if any(pattern.lower() in window_app for pattern in args.app):
+                app_matching_windows.append(window_event)
+
+        if app_matching_windows:
+            # Extract time ranges from app-matching windows
+            app_time_ranges = _get_time_ranges_from_events(app_matching_windows)
+            # Re-fetch AFK events using app-derived time ranges (PHASE 14 optimization)
+            # This reduces AFK data volume when filtering by app without task filtering
+            if app_time_ranges:
+                from tw_report.core.aw_events import AFKEvent
+                app_afk_events = _fetch_events_for_ranges(client, "afk", app_time_ranges, event_cls=AFKEvent)
+                # Use app-optimized AFK events instead of full-period
+                afk_events = app_afk_events
 
     # Tracked Activity from event times (includes all buckets: AFK + window + task)
     tracked_activity_from_slots = None
