@@ -64,6 +64,7 @@ from tw_report.core.project_filtering import (
 from tw_report.core.report_slot import ReportEntries
 from tw_report.core.task_filtering import (
     get_events_by_task,
+    get_events_by_tasks,
     resolve_task_filter_value,
 )
 from tw_report.core.task_uuid_filtering import (
@@ -151,6 +152,41 @@ def _fetch_events_for_ranges(
         range_events = get_events(client, bucket_id, start - buffer, end + buffer, event_cls=event_cls)
         events.extend(range_events)
     return events
+
+
+def _compute_app_bounded_ranges(
+    task_time_ranges: Optional[List[Tuple[datetime, datetime]]],
+    app_matching_windows: List[Event],
+) -> List[Tuple[datetime, datetime]]:
+    """Bound time ranges to the envelope of app usage (min start -> max end).
+
+    Uses a single bounding envelope rather than fragmented per-window ranges,
+    so AFK context is preserved for idle/break periods *between* app usages
+    (needed for correct online/offline classification) while still skipping
+    time far outside when the app was ever used.
+
+    If task_time_ranges is given (project/task filter also active), each
+    range is clipped to the app envelope. If clipping removes everything
+    (shouldn't happen since windows came from within task_time_ranges, but
+    guarded defensively), falls back to the original task_time_ranges.
+    """
+    if not app_matching_windows:
+        return task_time_ranges or []
+
+    app_start = min(w.timestamp for w in app_matching_windows)
+    app_end = max(w.timestamp + w.duration for w in app_matching_windows)
+
+    if not task_time_ranges:
+        return [(app_start, app_end)]
+
+    clipped = []
+    for t_start, t_end in task_time_ranges:
+        c_start = max(t_start, app_start)
+        c_end = min(t_end, app_end)
+        if c_start < c_end:
+            clipped.append((c_start, c_end))
+
+    return clipped or task_time_ranges
 
 
 def main():
@@ -300,10 +336,18 @@ def main():
                     client, task_bucket, start_time, end_time, args.project[0]
                 )
         elif args.task:
-            # Task filter mode: fetch by task name first (PHASE 14 optimization)
-            task_events_early = get_events_by_task(
-                client, task_bucket, start_time, end_time, args.task[0]
-            )
+            # Task filter mode: fetch by task name(s) first (PHASE 14 optimization)
+            # Support multiple tasks for compound filtering (e.g., --task "Documentar" --task "Code review")
+            if len(args.task) > 1:
+                # Multiple tasks: use optimized multi-task fetch (no redundant re-fetching)
+                task_events_early = get_events_by_tasks(
+                    client, task_bucket, start_time, end_time, args.task
+                )
+            else:
+                # Single task: use original function
+                task_events_early = get_events_by_task(
+                    client, task_bucket, start_time, end_time, args.task[0]
+                )
         # else: no filter specified, defer full fetch until later
 
         # Extract time ranges from early fetch (if any events found)
@@ -504,11 +548,15 @@ def main():
                     apps.add(app_name)
         return list(apps)
 
-    # PHASE 14 OPTIMIZATION: App-level time range filtering
-    # If app filter is specified and task_time_ranges wasn't already optimized,
-    # extract time ranges from app-matching windows to reduce AFK data volume
+    # PHASE 14 OPTIMIZATION: App-level time range filtering (composite-aware, with Phase 3B hardening)
+    # Runs whenever --app is set, whether or not a project/task filter already
+    # narrowed task_time_ranges. When both are active, the app envelope is
+    # clipped against the existing task_time_ranges (composite intersection);
+    # when --app is used alone, it bounds AFK to the app's overall usage span.
+    # Uses bounding envelope (min-max across app usage periods) rather than
+    # fragmented ranges to preserve AFK context for gaps between app usages.
     app_time_ranges = None
-    if args.app and not task_time_ranges and window_events:
+    if args.app and window_events:
         # Filter windows by app pattern (case-insensitive substring match)
         app_matching_windows = []
         for window_event in window_events:
@@ -517,15 +565,14 @@ def main():
                 app_matching_windows.append(window_event)
 
         if app_matching_windows:
-            # Extract time ranges from app-matching windows
-            app_time_ranges = _get_time_ranges_from_events(app_matching_windows)
-            # Re-fetch AFK events using app-derived time ranges (PHASE 14 optimization)
-            # This reduces AFK data volume when filtering by app without task filtering
+            # Compute app-bounded time ranges (envelope with composite clipping support)
+            app_time_ranges = _compute_app_bounded_ranges(task_time_ranges, app_matching_windows)
+            # Re-fetch AFK events using app-bounded time ranges (PHASE 14 optimization)
+            # This reduces AFK data volume when filtering by app, whether alone or combined
+            # with project/task filters. Bounding envelope preserves AFK context for gaps.
             if app_time_ranges:
                 from tw_report.core.aw_events import AFKEvent
-                app_afk_events = _fetch_events_for_ranges(client, "afk", app_time_ranges, event_cls=AFKEvent)
-                # Use app-optimized AFK events instead of full-period
-                afk_events = app_afk_events
+                afk_events = _fetch_events_for_ranges(client, "afk", app_time_ranges, event_cls=AFKEvent)
 
     # Tracked Activity from event times (includes all buckets: AFK + window + task)
     tracked_activity_from_slots = None

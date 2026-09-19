@@ -118,3 +118,63 @@ def resolve_task_filter_value(value: str) -> Tuple[Optional[str], Optional[str]]
         return None, f"Task {value} has no description"
 
     return description, None
+
+
+def get_events_by_tasks(
+    client,
+    bucket_id: str,
+    start: datetime,
+    end: datetime,
+    tasks: Optional[List[str]] = None,
+) -> List["TaskWarriorEvent"]:
+    """Fetch taskwarrior events filtered by multiple task name patterns (PHASE 14).
+
+    More efficient than calling get_events_by_task() multiple times because
+    it fetches all events once, then filters by all requested task patterns.
+
+    Filters events where the task name matches ANY of the given patterns
+    (substring matching, case-insensitive).
+
+    Args:
+        client: ActivityWatchClient instance
+        bucket_id: Full bucket ID to fetch from (typically taskwarrior bucket)
+        start: Start of time range (inclusive)
+        end: End of time range (inclusive)
+        tasks: List of task name patterns to filter by (substring match)
+               Returns all events if None or empty list.
+
+    Returns:
+        List of TaskWarriorEvent objects, filtered by tasks.
+        Empty list if bucket unreachable or no matches found.
+
+    Examples:
+        >>> # Fetch events matching ANY of multiple tasks
+        >>> events = get_events_by_tasks(
+        ...     client, tw_bucket, start, end,
+        ...     tasks=["Documentar", "Code review"]
+        ... )
+    """
+    from tw_report.core.aw_events import TaskWarriorEvent
+    from tw_report.core.events import get_events
+    from tw_report.core.task_matching import get_task_info
+
+    # Fetch all taskwarrior events once
+    all_events = get_events(client, bucket_id, start, end, event_cls=TaskWarriorEvent)
+
+    # If no task filters, return all events
+    if not tasks:
+        return all_events
+
+    # Filter to events matching ANY of the tasks (case-insensitive substring match)
+    filtered = []
+    for e in all_events:
+        task_name, _ = get_task_info(e)
+        if any(t.lower() in task_name.lower() for t in tasks):
+            filtered.append(e)
+
+    if filtered:
+        logger.debug(f"Filtered to {len(filtered)} events for {len(tasks)} tasks: {tasks}")
+    else:
+        logger.debug(f"No events found matching tasks: {tasks}")
+
+    return filtered

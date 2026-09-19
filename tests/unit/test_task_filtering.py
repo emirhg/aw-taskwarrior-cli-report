@@ -17,6 +17,7 @@ from aw_core.models import Event
 
 from tw_report.core.task_filtering import (
     get_events_by_task,
+    get_events_by_tasks,
     resolve_task_filter_value,
 )
 
@@ -124,6 +125,125 @@ class TestGetEventsByTask:
 
         result = get_events_by_task(
             mock_client, "aw-watcher-taskwarrior_host", start, end, task="Documentar"
+        )
+
+        assert result == []
+
+
+class TestGetEventsByTasks:
+    """Test multi-task-based event filtering (PHASE 14)."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock ActivityWatchClient."""
+        return Mock()
+
+    @pytest.fixture
+    def time_range(self):
+        """Create a sample time range."""
+        start = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 7, 2, 0, 0, tzinfo=timezone.utc)
+        return start, end
+
+    @pytest.fixture
+    def sample_events(self):
+        """Create sample taskwarrior events with different task names."""
+        base_time = datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc)
+        return [
+            Event(
+                timestamp=base_time,
+                duration=timedelta(hours=1),
+                data={
+                    "task": "Documentar presentación",
+                    "project": "Antikythera",
+                },
+            ),
+            Event(
+                timestamp=base_time + timedelta(hours=1),
+                duration=timedelta(hours=2),
+                data={
+                    "task": "Code review",
+                    "project": "Work",
+                },
+            ),
+            Event(
+                timestamp=base_time + timedelta(hours=3),
+                duration=timedelta(hours=1),
+                data={
+                    "task": "Documentar proceso",
+                    "project": "Antikythera",
+                },
+            ),
+        ]
+
+    def test_get_events_by_tasks_all(self, mock_client, time_range, sample_events):
+        """Test fetching all events without task filter."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_tasks(
+            mock_client, "aw-watcher-taskwarrior_host", start, end
+        )
+
+        assert len(result) == 3
+        assert result == sample_events
+
+    def test_get_events_by_tasks_single_pattern(self, mock_client, time_range, sample_events):
+        """Test filtering by single task pattern."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_tasks(
+            mock_client, "aw-watcher-taskwarrior_host", start, end, tasks=["Documentar"]
+        )
+
+        assert len(result) == 2
+        assert all("Documentar" in e.data.get("task", "") for e in result)
+
+    def test_get_events_by_tasks_multiple_patterns_or_match(self, mock_client, time_range, sample_events):
+        """Test filtering by multiple task patterns (OR match)."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_tasks(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            tasks=["Documentar", "Code review"]
+        )
+
+        assert len(result) == 3  # All events match one of the patterns
+
+    def test_get_events_by_tasks_case_insensitive(self, mock_client, time_range, sample_events):
+        """Test that task filtering is case-insensitive."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_tasks(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            tasks=["documentar"]
+        )
+
+        assert len(result) == 2
+
+    def test_get_events_by_tasks_no_matches(self, mock_client, time_range, sample_events):
+        """Test filtering with no matching tasks."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_tasks(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            tasks=["Nonexistent"]
+        )
+
+        assert result == []
+
+    def test_get_events_by_tasks_empty_list(self, mock_client, time_range):
+        """Test filtering on empty event list."""
+        start, end = time_range
+        mock_client.get_events.return_value = []
+
+        result = get_events_by_tasks(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            tasks=["Documentar", "Code review"]
         )
 
         assert result == []

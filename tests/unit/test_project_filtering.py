@@ -16,6 +16,7 @@ from aw_core.models import Event
 
 from tw_report.core.project_filtering import (
     get_events_by_project,
+    get_events_by_projects,
     should_skip_window_bucket,
     _is_uuid_like,
     resolve_project_filter_value,
@@ -125,6 +126,125 @@ class TestGetEventsByProject:
 
         result = get_events_by_project(
             mock_client, "aw-watcher-taskwarrior_host", start, end, project="Climb"
+        )
+
+        assert result == []
+
+
+class TestGetEventsByProjects:
+    """Test multi-project-based event filtering (PHASE 14)."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock ActivityWatchClient."""
+        return Mock()
+
+    @pytest.fixture
+    def time_range(self):
+        """Create a sample time range."""
+        start = datetime(2026, 7, 1, 0, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 7, 2, 0, 0, tzinfo=timezone.utc)
+        return start, end
+
+    @pytest.fixture
+    def sample_events(self):
+        """Create sample taskwarrior events with different projects."""
+        base_time = datetime(2026, 7, 1, 10, 0, tzinfo=timezone.utc)
+        return [
+            Event(
+                timestamp=base_time,
+                duration=timedelta(hours=1),
+                data={
+                    "title": "Climb Project Task",
+                    "project": "Climb > Expedition",
+                },
+            ),
+            Event(
+                timestamp=base_time + timedelta(hours=1),
+                duration=timedelta(hours=2),
+                data={
+                    "title": "Mercado Task",
+                    "project": "Mercado laboral",
+                },
+            ),
+            Event(
+                timestamp=base_time + timedelta(hours=3),
+                duration=timedelta(hours=1),
+                data={
+                    "title": "Another Climb Task",
+                    "project": "Climb > Training",
+                },
+            ),
+        ]
+
+    def test_get_events_by_projects_all(self, mock_client, time_range, sample_events):
+        """Test fetching all events without project filter."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_projects(
+            mock_client, "aw-watcher-taskwarrior_host", start, end
+        )
+
+        assert len(result) == 3
+        assert result == sample_events
+
+    def test_get_events_by_projects_single_pattern(self, mock_client, time_range, sample_events):
+        """Test filtering by single project pattern."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_projects(
+            mock_client, "aw-watcher-taskwarrior_host", start, end, projects=["Climb"]
+        )
+
+        assert len(result) == 2
+        assert all("Climb" in e.data.get("project", "") for e in result)
+
+    def test_get_events_by_projects_multiple_patterns_or_match(self, mock_client, time_range, sample_events):
+        """Test filtering by multiple project patterns (OR match)."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_projects(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            projects=["Climb", "Mercado"]
+        )
+
+        assert len(result) == 3  # All events match one of the patterns
+
+    def test_get_events_by_projects_case_insensitive(self, mock_client, time_range, sample_events):
+        """Test that project filtering is case-insensitive."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_projects(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            projects=["climb"]
+        )
+
+        assert len(result) == 2
+
+    def test_get_events_by_projects_no_matches(self, mock_client, time_range, sample_events):
+        """Test filtering with no matching projects."""
+        start, end = time_range
+        mock_client.get_events.return_value = sample_events
+
+        result = get_events_by_projects(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            projects=["NonExistent"]
+        )
+
+        assert result == []
+
+    def test_get_events_by_projects_empty_list(self, mock_client, time_range):
+        """Test filtering on empty event list."""
+        start, end = time_range
+        mock_client.get_events.return_value = []
+
+        result = get_events_by_projects(
+            mock_client, "aw-watcher-taskwarrior_host", start, end,
+            projects=["Climb", "Mercado"]
         )
 
         assert result == []
