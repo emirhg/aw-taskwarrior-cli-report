@@ -64,6 +64,7 @@ from aw_core.models import Event
 
 from tw_report.core.filtering import NO_PROJECT, NO_TASK
 from tw_report.core.period import logical_date
+from tw_report.core.report_slot import _break_gap_within_day
 
 if TYPE_CHECKING:
     from tw_report.core.report_slot import ReportTimelineSlot
@@ -678,33 +679,19 @@ def print_timeline_report(
     Each level is rendered via _render_slot_detail() which shows indented
     breakdowns of how time was distributed across categories/apps/titles.
 
-    GAP DETECTION & VISUAL SEPARATION (2026-07-23):
-    ===============================================
-    Blank lines appear between work sessions with gaps > 5 minutes. This feature
-    improves readability by visually separating work sessions from breaks,
-    system shutdowns, or mode changes.
-
-    CRITICAL: This is an intentional UX feature. Do not remove or disable without
-    explicit user request. It helps users quickly scan the timeline and identify
-    distinct work periods.
+    GAP DETECTION & BREAK RENDERING (2026-07-23, refined 2026-09-18):
+    =================================================================
+    Blank lines appear between work sessions with gaps >= 1 minute, showing the
+    break duration. This improves readability by visually separating work sessions
+    from breaks and helps users identify distinct work periods.
 
     Implementation:
       - Track last_slot_end time as slots are rendered (initialized to None)
-      - Before rendering each slot, check if gap from last_slot_end > 5 minutes
-      - If gap exceeds threshold, call _render_system_shutdown_separator() (prints blank line)
+      - Before rendering each slot, compute gap from last_slot_end to current slot.start
+      - Use day-aware gap calculation to prevent breaks from spanning logical day boundaries
+      - If gap >= 1 minute and within same logical day, render a break row with duration
       - Update last_slot_end after rendering each slot
       - Applied to all rendering paths: offline_task singletons, single-slot inline, multi-slot loop
-
-    Configuration:
-      - Threshold: gap_threshold = timedelta(minutes=5) in line 574
-      - To adjust: Change minutes=5 to desired threshold (e.g., minutes=10)
-      - To disable: Set gap_threshold = timedelta(hours=24) or similar large value
-
-    Why this matters:
-      - Without gap detection, continuous scrolling blends work sessions together
-      - Users struggle to identify distinct work periods and breaks
-      - Gap visualization makes work session boundaries immediately obvious
-      - Especially important for long reports with many activities
 
     PARAMETER NOTES:
       slots: Pre-filtered timeline slots from main() (EventFilter already applied)
@@ -1169,7 +1156,6 @@ def print_timeline_report(
     # Slots are already sorted and filtered by this point (line 729).
     # Render each slot individually — no grouping.
     last_slot_end = None  # Track end time of last rendered slot (for gap detection)
-    gap_threshold = timedelta(minutes=5)  # Minimum gap to display separator
     pending_date_prefix = None  # Date header held until the next slot prints
 
     # BUG: Intercalated day rendering in --by-day mode (Session 2026-08-31)
@@ -1285,11 +1271,12 @@ def print_timeline_report(
         # All slots are treated uniformly based on their properties, not special-cased by type.
         # This ensures consistent accumulation of OFFLINE/AFK/ACTIVE columns regardless of source.
 
-        # Check for gap before rendering
+        # Check for gap before rendering (must be within same logical day)
         if last_slot_end is not None:
-            gap = slot.start - last_slot_end
+            gap = _break_gap_within_day(last_slot_end, slot.start, day_start_hour)
             # Accumulate only displayed breaks (>= 1 minute) to match display
-            if gap > timedelta(0) and gap >= timedelta(minutes=1):
+            # gap is None if the gap spans a day boundary (can't credit both days simultaneously)
+            if gap is not None and gap >= timedelta(minutes=1):
                 daily_metrics.add(break_time=gap)
                 weekly_metrics.add(break_time=gap)
                 daily_displayed_break += gap

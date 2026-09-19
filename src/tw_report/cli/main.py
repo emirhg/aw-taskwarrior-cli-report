@@ -655,6 +655,10 @@ def main():
         timedelta(0)
     )
 
+    # Calculate break time from filtered slots (gaps between consecutive slots per day)
+    from tw_report.core.report_slot import compute_total_break_time
+    slot_break_time = compute_total_break_time(filtered_slots, day_start_hour)
+
     # Compute productivity metrics from filtered slots
     # These are shared by both timeline and hierarchical rendering modes
     metrics = compute_metrics(
@@ -720,6 +724,7 @@ def main():
             afk_events=afk_events,
             day_start_hour=day_start_hour,
             tracked_activity=tracked_activity_from_slots,
+            total_break=slot_break_time,
         )
     else:
         # Hierarchical (--by-project) report: use slot-based AFK/Offline calculations for consistency
@@ -768,6 +773,7 @@ def main():
             afk_time=afk_time_calc,
             total_offline_time=total_offline_calc,
             total_time_all=total_time_calc,
+            total_break=slot_break_time,
         )
 
     _profile("MAIN END - rendering complete")

@@ -576,6 +576,7 @@ def print_report(
     afk_time: Optional[timedelta] = None,
     total_offline_time: Optional[timedelta] = None,
     total_time_all: Optional[timedelta] = None,
+    total_break: Optional[timedelta] = None,
 ) -> None:
     """Print hierarchical report (project-based or category-based).
 
@@ -774,10 +775,14 @@ def print_report(
     if afk_time:
         online_time_for_totals = (non_afk_time or timedelta(0)) + afk_time
 
-    # Calculate break time from event window if available
-    # Break time = event window - worked time
+    # Use provided break time (computed per-day in main.py from filtered slots)
+    # Fall back to whole-period subtraction only if not provided (for backward compat/fallback)
     calculated_break_time = None
-    if first_event_time and last_event_time:
+    if total_break is not None:
+        calculated_break_time = total_break
+    elif first_event_time and last_event_time:
+        # Fallback: calculate break time from event window (legacy formula)
+        # Break time = event window - worked time
         event_window = last_event_time - first_event_time
         worked_time = online_time_for_totals + (total_offline_time or timedelta(0))
         calculated_break_time = event_window - worked_time

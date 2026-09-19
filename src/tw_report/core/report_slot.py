@@ -31,6 +31,87 @@ if TYPE_CHECKING:
     from tw_report.core.aw_events import AFKEvent, TaskWarriorEvent, WindowEvent
 
 
+def _break_gap_within_day(
+    prev_end: datetime, next_start: datetime, day_start_hour: int
+) -> Optional[timedelta]:
+    """Gap between two chronologically consecutive instants, or None if they
+    fall on different logical days — a break can never span a day boundary.
+
+    Args:
+        prev_end: End time of previous activity
+        next_start: Start time of next activity
+        day_start_hour: Hour that marks the start of a logical day (e.g. 4 means
+            a new day begins at 04:00)
+
+    Returns:
+        The gap duration if both instants fall on the same logical day,
+        otherwise None (indicating an overnight boundary was crossed).
+    """
+    if logical_date(prev_end, day_start_hour) != logical_date(next_start, day_start_hour):
+        return None
+    gap = next_start - prev_end
+    return gap if gap > timedelta(0) else None
+
+
+def compute_daily_break_totals(
+    slots: List["ReportTimelineSlot"],
+    day_start_hour: int = 4,
+    min_break: timedelta = timedelta(minutes=1),
+) -> Dict[date, timedelta]:
+    """Sum break time (gaps between consecutive slots) per logical day.
+
+    Slots are sorted chronologically; a gap is only counted if both the
+    preceding slot's end and the following slot's start fall on the same
+    logical day, and the gap is at least `min_break`. This mirrors the
+    existing 1-minute noise floor used by the timeline renderer.
+
+    Args:
+        slots: List of ReportTimelineSlot objects to analyze for gaps
+        day_start_hour: Hour that marks the start of a logical day
+        min_break: Minimum gap duration to count as a break (default 1 minute)
+
+    Returns:
+        Dictionary mapping logical dates to accumulated break time for that day.
+        Days with no breaks are not present in the dict.
+    """
+    totals: Dict[date, timedelta] = {}
+    prev_end: Optional[datetime] = None
+
+    for slot in sorted(slots, key=lambda s: s.start):
+        slot_end = slot.start + slot.duration
+        if prev_end is not None:
+            gap = _break_gap_within_day(prev_end, slot.start, day_start_hour)
+            if gap is not None and gap >= min_break:
+                day = logical_date(slot.start, day_start_hour)
+                totals[day] = totals.get(day, timedelta(0)) + gap
+        prev_end = slot_end
+
+    return totals
+
+
+def compute_total_break_time(
+    slots: List["ReportTimelineSlot"],
+    day_start_hour: int = 4,
+    min_break: timedelta = timedelta(minutes=1),
+) -> timedelta:
+    """Compute total break time across all days, respecting day boundaries.
+
+    Sums the daily break totals to produce a single aggregate figure that
+    never spans overnight gaps. This is the unified break-calculation function
+    used by both timeline and hierarchical reports.
+
+    Args:
+        slots: List of ReportTimelineSlot objects to analyze
+        day_start_hour: Hour that marks the start of a logical day
+        min_break: Minimum gap duration to count as a break
+
+    Returns:
+        Total accumulated break time across all days.
+    """
+    daily_totals = compute_daily_break_totals(slots, day_start_hour, min_break)
+    return sum(daily_totals.values(), timedelta(0))
+
+
 @dataclass
 class DisplayColumns:
     """Fixed-width columns for consistent timeline display.
