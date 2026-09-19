@@ -416,21 +416,25 @@ def main():
     if is_task_based_report and task_events is None:
         task_bucket = get_bucket_id("taskwarrior")
         # Apply bucket-level filtering based on query type
+        # OPTIMIZATION (Phase 14): Always apply project/task filtering at bucket level
+        # to reduce data transfer and processing. Window events remain unfiltered to provide
+        # complete partitioning context, and AFK events remain unfiltered for system state.
+        # This is safe because the builder only needs unfiltered AFK/window context, not TaskWarrior.
         if task_uuid:
             # Task UUID mode: filter by UUID (already fetched early, skip)
             task_events = task_events_early
-        elif not requires_window_data and args.project:
-            # Project filter mode (window not required): filter by project at bucket level
+        elif args.project:
+            # Project filter mode: always filter by project at bucket level
             task_events = get_events_by_project(
                 client, task_bucket, start_time, end_time, args.project[0]
             )
-        elif not requires_window_data and args.task:
-            # Task filter mode (window not required): filter by task name at bucket level
+        elif args.task:
+            # Task filter mode: always filter by task name at bucket level
             task_events = get_events_by_task(
                 client, task_bucket, start_time, end_time, args.task[0]
             )
         else:
-            # Normal mode: fetch all events
+            # Normal mode: fetch all events (no project/task filter specified)
             task_events = get_events(client, task_bucket, start_time, end_time)
         if not task_events:
             task_events = None
