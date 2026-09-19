@@ -263,21 +263,41 @@ def main():
     categories_json = load_categories(args.categories)
     compiled_categories, cat_score_map = compile_category_rules(categories_json)
 
-    # Smart optimization: when filtering by task UUID, fetch task events FIRST,
-    # then only fetch AFK/window events for the time ranges where tasks exist.
-    # This dramatically reduces data volume for sparse task data.
+    # PHASE 14 OPTIMIZATION: Fetch TaskWarrior events FIRST (with any filter applied)
+    # to extract time ranges, then use those ranges to limit AFK/window fetching.
+    # This dramatically reduces data volume for sparse task data (e.g., :all with --project).
+    # Example: tw-report --project "Higuera" :all fetches only Higuera's time windows for AFK/window,
+    # not the entire :all period.
     task_events_early = None
     task_time_ranges = None
     task_events = None  # Will be populated later; used for window-fetch decision
 
-    if task_uuid and not args.no_taskwarrior:
-        # Fetch task events first to determine what time windows we care about
+    if not args.no_taskwarrior:
         task_bucket = get_bucket_id("taskwarrior")
-        task_events_early = get_events_by_uuid(
-            client, task_bucket, start_time, end_time, task_uuid
-        )
+
+        # Fetch TaskWarrior with ANY available filter (UUID, project, task)
+        # This determines the actual time window we need to fetch AFK/window for
+        if task_uuid:
+            # Task UUID mode: fetch by UUID first
+            task_events_early = get_events_by_uuid(
+                client, task_bucket, start_time, end_time, task_uuid
+            )
+        elif args.project:
+            # Project filter mode: fetch by project first (PHASE 14 optimization)
+            task_events_early = get_events_by_project(
+                client, task_bucket, start_time, end_time, args.project[0]
+            )
+        elif args.task:
+            # Task filter mode: fetch by task name first (PHASE 14 optimization)
+            task_events_early = get_events_by_task(
+                client, task_bucket, start_time, end_time, args.task[0]
+            )
+        # else: no filter specified, defer full fetch until later
+
+        # Extract time ranges from early fetch (if any events found)
+        # This enables AFK/window optimization for filtered queries
         if task_events_early:
-            # Extract time ranges: only fetch AFK/window during these windows
+            # Only fetch AFK/window during these task time windows
             task_time_ranges = _get_time_ranges_from_events(task_events_early)
 
     window_events = []
@@ -414,28 +434,12 @@ def main():
     is_task_based_report = not args.no_taskwarrior
 
     if is_task_based_report and task_events is None:
+        # TaskWarrior events not fetched early (no filter specified)
+        # Fetch for full period now
         task_bucket = get_bucket_id("taskwarrior")
-        # Apply bucket-level filtering based on query type
-        # OPTIMIZATION (Phase 14): Always apply project/task filtering at bucket level
-        # to reduce data transfer and processing. Window events remain unfiltered to provide
-        # complete partitioning context, and AFK events remain unfiltered for system state.
-        # This is safe because the builder only needs unfiltered AFK/window context, not TaskWarrior.
-        if task_uuid:
-            # Task UUID mode: filter by UUID (already fetched early, skip)
-            task_events = task_events_early
-        elif args.project:
-            # Project filter mode: always filter by project at bucket level
-            task_events = get_events_by_project(
-                client, task_bucket, start_time, end_time, args.project[0]
-            )
-        elif args.task:
-            # Task filter mode: always filter by task name at bucket level
-            task_events = get_events_by_task(
-                client, task_bucket, start_time, end_time, args.task[0]
-            )
-        else:
-            # Normal mode: fetch all events (no project/task filter specified)
-            task_events = get_events(client, task_bucket, start_time, end_time)
+        task_events = get_events(client, task_bucket, start_time, end_time)
+        # Note: time_ranges will remain None, so AFK/window will use full period
+        # This is correct because we need the full system state when no filter is applied
         if not task_events:
             task_events = None
             is_task_based_report = False
