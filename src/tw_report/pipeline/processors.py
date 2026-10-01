@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Callable, Dict, List, Optional, Tuple
 from aw_core.models import Event
 
 from tw_report.core.filtering import EventFilter
-from tw_report.pipeline.models import ReportContext, ReportEvent, ReportMetrics
+from tw_report.pipeline.models import ReportContext, ReportMetrics
 
 if TYPE_CHECKING:
     from tw_report.core.report_slot import ReportTimelineSlot

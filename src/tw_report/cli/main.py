@@ -61,7 +61,6 @@ from tw_report.core.project_filtering import (
     get_events_by_projects,
     resolve_project_filter_value,
 )
-from tw_report.core.report_slot import ReportEntries
 from tw_report.core.task_filtering import (
     get_events_by_task,
     get_events_by_tasks,
@@ -364,8 +363,6 @@ def main():
     can_skip_window = is_filtered_task_mode and args.detail_level <= 2 and grouping_mode in ["day", "week", "month", "year"]
 
     # For opt-out: fetch windows by default, skip only in constrained cases
-    requires_window_data = not can_skip_window
-
     # AFK data is always needed for metrics and OFFLINE reconciliation
     requires_afk_data = True
 
