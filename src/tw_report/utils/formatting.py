@@ -311,42 +311,6 @@ def format_duration_with_gaps(
     return base_format
 
 
-def split_gaps_and_duration(
-    tracked_duration: timedelta,
-    productive_within: timedelta,
-    afk_duration: Optional[timedelta] = None,
-    offline_extension_duration: Optional[timedelta] = None,
-) -> tuple:
-    """Format duration and gaps as separate components for column-based layout.
-
-    Returns gaps and duration as separate strings for flexible formatting,
-    allowing gaps to be displayed in a dedicated column.
-
-    Args:
-        tracked_duration: Total time tracked
-        productive_within: Time spent on productive activities
-        afk_duration: Optional time away from keyboard
-        offline_extension_duration: Optional offline (system not running) time
-
-    Returns:
-        Tuple of (gaps_str, duration_str) where:
-        - gaps_str: Normalized gap notation like "(HH:MM:SS AFK)" (empty if no gaps)
-        - duration_str: Duration + productivity like "HH:MM:SS  [prod XX%]"
-    """
-    base_format = format_duration_tracked_prod(tracked_duration, productive_within)
-
-    gap_parts = []
-    if afk_duration and afk_duration.total_seconds() > 0:
-        gap_parts.append(f"{format_duration(afk_duration)} AFK")
-    if offline_extension_duration and offline_extension_duration.total_seconds() > 0:
-        gap_parts.append(f"{format_duration(offline_extension_duration)} OFFLINE")
-
-    if gap_parts:
-        gaps_str = ", ".join(gap_parts)
-        return (f"({gaps_str})", base_format)
-
-    return ("", base_format)
-
 
 def format_offline_task_duration(
     wall_clock_duration: timedelta, event_duration: timedelta, productive_duration: Optional[timedelta] = None
@@ -570,82 +534,6 @@ def abbreviate_project_path(
 
     return abbreviated
 
-
-def format_timeline_columns(
-    time_range: str,
-    project: str,
-    task: str,
-    gaps: str,
-    duration: str,
-    project_width: int = 28,
-    task_width: int = 35,
-    no_project_sentinel: str = "No project assigned",
-    right_align: bool = True,
-) -> str:
-    """Format timeline entry as fixed-width columns for alignment.
-
-    Creates a columnar layout where project and task are in fixed-width columns,
-    ensuring that gaps and duration stay aligned even when descriptions vary in length.
-    Duration is right-aligned to terminal width when right_align=True.
-
-    For "No project" entries, omits the task column decorator.
-
-    Args:
-        time_range: Time range like "00:00-11:30"
-        project: Project name (e.g., "No project assigned" or "Ecosistema > Cultivo")
-        task: Task name (e.g., "Revisar semillero" or "" for no project entries)
-        gaps: Gap notation like "(3:48:32 AFK)" or "" if no gaps
-        duration: Duration with productivity like "10:48:56  [prod  7%]"
-        project_width: Fixed width for project column (default 28 chars, reduced from 33)
-        task_width: Fixed width for task column (default 35 chars, reduced from 40)
-        no_project_sentinel: Value that indicates "no project" (default "No project assigned")
-        right_align: Right-align duration to terminal width (default True)
-
-    Returns:
-        Single-line formatted entry with fixed-width columns
-    """
-    # Build the line with fixed-width columns
-    # Format: "time  ▶project_col   ▶▶task_col  gaps [padded to terminal width] duration"
-
-    time_part = f"       {time_range}"  # Indent + time (7 spaces to align with date lines)
-
-    # Project column: "▶ project_name" padded to fixed width
-    project_part = f"▶ {project}".ljust(project_width + 2)  # +2 for "▶ "
-
-    # Task column: "▶▶ task_name" padded to fixed width
-    # IMPORTANT: Always pad to task_width to maintain column alignment
-    # Special case: if project is "no project", skip task decorator (just padding)
-    if project == no_project_sentinel:
-        task_part = " " * (task_width + 4)
-    elif task:
-        # Pad the decorated task to the fixed column width
-        task_part = f"▶▶ {task}".ljust(task_width + 4)  # +4 for "▶▶ "
-    else:
-        task_part = " " * (task_width + 4)
-
-    # Build the complete line with fixed columns and right-aligned right section
-    # Format: "time  project  task  [right-aligned: gaps  duration]"
-
-    left_part = f"{time_part}  {project_part}  {task_part}"
-    gaps_part = gaps if gaps else ""
-
-    # Build the right section (gaps + duration) and right-align it
-    if gaps_part:
-        right_part = f"{gaps_part}  {duration}"
-    else:
-        right_part = duration
-
-    # Right-align the right section to terminal width
-    if right_align:
-        width = get_terminal_width()
-        # Pad left_part to push right_part to the right edge
-        # Subtract 2 to account for the 2-space separator
-        full_line = left_part.ljust(width - len(right_part) - 2) + "  " + right_part
-    else:
-        full_line = left_part + "  " + right_part
-
-    # Trim excessive trailing spaces only at the very end
-    return full_line.rstrip()
 
 
 def format_timeline_line(

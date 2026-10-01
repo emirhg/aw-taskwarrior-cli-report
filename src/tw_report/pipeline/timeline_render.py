@@ -248,40 +248,6 @@ def _to_local_time(dt: datetime) -> datetime:
     return dt
 
 
-def _render_system_shutdown_separator(break_duration: Optional[timedelta] = None, width: int = 180) -> None:
-    """Print a break row showing duration between work sessions.
-
-    Args:
-        break_duration: Duration of the break (gap between slots)
-        width: Terminal width for alignment (default 180)
-    """
-    from tw_report.utils.formatting import display_width, ljust_display
-
-    # Use the BREAK column to show break duration
-    break_col = format_break_column(break_duration)
-
-    # Left section: empty (for alignment with time column)
-    left_section = " " * 87  # Match header_left_section width
-
-    # Right section: BREAK column + empty OFFLINE/AFK/ACTIVE (8 + 12 + 12 + 8 + 14 = 54)
-    right_section = (ljust_display(break_col, 8) +
-                     ljust_display("", 12) +  # OFFLINE blank
-                     ljust_display("", 12) +  # AFK blank
-                     ljust_display("", 8) +   # ACTIVE blank
-                     ljust_display("", 14))   # PRODUCTIVITY blank
-
-    # Build break row with proper alignment
-    left_section_width = display_width(left_section)
-    right_section_width = display_width(right_section)
-    left_padding = width - left_section_width - right_section_width - 2
-
-    if left_padding < 0:
-        break_line = left_section + "  " + right_section
-    else:
-        break_line = left_section + (" " * left_padding) + "  " + right_section
-
-    print(break_line.rstrip())
-
 
 def _create_period_metrics_from_dict(
     online: Optional[timedelta] = None,
@@ -342,27 +308,6 @@ def _render_embedded_afk_slots(afk_slots: List[Dict], width: int) -> None:
         # Indent with 12 spaces (more than work slots) and add └─ prefix
         left = f"           └─ {time_range}"
         print(format_timeline_line(left, duration_str=slot_dur_str, max_left_width=95))
-
-
-def _format_project_task_columns(project_name: str, task_name: str) -> str:
-    """Format project and task as aligned columns.
-
-    For "No project assigned" entries, shows only the project (no task decorator).
-    For normal entries, shows both with proper alignment.
-
-    Args:
-        project_name: Full project name (e.g., "Ecosistema > Cultivo > Hikuri" or "No project assigned")
-        task_name: Task name (e.g., "Revisar semillero de Hikuri" or "No task assigned")
-
-    Returns:
-        Formatted string with project and task in aligned columns
-    """
-    if project_name == NO_PROJECT:
-        # Special case: no project - just show project name, skip task decorator
-        return f"▶ {project_name}"
-    else:
-        # Normal case: show both project and task
-        return f"▶ {project_name} ▶▶ {task_name}"
 
 
 def _get_displayed_duration(slot: Union[Dict, "ReportTimelineSlot"]) -> timedelta:
