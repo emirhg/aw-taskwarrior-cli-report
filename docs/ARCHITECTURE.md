@@ -2,7 +2,7 @@
 
 ## Overview
 
-`tw-report` is a world-class Python CLI project using **src-layout** structure with modular extraction, comprehensive testing, and CI/CD pipeline. The monolithic `tw-report.py` has been fully refactored into organized subpackages.
+`tw-report` is a world-class Python CLI project using **src-layout** structure with modular extraction, comprehensive testing, and CI/CD pipeline. The application has been fully refactored into organized subpackages.
 
 **Project structure:** Phases 0-12 complete ✅
 - **Phases 1-2:** Dead code removal, packaging foundation, logging, CI/CD
@@ -28,10 +28,10 @@ work_report/
 │   ├── core/                      # Core business logic
 │   │   ├── __init__.py
 │   │   ├── categories.py          # Category rules loading & matching (Phase 5)
-│   │   ├── consolidation.py       # TimelineSlotManager class
+│   │   
 │   │   ├── events.py              # ActivityWatch event fetching (Phase 5)
 │   │   ├── filtering.py           # EventFilter class
-│   │   ├── offline.py             # OfflineTaskProcessor class
+│   │   
 │   │   ├── period.py              # Period keyword parsing (Phase 5)
 │   │   ├── task_matching.py       # Task correlation logic (Phase 6)
 │   │   ├── timeline.py            # Timeline slot data structures
@@ -59,11 +59,11 @@ work_report/
 │   │   ├── test_args.py           # CLI argument parsing (32 tests)
 │   │   ├── test_categories.py     # Category loading & matching (18 tests)
 │   │   ├── test_config.py         # Config file support (16 tests)
-│   │   ├── test_consolidation.py  # Slot consolidation
+│   │   
 │   │   ├── test_events.py         # Event fetching with mocks (13 tests)
 │   │   ├── test_filtering.py      # EventFilter & issue regressions
 │   │   ├── test_formatting.py     # Duration/title formatting (54 tests)
-│   │   ├── test_offline.py        # OfflineTaskProcessor & issue fixes
+│   │   
 │   │   ├── test_period.py         # Period keyword parsing (15 tests)
 │   │   ├── test_report_render.py  # Hierarchical report output (15 tests)
 │   │   ├── test_task_matching.py  # Task correlation (22 tests)
@@ -197,7 +197,7 @@ work_report/
   - 15 unit tests with capsys golden-output testing
 
 - **`timeline_render.py` (Phase 8b)**
-  - `print_timeline_report()`: Timeline report rendering (--timesheet mode)
+  - `print_timeline_report()`: Timeline report rendering (--by-project mode)
   - `split_slots_spanning_days()`: Multi-day slot handling
   - Date/week-organized display with proportional duration allocation
   - Offline-task singleton handling
@@ -217,7 +217,7 @@ work_report/
 
 - **`logging.py` (Phase 2)**
   - `configure_logging()`: Set up structured logging for `tw_report` namespace
-  - Supports `--verbose` (INFO level) and `--debug` (DEBUG level)
+  - Supports `--detail-level` (INFO level) and `--by-day` (DEBUG level)
   - Stderr output with formatted messages
 
 ### `tw_report/config.py` - Configuration (Phase 11)
@@ -282,13 +282,13 @@ pip install -e .[dev]         # Install with dev dependencies (pytest, ruff, myp
 ### Execute
 ```bash
 # Via installed console script (after pip install -e .)
-tw-report :today --detail-level 2 --timesheet
+tw-report :today --detail-level 2 --by-project
 
 # Via development wrapper
-./bin/tw-report :today --detail-level 2 --timesheet
+./bin/tw-report :today --detail-level 2 --by-project
 
 # Via Python module
-python -m tw_report.cli.main :today --detail-level 2 --timesheet
+python -m tw_report.cli.main :today --detail-level 2 --by-project
 ```
 
 ### Run tests
@@ -368,13 +368,13 @@ Each exception includes a **CONTEXT docstring** documenting:
 ### Logging Levels
 
 - **WARNING:** Non-fatal errors (AW connection, category load failure)
-- **INFO:** User-requested verbosity (--verbose)
-- **DEBUG:** Developer debugging (--debug)
+- **INFO:** User-requested verbosity (--detail-level)
+- **DEBUG:** Developer debugging (--by-day)
 
 Example:
 ```bash
-tw-report :today --verbose          # INFO level logging
-tw-report :today --debug            # DEBUG level logging
+tw-report :today --detail-level          # INFO level logging
+tw-report :today --by-day            # DEBUG level logging
 tw-report :today                    # WARNING level (default)
 ```
 
@@ -394,14 +394,14 @@ The project includes several key optimizations to handle large time periods effi
 
 ### OFFLINE Task Window Reconciliation (2026-07-22)
 - **Location:** `src/tw_report/cli/main.py:407-420`
-- **Impact:** 10x faster for `--task <uuid> --timesheet :all` queries
+- **Impact:** 10x faster for `--task <uuid> --by-project :all` queries
 - **How it works:** Reuses time-range optimization when re-fetching windows for OFFLINE task reconciliation
 - **Example:** 186K events → 1.9K events; 2.8s → 0.023s for gap generation
 
 ### Benchmark Results
 
 ```
-Example: tw-report --task e7e9d2b1-9f68-484c-ad44-29c9e5889027 --timesheet :all
+Example: tw-report --task e7e9d2b1-9f68-484c-ad44-29c9e5889027 --by-project :all
 
 Before optimization:  95+ seconds (1m 35s)
 After optimization:   ~10 seconds

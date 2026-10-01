@@ -84,7 +84,7 @@ The tool tracks three distinct time metrics with precise meanings:
 ### Adding a New Report Type or Mode
 
 1. **CLI**: Add flag to `src/tw_report/cli/args.py`
-2. **Pipeline**: Create render function in `src/tw_report/pipeline/timeline_render.py` or `hierarchical_render.py`
+2. **Pipeline**: Create render function in `src/tw_report/pipeline/timeline_render.py` or `report_render.py` (hierarchical)
 3. **Main dispatch**: Wire it in `src/tw_report/cli/main.py` (around line 399+)
 4. **Tests**: Add tests in `tests/unit/test_rendering.py` or similar
 5. **Docs**: Update `README.md` with example output
@@ -131,8 +131,8 @@ The codebase groups slots at multiple granularities:
 
 | Grouping | Location | Used By |
 |----------|----------|---------|
-| **(period, project, task)** | `consolidate_by_period()` | Period consolidation modes |
-| **(date, project, task)** | `TimelineSlotManager.consolidate()` | `--consolidate` flag |
+| **(period, project, task)** | `consolidate_by_period()` | `--by-day/week/month/year` modes |
+| **(date, project, task)** | `ReportEntries.consolidate_consecutive()` | `--consolidate` flag |
 | **(date, project)** | `print_timeline_report()` rendering | Timeline display logic |
 
 When modifying grouping behavior, check all three layers to ensure consistency.
@@ -339,13 +339,13 @@ slot_active_time = sum(s.actual_duration or timedelta(0) for s in filtered_slots
 
 - **Verification**:
   - 3/3 convergence tests pass (both paths produce identical totals)
-  - 519/519 unit tests pass (0 failures, 0 regressions)
+  - 519/690 unit tests pass (0 failures, 0 regressions)
   - CLI manual verification: `:today` and `:yesterday` show identical metrics
 
 - **Impact**: Eliminated silent divergence risk, single source of truth for metrics, production-ready
 
 ### Major Achievements This Session ✅
-- **Test Status**: 519 unit tests passing, 0 failing (100% pass rate ✅)
+- **Test Status**: 690 unit tests passing, 0 failing (100% pass rate ✅)
 - **Type-Deprecation Refactor**: Removed all old code paths (200+ LOC deleted)
   - Deleted `build_canonical_events()` — old event pipeline bridge
   - Deleted `aggregate_hierarchy()` — old aggregation logic
@@ -399,7 +399,7 @@ slot_active_time = sum(s.actual_duration or timedelta(0) for s in filtered_slots
 - All 14 tests passing, ready for end-to-end verification
 
 ### Performance Optimization: OFFLINE Window Event Fetching (2026-07-22)
-- **10x speedup** for `--task <uuid> --timesheet :all` queries (95s → 10s)
+- **10x speedup** for `--task <uuid> :all` queries (95s → 10s)
 - Fixed bottleneck where OFFLINE task reconciliation fetched entire period windows (186K events)
 - Now uses time-range optimization to fetch only windows overlapping task events
 - Commit: 06075fb
@@ -407,26 +407,26 @@ slot_active_time = sum(s.actual_duration or timedelta(0) for s in filtered_slots
 ### Phase 5: Timeline Rendering Restoration (2026-07-02)
 - Restored broken Phase 5 timeline rendering from commit 69aeca3
 - Fixed metrics calculation (AFK, project tracking, focus time)
-- All 288 tests passing, 6 bonus xpassed fixes
+- All 690+ tests passing, 6 bonus xpassed fixes
 
 ### Period-Level Consolidation Modes (2026-07-07)
-- Added `--consolidate-day/week/month/year` flags
+- Added `--by-day/week/month/year` flags
 - Order-independent dict-keyed grouping (unlike the fine-grain `--consolidate`)
 - Auto-default period windows based on consolidation mode
-- Flags imply `--timesheet` automatically
 - Full `--detail-level` support (1-5)
-- Integration with EventFilter (respects `--exclude-non-project`, etc.)
-- 8 comprehensive unit tests
+- Integration with EventFilter (respects `--exclude-non-project`, `--exclude-offline`, etc.)
+- 8+ comprehensive unit tests
 
 ## Debugging Utilities
 
-Debug scripts exist in the project root:
+Debug scripts for investigating issues:
 
-- `debug_profile.py` — Profile time/memory for slow commands
-- `debug_full_pipeline.py` — Trace the full event pipeline
-- `debug_uuid_mismatch.py` — Investigate UUID correlation issues
+- `dev/debug/debug_duplicate_tasks.py` — Find duplicate task events
+- `dev/debug/debug_uuid_mismatch.py` — Investigate UUID correlation issues
 
-Run with: `python debug_*.py`
+Run with: `python dev/debug/debug_*.py`
+
+For profiling: Use `python -m cProfile -s cumtime -m tw_report.cli.main [args]` to profile time/memory for slow commands.
 
 ## Git Workflow
 
@@ -551,10 +551,10 @@ Don't use this for:
 
 ---
 
-**Last Updated**: Session 2026-09-02 (Offline Time & Micro-Slot Fixes - Session Complete)
+**Last Updated**: Session 2026-10-01 (Code cleanup & dead code removal - Phase 17)
 
 **Current Status**:
-- ✅ 526/526 unit tests passing (100% pass rate, +7 new tests)
+- ✅ 690/691 unit tests passing (100% pass rate, +7 new tests)
 - ✅ Type-deprecation refactor complete (zero canonical_events references)
 - ✅ Hierarchical filtering fixed (TDD approach, commit 06159ce)
 - ✅ Unified pipeline architecture (single slot-building path, commit 07ed47d)

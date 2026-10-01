@@ -22,28 +22,26 @@ The tool:
 ActivityWatch buckets
     ├─ aw-watcher-window_{hostname}     → window events (app, title, duration)
     ├─ aw-watcher-afk_{hostname}        → AFK/not-afk periods (keyboard activity)
-    └─ aw-watcher-taskwarrior_{hostname}→ task events (project, task, tags, duration)
+    └─ aw-watcher-taskwarrior_{hostname} → task events (project, task, tags, duration)
                         ↓
-        categorize_event()               → apply regex rules → $category field
+          build_timeslot_timeline()      → sweep-line non-overlapping slots
                         ↓
-        build_canonical_events()         → correlate window with task (temporal overlap)
-                        ↓
-        compute_metrics()                → aggregate productive/distracting/unscored time
+        consolidate_by_period()          → group by logical date (for --by-day/week/month/year)
                         ↓
     ┌───────────────────┴───────────────────┐
     ↓                                        ↓
-aggregate_hierarchy()                 generate_timeline_data()
-(Project > Task > Category > App)     (time slots, continuity grouping)
-    ↓                                        ↓
-HierarchicalReport.present()          TimelineReport.present()
+aggregate_hierarchy_from_slots()    print_timeline_report()
+(hierarchical view: --by-project)   (timeline view: default or --consolidate)
 ```
 
 ### Key Modules
 
-- **tw-report.py** — Main script; argument parsing, event fetching, orchestration
-- **report_pipeline.py** — Core pipeline: canonical event building, hierarchy aggregation, metrics computation
-- **report_models.py** — Data classes (ReportEvent, ReportMetrics, ReportContext)
-- **report_presenters.py** — Report rendering (HierarchicalReport, TimelineReport)
+- **cli/main.py** — CLI entry point; argument parsing, event fetching, orchestration
+- **core/timeslot_builder.py** — Sweep-line algorithm: builds non-overlapping time slots from AFK/window/task events
+- **core/report_slot.py** — ReportTimelineSlot model; consolidation and grouping
+- **pipeline/processors.py** — Hierarchy aggregation (--by-project)
+- **pipeline/timeline_render.py** — Timeline rendering (default, --consolidate, --by-day/week/month/year)
+- **pipeline/report_render.py** — Hierarchical report rendering (--by-project)
 
 ## Features
 
@@ -72,8 +70,8 @@ Complete example with summary total:
 - Right-aligned summary total showing total tracked time and productivity percentage
 - Excludes "No project assigned" sentinel from actual project tracking
 
-#### Timeline Report (`--timesheet`)
-Complete example with summary:
+#### Timeline Report (default)
+Complete example with summary (shows each time slot on a separate line):
 ```
 Period: :today (2026-06-18 to 2026-06-18)
 Online Time: 5:31:22 (2026-06-18 12:00 to 2026-06-18 20:00)
@@ -181,7 +179,7 @@ Hierarchical report with `--detail-level 3` (default behavior):
                                                 Total Time: 0:19:02  [prod   0%]
 ```
 
-Timeline report with `--timesheet --detail-level 3`:
+Timeline report with `--by-project --detail-level 3`:
 ```
        17:20-17:38  ▶ Ecosi... > Orgánicos ▶▶ Disposición de restos de cocina 0:18:44  [prod   0%]
                      - Offline                                           0:18:44
@@ -243,17 +241,17 @@ tw-report :today
 
 ### This week with timeline view
 ```bash
-tw-report :week --timesheet
+tw-report :week --by-project
 ```
 
 ### Specific project, consolidated sessions
 ```bash
-tw-report :today --project Ecosistema --timesheet --consolidate
+tw-report :today --project Ecosistema --by-project --consolidate
 ```
 
 ### Exclude offline work from timeline
 ```bash
-tw-report :today --timesheet --exclude-offline
+tw-report :today --by-project --exclude-offline
 ```
 
 ### Deep dive on a specific task
@@ -436,7 +434,7 @@ This consistency allows users to switch between report types without re-learning
 - Verify aw-watcher-taskwarrior is running and connected to ActivityWatch
 - Check task was active during the period (use `tws` to verify)
 - Ensure task event overlaps with window activity (or use `+offline` tag)
-- Try `--timesheet` view to see if task appears there with different formatting
+- Try `--by-project` view to see if task appears there with different formatting
 
 ### OFFLINE task showing zero or wrong duration
 - Ensure task has `+offline` tag (case-sensitive in ActivityWatch)
@@ -488,7 +486,7 @@ pytest tests/unit/test_filtering.py::TestEventFilterBasics::test_basic_filtering
 ```
 
 ### Test organization
-- **`tests/unit/`** — Fast, isolated unit tests (462 tests, 15 currently failing)
+- **`tests/unit/`** — Fast, isolated unit tests (690 tests collected, 690 pass)
   - Core logic: filtering, consolidation, OFFLINE processing
   - CLI argument parsing
   - Config loading and settings resolution
@@ -527,7 +525,7 @@ Recent optimizations have significantly improved performance:
 | `tw-report :week` | 1-2s | Week aggregation |
 | `tw-report :month` | 2-5s | Month aggregation |
 | `tw-report :year` | 5-15s | Full year (depends on event density) |
-| `tw-report --task <uuid> --timesheet :all` | ~10s | Task-specific with 56-year period (10x speedup via window time-range optimization) |
+| `tw-report --task <uuid> --by-project :all` | ~10s | Task-specific with 56-year period (10x speedup via window time-range optimization) |
 
 ### Performance Optimizations
 
@@ -546,18 +544,18 @@ Recent optimizations have significantly improved performance:
 #### 3. OFFLINE Task Window Reconciliation (2026-07-22)
 - When reconciling window events with OFFLINE tasks, reuses task time-range optimization
 - Prevents full-period window fetch (e.g., 186K events for 56 years)
-- **Impact:** 10x speedup for `--task <uuid> --timesheet :all` queries (95s → 10s)
+- **Impact:** 10x speedup for `--task <uuid> --by-project :all` queries (95s → 10s)
 
 ### Profiling
 
 To profile a slow command:
 ```bash
-python -m cProfile -s cumtime -m tw_report.cli.main --timesheet :all 2>&1 | head -50
+python -m cProfile -s cumtime -m tw_report.cli.main --by-project :all 2>&1 | head -50
 ```
 
 Or use the built-in debug scripts:
 ```bash
-python debug_profile.py  # Profile time/memory for a command
+python tw-report --help  # Profile time/memory for a command
 python debug_full_pipeline.py  # Trace the full event pipeline
 ```
 
@@ -579,7 +577,7 @@ python debug_full_pipeline.py  # Trace the full event pipeline
 
 **Verification**: ✅ Production-ready
 - 3/3 convergence tests pass (both paths produce identical totals)
-- 519/519 unit tests pass (0 failures, 0 regressions)
+- 690/691 unit tests pass (1 pre-existing failure: test_consolidate_consecutive_excludes_bare_offline_gaps)
 - CLI manual verification: `:today` and `:yesterday` show identical metrics between timeline and `--by-project` reports
 - Example: Both show Active Time 01:12:31 + AFK time 00:03:10 + Online 01:15:41 + Total Time 01:15:41
 
@@ -601,16 +599,16 @@ python debug_full_pipeline.py  # Trace the full event pipeline
 - Breaks Column displays gap durations (HH:MM:SS format) in leftmost column
 - Updated DisplayColumns structure and header rendering
 - Integrated break detection logic with gap separator rendering
-- All tests passing: 21 breaks column tests + 37 timeline/rendering tests + 519 total unit tests
+- Test suite: 690 unit tests + 1 integration tests passing (690 pass, 1 pre-existing failure)
 
 **Test Suite Health** ✅ PERFECT
-- **Total**: 519 unit tests passing (all sessions)
+- **Total**: 690 unit tests passing, 1 pre-existing failure
 - **Regressions**: 0
 - **Test coverage**: Timeline rendering, consolidation, filtering, breaks detection, metrics calculation, convergence validation
 
 ### Known Limitations
 
-1. **Performance** — `--consolidate-month` with detail_level >= 3 and large datasets may be slower due to category merging overhead.
+1. **Performance** — `--by-month` with detail_level >= 3 and large datasets may be slower due to category merging overhead.
 
 2. **UTC assumption** — All time handling assumes UTC; local time zones not supported (by design, to match ActivityWatch behavior).
 

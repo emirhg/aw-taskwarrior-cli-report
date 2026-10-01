@@ -2,7 +2,7 @@
 
 **Status:** ✅ Complete  
 **Tests:** 8 new unit tests, all passing (61/61 consolidation + args tests)  
-**Feature:** `--consolidate-day`, `--consolidate-week`, `--consolidate-month`, `--consolidate-year`
+**Feature:** `--by-day`, `--by-week`, `--by-month`, `--by-year`
 
 ## Overview
 
@@ -14,16 +14,16 @@ Each flag shows **one line per (period, project)** with just total duration + pr
 
 ```bash
 # See time spent per week on Climb for a year
-tw-report --project Climb :year --timesheet --consolidate-week
+tw-report --project Climb :year --timesheet --by-week
 
 # See time spent per month on all projects
-tw-report :year --timesheet --consolidate-month
+tw-report :year --timesheet --by-month
 
 # See time spent per day on a specific task for a month range
-tw-report "2026-04-01 2026-04-30" --task "Documentar" --consolidate-day
+tw-report "2026-04-01 2026-04-30" --task "Documentar" --by-day
 
 # See total time spent on all projects this year (one line!)
-tw-report :year --timesheet --consolidate-year
+tw-report :year --timesheet --by-year
 ```
 
 ## Output Format
@@ -70,20 +70,20 @@ W16 2026-04-13 - 2026-04-19
 Unlike the existing `--consolidate` (which does a consecutive-run merge within the same (date, project, task) group), these modes use a **dict-keyed group-by** across the entire slot list. Every slot for a given (period_bucket, project) is summed together **regardless of order or task**. This gives the true "time spent on X in period Y" view.
 
 ### 2. Mutually Exclusive Flags
-The four new flags (`--consolidate-day/week/month/year`) are mutually exclusive with each other and with the existing `--consolidate` flag. Only one can be used per invocation:
+The four new flags (`--by-day/week/month/year`) are mutually exclusive with each other and with the existing `--consolidate` flag. Only one can be used per invocation:
 
 ```bash
-tw-report --consolidate-day --consolidate-week :month  # ✗ Error: not allowed
-tw-report --consolidate --consolidate-day :month       # ✗ Error: not allowed
-tw-report --consolidate-day :month                     # ✓ OK
+tw-report --by-day --by-week :month  # ✗ Error: not allowed
+tw-report --consolidate --by-day :month       # ✗ Error: not allowed
+tw-report --by-day :month                     # ✓ OK
 ```
 
 ### 3. Universal Filter Compatibility
 These modes work with **any** filter (`--project`, `--task`, `--app`) since they operate on already-filtered `slots` (the EventFilter is applied first, then consolidation happens on the result). This allows queries like:
 
 ```bash
-tw-report --task 48 :month --consolidate-month         # Time per month on task 48
-tw-report --app Slack :year --consolidate-week         # Slack time per week
+tw-report --task 48 :month --by-month         # Time per month on task 48
+tw-report --app Slack :year --by-week         # Slack time per week
 ```
 
 ### 4. Intuitive Sorting
@@ -133,17 +133,17 @@ Prints one line per (period, project), then a period-level total, no start/end t
 - ✅ `test_consolidate_by_period_includes_afk` — AFK time accumulates per group
 - ✅ `test_consolidate_by_period_sorting` — sorted by period then descending duration
 
-All tests use minimal dict fixtures matching TimelineSlot's contract.
+All tests use minimal dict fixtures matching ReportTimelineSlot's contract.
 
 ## Comparison: `--consolidate` vs Period Modes
 
-| Aspect | `--consolidate` | `--consolidate-{day\|week\|month\|year}` |
+| Aspect | `--consolidate` | `--by-{day\|week\|month\|year}` |
 |--------|---|---|
 | **Granularity** | Fine-grain (per date, project, task) | Coarse-grain (per period, project only) |
 | **Grouping** | Order-dependent consecutive runs | Order-independent dict-keyed |
 | **Shows time range** | Yes (start-end times on same line) | No (no time range makes sense) |
-| **Best for** | Detailed timesheet, hourly accountability | Summary view, "time spent on X per period" |
-| **Works with** | `--timesheet --consolidate` together | Can be used alone; ignores `--timesheet` |
+| **Best for** | Detailed timeline view, hourly accountability | Summary view, "time spent on X per period" |
+| **Works with** | `--consolidate` with default timeline view | Works standalone; groups by period |
 
 ## Edge Cases
 
@@ -163,5 +163,5 @@ Accumulated into the `afk_duration` field of their (period, project) group. If a
 
 1. **Relative date grouping** — e.g., `--consolidate-last-7-days` (would just be a new period mode internally)
 2. **CSV/JSON export** — structured output for data analysis
-3. **Comparison** — `--consolidate-week --compare-to-last-year` to see week-over-week change
+3. **Comparison** — `--by-week --by-year` to see week-over-week change
 4. **Filtering within consolidation** — e.g., show only projects >5 hours in a period
