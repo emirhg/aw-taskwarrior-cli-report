@@ -1,9 +1,4 @@
-"""
-Pytest configuration and fixtures for tw-report tests.
-
-This module provides test data fixtures that reproduce real-world scenarios
-including the documented bugs from DIAGNOSIS.md and IMPLEMENTATION_GUIDE.md.
-"""
+"""Pytest configuration and fixtures for tw-report tests."""
 
 import pytest
 from datetime import datetime, timedelta, timezone
