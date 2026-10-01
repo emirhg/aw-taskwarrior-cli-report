@@ -2,108 +2,164 @@
 
 A sophisticated timesheet reporting tool that correlates ActivityWatch activity data with Taskwarrior tasks, generating hierarchical and timeline-based work reports with productivity metrics.
 
-## Overview
+**Answer: "Where did my time go, and what was I supposed to be working on?"**
 
-`tw-report.py` bridges ActivityWatch (time tracking) and Taskwarrior (task management) to answer: **"Where did my time go, and what was I supposed to be working on?"**
+---
 
-The tool:
-- Fetches window activity from ActivityWatch (what apps/windows were focused)
-- Fetches task events from Taskwarrior (what tasks were active)
-- Correlates them temporally to attribute window time to tasks
-- Categorizes activities (Coding, Communication, etc.) via configurable regex rules
-- Generates hierarchical or timeline reports showing time spent by project/task/category/app
-- Calculates productivity scores based on category weights
+## Quick Start (5 minutes)
 
-## Architecture
+### Prerequisites
 
-### Data Flow
+You need:
+- **ActivityWatch** running on `localhost:5600` ([download](https://activitywatch.net/))
+- **Taskwarrior** with tasks created (`task add "My task"`)
+- **Python 3.8+**
 
-```
-ActivityWatch buckets
-    ├─ aw-watcher-window_{hostname}     → window events (app, title, duration)
-    ├─ aw-watcher-afk_{hostname}        → AFK/not-afk periods (keyboard activity)
-    └─ aw-watcher-taskwarrior_{hostname} → task events (project, task, tags, duration)
-                        ↓
-          build_timeslot_timeline()      → sweep-line non-overlapping slots
-                        ↓
-        consolidate_by_period()          → group by logical date (for --by-day/week/month/year)
-                        ↓
-    ┌───────────────────┴───────────────────┐
-    ↓                                        ↓
-aggregate_hierarchy_from_slots()    print_timeline_report()
-(hierarchical view: --by-project)   (timeline view: default or --consolidate)
+### Installation
+
+```bash
+git clone <repository>
+cd work_report
+pip install -e .
 ```
 
-### Key Modules
+### First Command
 
-- **cli/main.py** — CLI entry point; argument parsing, event fetching, orchestration
-- **core/timeslot_builder.py** — Sweep-line algorithm: builds non-overlapping time slots from AFK/window/task events
-- **core/report_slot.py** — ReportTimelineSlot model; consolidation and grouping
-- **pipeline/processors.py** — Hierarchy aggregation (--by-project)
-- **pipeline/timeline_render.py** — Timeline rendering (default, --consolidate, --by-day/week/month/year)
-- **pipeline/report_render.py** — Hierarchical report rendering (--by-project)
+```bash
+# Start ActivityWatch if not running
+aw-server &
 
-## Features
-
-### Report Types
-
-#### Hierarchical Report (default)
-Complete example with summary total:
-```
-▶ Project: No project assigned (19.71)                                  3:48:31
-  • Task: No task assigned (19.71)                                      3:48:31
-
-▶ Project: Ecosistema > Cultivo > Higuera (0.10)                        0:00:18
-  • Task: Control de plagas (0.10)                                      0:00:18
-
-▶ Project: Ecosistema > Tratamiento de residuos > Orgánicos (0.00)      0:18:44
-  • Task: Disposición de restos de cocina (0.00)                        0:18:44
-
-                                                Total Time: 0:19:02  [prod   0%]
-================================================================================
+# Run the report for today
+tw-report :today
 ```
 
-**Key features:**
-- Projects grouped by productivity score (descending)
-- Nested hierarchy: Project > Task > Category > App > Title
-- Parenthesized score shows total productivity points for that level
-- Right-aligned summary total showing total tracked time and productivity percentage
-- Excludes "No project assigned" sentinel from actual project tracking
-
-#### Timeline Report (default)
-Complete example with summary (shows each time slot on a separate line):
+You should see a report like:
 ```
-Period: :today (2026-06-18 to 2026-06-18)
-Online Time: 5:31:22 (2026-06-18 12:00 to 2026-06-18 20:00)
-  • Active Time: 4:02:13
-  • AFK time: 1:29:09
-  • Project Tracking: 7.9% (0:19:02)
-  • Focus time: 1.6% (0:00:18)
-...
-Wk  Date       Day
-W25 2026-06-18 Thu
-       12:00-12:11  ▶ No project ▶▶ No task           0:10:27  [prod   0%]
-      *12:11-12:16  ▶ No project ▶▶ No task           0:04:55  [   AFK   ]
-       17:18-17:19  ▶ Ecosistema > Higuera ▶▶ Control de plagas 0:00:18  [prod 100%]
-       17:20-17:38  ▶ Ecosistema > Orgánicos ▶▶ Disposición... 0:18:44  [prod   0%]
-      *18:07-18:53  ▶ No project ▶▶ No task           0:46:13  [   AFK   ]
+▶ Project: MyProject (10.25)                                              1:30:45
+  • Task: My task (10.25)                                                 1:30:45
 
-                                                Total Time: 5:29:26  [prod  36%]
-================================================================================
+                                                Total Time: 1:30:45  [prod 100%]
 ```
 
-**Key features:**
-- Continuous time slots showing actual work sessions
-- **Visual gap separation**: Blank lines appear between work sessions with gaps > 5 minutes
-  - Helps distinguish work sessions from breaks, system shutdowns, or mode changes
-  - Improves readability and makes work session boundaries clear
-  - Threshold is configurable (default: 5 minutes)
-- `[prod XX%]` shows productivity percentage for that slot
-- `[AFK]` marks keyboard/mouse idle periods
-- Right-aligned summary total (same format as hierarchical)
-- Asterisk `*` marks AFK periods
+**Done!** See "Understanding the Output" below to read the report.
 
-### Time Period Selection
+---
+
+## What This Tool Does
+
+`tw-report` bridges two tools:
+
+1. **ActivityWatch** — Tracks what window you're focused on (app, window title, duration)
+2. **Taskwarrior** — Records what task you're supposed to be working on
+
+The tool correlates them to answer:
+- **Where was my time?** (which projects, tasks, apps, categories)
+- **How productive was I?** (scored by category: Coding=10, Social=negative, etc.)
+- **What did I neglect?** (time in "No project assigned")
+
+### Example Workflow
+
+```
+10:00 → 10:45  Focus on Coding (kitty window)  + Task: "Build feature X"  →  0:45 Coding
+10:45 → 11:00  AFK (coffee break)                                          →  0:15 AFK
+11:00 → 12:30  Focus on Slack                   + Task: "Build feature X"  →  1:30 Communication
+                                                                ↓
+                                    Productivity Report:
+                                    Project: Build feature X
+                                      Task: Build feature X
+                                        Coding: 0:45 [score 10]
+                                        Communication: 1:30 [score 3]
+                                    Total: 2:15 [productivity 36%]
+```
+
+---
+
+## Understanding the Output
+
+### Report Formats
+
+**Two views available** (default is hierarchical):
+
+#### Timeline View (default)
+Shows each time slot on a separate line:
+```
+       12:00-12:45  ▶ MyProject ▶▶ Feature A      0:45:00  [prod 100%]
+      *12:45-13:00  ▶ (idle)                       0:15:00  [   AFK   ]
+       13:00-14:30  ▶ MyProject ▶▶ Feature A      1:30:00  [prod  50%]
+
+                                                Total Time: 2:45:00  [prod  60%]
+```
+
+**Column meanings:**
+- `12:00-12:45` — Time range you worked
+- `▶ MyProject ▶▶ Feature A` — Project > Task
+- `0:45:00` — How long you worked on this
+- `[prod 100%]` — Productivity percentage (time in high-score categories / total time)
+- `*` — Marks AFK periods (idle)
+
+#### Hierarchical View (with `--by-project`)
+Groups by project tree:
+```
+▶ Project: MyProject (10.25)                                              2:15:00
+  • Task: Feature A (10.25)                                               2:15:00
+
+                                                Total Time: 2:15:00  [prod  60%]
+```
+
+**Meanings:**
+- `(10.25)` — Productivity score for that level (higher = more productive)
+- `2:15:00` — Total time spent
+- `[prod 60%]` — Productivity percentage
+
+### Understanding Metrics
+
+| Metric | Meaning | Example |
+|--------|---------|---------|
+| **Total Time** | Time actually worked (tracked) | 2:15:00 |
+| **[prod XX%]** | Productivity = (productive mins / total mins) × 100 | [prod 60%] = worked 60% on high-value tasks |
+| **[AFK]** | Away from keyboard (idle, but system still recording) | `[AFK]` shows inactive periods |
+| `*` asterisk | Marks idle periods in timeline | `*12:45-13:00` = idle for 15 min |
+
+### Report Header (explains the day)
+
+```
+Online Time: 5:31:22      → Time system was actively tracking (AFK + non-AFK)
+  • Active Time: 4:02:13  → Time you actively used keyboard/mouse (excludes AFK)
+  • AFK time: 1:29:09     → Time you were idle (system still recording)
+  • Project Tracking: 7.9% → How much time was assigned to tasks
+  • Focus time: 1.6%      → Time spent on high-priority activities
+```
+
+---
+
+## How to Use
+
+### Basic Commands
+
+```bash
+# Today's report (default timeline view)
+tw-report :today
+
+# This week's report
+tw-report :week
+
+# Hierarchical (grouped by project)
+tw-report :today --by-project
+
+# Yesterday
+tw-report :yesterday
+
+# Specific date
+tw-report 2026-06-18
+
+# Date range
+tw-report 2026-06-01 2026-06-30
+
+# All time
+tw-report :all
+```
+
+### Time Period Options
 
 - `:today` — Current day
 - `:yesterday` — Previous day
@@ -113,542 +169,317 @@ W25 2026-06-18 Thu
 - `:lastmonth` — Previous month
 - `:year` — Current year (Jan 1-today)
 - `:lastyear` — Previous calendar year
-- `:all` — All history
+- `:all` — All recorded history
 - `2026-06-18` — Specific date
-- `2026-06-18 2026-06-25` — Date range
+- `2026-06-01 2026-06-30` — Date range
 
-### Filtering
+### Filtering & Display
 
-- `--project PATTERN` — Show only matching projects (partial match, repeatable for OR)
-- `--task PATTERN` — Filter by task name
-- `--app PATTERN` — Filter by application
-- `--exact` — Use exact (case-insensitive) matching instead of partial
-- `--exclude-project NAME` — Exclude exact project match
-- `--exclude-task NAME` — Exclude exact task
-- `--exclude-app NAME` — Exclude exact app
+```bash
+# Show only specific project
+tw-report :today --project Ecosistema
 
-### Categorization
+# Show only specific task
+tw-report :today --task "Control de plagas"
 
-Activities are categorized via regex rules from ActivityWatch settings:
-```json
-{
-  "classes": [
-    {
-      "name": ["Coding"],
-      "rule": {"type": "regex", "regex": "kitty|vim|code", "ignore_case": true},
-      "data": {"score": 10.0}
-    },
-    {
-      "name": ["Communication", "Chat"],
-      "rule": {"type": "regex", "regex": "slack|discord|telegram"},
-      "data": {"score": 3.0}
-    }
-  ]
-}
+# Show only specific app
+tw-report :today --app kitty
+
+# Deep dive: show every window title
+tw-report :today --detail-level 5
+
+# Group by week instead of day
+tw-report :month --by-week
+
+# Hide AFK/idle periods
+tw-report :today --exclude-afk
+
+# Show only productive activities (hide communication, social media, etc.)
+tw-report :today --min-score 5
 ```
 
-**Productivity scores:**
-- Positive: productive activities (Coding, Work, etc.)
-- Negative: distracting (Social Media, Games, etc.)
-- Zero: neutral (Writing, Research, etc.)
+### Common Patterns
 
-### Special Handling: OFFLINE Tasks
+```bash
+# Weekly summary by project
+tw-report :week --by-project
 
-For Taskwarrior tasks tagged `+offline`:
+# Deep analysis of one task (all detail)
+tw-report :today --task "Feature X" --detail-level 5
 
-**Problem**: Offline work (no window events recorded) would show zero or minimal duration because the tool normally measures time from window focus periods.
+# See what you did instead of working on tasks
+tw-report :today | grep "No project"
 
-**Solution**: For OFFLINE tasks, sum all **valid "sandwiched" sessions** between consecutive task events, where each session is **Event1 + Gap + Event2**.
-
-**How it works:**
-- For each pair of consecutive task events of the same OFFLINE task
-- Calculate: `Event1_duration + Gap + Event2_duration` = one session
-- Only include sessions where the task is "sandwiched" (no other tasks active, no unassigned windows in the gap)
-- Sum all valid sessions to get total offline duration
-- Creates "Offline" category with zero productivity score
-- Can be completely hidden with `--exclude-offline` flag
-
-**Example output (consistent across both report types):**
-
-Hierarchical report with `--detail-level 3` (default behavior):
-```
-▶ Project: Ecosistema > Tratamiento de residuos > Orgánicos (0.00)    0:18:44
-  • Task: Disposición de restos de cocina (0.00)                      0:18:44
-    - Offline (0.00)............................... 0:18:44
-
-                                                Total Time: 0:19:02  [prod   0%]
+# Time breakdown by category (Coding, Communication, etc.)
+tw-report :today --detail-level 3
 ```
 
-Timeline report with `--by-project --detail-level 3`:
-```
-       17:20-17:38  ▶ Ecosi... > Orgánicos ▶▶ Disposición de restos de cocina 0:18:44  [prod   0%]
-                     - Offline                                           0:18:44
-       17:38-18:04  ▶ No project assigned ▶▶ No task assigned 0:25:49  [prod  32%]
-```
+---
 
-Both report types now display consistent category information. The "Offline" category appears in hierarchical reports at detail-level 2+ and in timeline reports at detail-level 3+.
+## Features in Detail
 
-With `--exclude-offline` flag (hides all OFFLINE tasks):
-```
-▶ Project: Ecosistema > Cultivo > Higuera (0.10)                      0:00:18
-  • Task: Control de plagas (0.10)                                    0:00:18
+### Grouping Options (Report Types)
 
-                                                Total Time: 0:00:18  [prod 100%]
-```
-
-**Why this matters**: This allows tracking work done away from the computer (writing, reading, meetings) that doesn't generate window events but is recorded in Taskwarrior.
-
-### Consolidation
-
-`--consolidate` — Merge consecutive time slots of same task (even with AFK gaps unless `--ignore-offline`):
-```
-Before:  Task A 10:00-11:00  [AFK gap]  Task A 13:00-14:00
-After:   Task A 10:00-14:00 (2:00 actual, 1:00 AFK break shown separately)
-```
+| Flag | Shows | Best For |
+|------|-------|----------|
+| (default) | Timeline — each slot on separate line | Detailed hourly breakdown |
+| `--by-project` | Hierarchical — grouped by project tree | "Where did time go?" summary |
+| `--by-day` | Consolidated — one line per project per day | "How much on each project per day?" |
+| `--by-week` | Consolidated — one line per project per week | Weekly summary |
+| `--by-month` | Consolidated — one line per project per month | Monthly summary |
+| `--by-year` | Consolidated — one line per project per year | Yearly summary |
 
 ### Detail Levels
 
 - **1**: Project only
 - **2**: Project + Task (default)
-- **3**: + Category
-- **4**: + App
-- **5**: + Window Title
+- **3**: + Category (Coding, Communication, etc.)
+- **4**: + App (kitty, Firefox, Slack, etc.)
+- **5**: + Window Title (exact window title)
 
-## Installation
+### Consolidation
 
-### From source (development)
+`--consolidate` merges consecutive sessions of the same task, even with AFK gaps:
+
+```bash
+# Merges multiple work sessions on same task
+# Useful when you switch apps but keep working on same task
+tw-report :today --consolidate
+```
+
+### Special: OFFLINE Tasks
+
+For work done **away from computer** (no window events recorded):
+
+```bash
+# Tag task in Taskwarrior
+task <id> modify +offline
+
+# Now it will show full duration (not just when window was focused)
+tw-report :today
+```
+
+This is useful for:
+- Meetings (no window focus = 0 duration normally)
+- Writing/thinking time away from computer
+- Code review on paper
+- Any work that doesn't generate window events
+
+---
+
+## Installation & Setup
+
+### From Source
+
 ```bash
 git clone <repository>
 cd work_report
-pip install -e .
+pip install -e .      # Development install
 ```
 
-### After installation
+### After Installation
+
 ```bash
-# Console script (installed via pip install -e .)
+# As console script
 tw-report :today
 
-# Or use the development wrapper
+# Or development wrapper
 ./bin/tw-report :today
 ```
 
-## Usage Examples
+### Dependencies
 
-### Basic daily report
-```bash
-tw-report :today
-```
+- **Python 3.8+** — Type hints, f-strings
+- **ActivityWatch** (`aw-client ≥0.5.15`) — Event fetching
+- **Taskwarrior** — Task management (via aw-watcher-taskwarrior)
+- **tomli ≥1.1.0** (Python <3.11) — Config file support
 
-### This week with timeline view
-```bash
-tw-report :week --by-project
-```
-
-### Specific project, consolidated sessions
-```bash
-tw-report :today --project Ecosistema --by-project --consolidate
-```
-
-### Exclude offline work from timeline
-```bash
-tw-report :today --by-project --exclude-offline
-```
-
-### Deep dive on a specific task
-```bash
-tw-report :today --task "Control de plagas" --detail-level 5
-```
-
-### All Coding activity this month
-```bash
-tw-report :month --app kitty vim --sort-by-duration
-```
-
-## Dependencies
-
-- **Python 3.8+** — Type hints, f-strings, TOML support
-- **ActivityWatch** (`aw-client ≥0.5.15`, `aw-core ≥0.5.17`) — Event fetching and transformation
-- **Taskwarrior** (via aw-watcher-taskwarrior) — Task events in ActivityWatch
-- **tomli ≥1.1.0** (Python <3.11 only) — TOML config file parsing
+---
 
 ## Configuration
 
-### Config File (TOML)
+### Config File (Optional)
 
-User configuration files are loaded from (in order):
-1. `$XDG_CONFIG_HOME/tw-report/config.toml` (if XDG_CONFIG_HOME is set)
-2. `~/.config/tw-report/config.toml` (XDG Base Directory fallback)
+Create `~/.config/tw-report/config.toml`:
 
-If the config file doesn't exist, all settings fall back to defaults or CLI arguments.
-
-**Example config file:**
 ```toml
-# ~/.config/tw-report/config.toml
+# Default detail level (1-5)
 detail_level = 3
-exclude_projects = ["Personal", "Test"]
+
+# Projects to always exclude
+exclude_projects = ["Personal", "Testing"]
+
+# Custom terminal width
 terminal_width = 120
-categories_file = "/custom/path/categories.json"
 ```
 
-**Supported settings:**
-- `detail_level` (1-5, default: 4) — Report detail level
-- `exclude_projects` (list) — Projects to exclude from reports
-- `exclude_tasks` (list) — Tasks to exclude from reports
-- `exclude_apps` (list) — Apps to exclude from reports
-- `terminal_width` (int) — Force terminal width for formatting
-- `categories_file` (string) — Path to custom categories JSON file
+**Precedence:** CLI arguments > config file > defaults
 
-**Precedence:** CLI arguments > config file > built-in defaults
-- CLI arguments always override config file
-- Config file settings override defaults
-- Non-existent config file is silently ignored
+### Categories (Productivity Scores)
 
-### Categories File
+Categories come from ActivityWatch settings.json:
 
-Default location: `~/.config/activitywatch/aw-server/settings.json`
-
-Override with `--categories /path/to/custom.json` or via config file:
-```toml
-categories_file = "/path/to/custom.json"
+```json
+{
+  "classes": [
+    {
+      "name": ["Coding"],
+      "rule": {"type": "regex", "regex": "vim|code|kitty"},
+      "data": {"score": 10.0}
+    },
+    {
+      "name": ["Social Media"],
+      "rule": {"type": "regex", "regex": "twitter|facebook"},
+      "data": {"score": -5.0}
+    }
+  ]
+}
 ```
 
-### Sorting Options
+Override with: `tw-report --categories /path/to/custom.json`
 
-- `--sort-by-duration` — Descending by time spent
-- `--sort-alphabetically` — A-Z (overrides score sorting)
-- Default: By productivity score (highest first)
-
-### Score Filtering
-
-- `--min-score 5.0` — Hide activities below score 5
-- `--max-score 0.0` — Hide productive activities (show only distracting/neutral)
-
-## Output Metrics
-
-### Report Header
-
-- **Online Time** — Total time system was actively recording (AFK + non-AFK combined; excludes periods when system was powered off)
-- **Active Time** — Total non-AFK time with window focus (focused work periods only)
-- **AFK time** — Keyboard/mouse idle periods during the day (inactive but system still recording)
-- **Project Tracking %** — Time attributed to tasks (vs. untracked background work)
-- **Focus time %** — Task time spent on high-score (productive) category activities
-- **Overall productivity %** — Productive time as percentage of total active time
-- **Task Productivity Score** — Sum of all per-hour scores across tracked tasks
-- **Current Session / Last Break** — Most recent work period and pause duration
-
-### Report Summary Total (Bottom of Report)
-
-Both hierarchical and timeline reports show a unified summary line:
-```
-                                                Total Time: 0:19:02  [prod   0%]
-```
-
-**Fields:**
-- **Total Time**: Sum of all tracked time (excluding "No project assigned" sentinel)
-- **[prod XX%]**: Productivity percentage = (productive minutes / total minutes) × 100
-  - **Productivity minutes**: Time spent in high-score categories (positive score)
-  - **Example**: 30 min total, 18 min in "Coding" (score 10+) = [prod 60%]
-  
-**Format notes:**
-- Right-aligned to terminal width for visual consistency
-- Same format used in both hierarchical and timeline reports
-- Provides quick overview of tracked time quality
-
-## Architecture Notes
-
-### Duration Measurement
-
-**By default (window-based):**
-- Task duration = sum of **window event durations** that overlap with the task
-- A window event is any period a user was focused on an app/window (kitty, browser, etc.)
-- Gaps between window events (task pause) are not counted
-- **Advantage**: Accurate representation of active time
-- **Disadvantage**: Offline work (no window events) shows zero duration
-
-**For OFFLINE-tagged tasks:**
-- Task duration = sum of all **valid sandwiched sessions** between consecutive task events
-- Each session = Event1 duration + Gap + Event2 duration (only if no other tasks or interruptions during gap)
-- Filters out window events for OFFLINE tasks (they're not counted)
-- **Advantage**: Captures work done away from computer, excluding task switches and interruptions
-- **Disadvantage**: Requires proper task event markers (start/resume events) to be recorded
-- **See**: Special Handling: OFFLINE Tasks section
-
-### Event Correlation
-
-Window events are matched to task events via **temporal overlap**:
-```python
-event.timestamp < task.timestamp + task.duration
-and task.timestamp < event.timestamp + event.duration
-```
-
-When multiple tasks overlap a window event, the **first task in list order** is used (no prioritization).
-
-**Important**: The task event's duration only determines whether it overlaps with window events. For duration calculation, the window event durations are what gets summed (unless task is OFFLINE-tagged).
-
-### Continuity in Timeline
-
-Consecutive window events for the **same (project, task, taskwarrior_event) triplet** are grouped into a single timeline slot, even if different apps/windows were focused. This shows "how long you worked on this task" rather than "how long kitty was focused."
-
-### Gap Markers
-
-- **`[AFK]`** — Keyboard/mouse idle (user away)
-- **`[OFFLINE]`** — Computer offline or ActivityWatch not running (gap > 2 minutes)
-- **`[offline_extension]`** — OFFLINE period attached to OFFLINE-tagged task
-
-### Productivity Score Calculation
-
-Per-hour score: `event.duration_hours × category.score`
-
-Example: 15 minutes of Coding (score 10) = 0.25 hours × 10 = 2.5 points
-
-**In reports:**
-- Each project/task/category shows a score in parentheses: `(0.10)`, `(10.25)`
-- Sum of all scores across a task = total productivity contribution
-- Negative scores indicate distracting activities (time wasted)
-- Zero scores are neutral (no productivity value assigned)
-
-### Report Format Consistency
-
-Both hierarchical and timeline reports use **identical formatting** for the summary total line:
-- **Format**: `Total Time: HH:MM:SS  [prod XX%]`
-- **Alignment**: Right-aligned to terminal width
-- **Content**: Total tracked time and productivity percentage
-- **Purpose**: Quick overview of work session quality at a glance
-
-This consistency allows users to switch between report types without re-learning the output format.
+---
 
 ## Troubleshooting
 
-### "No activity found for the specified period"
-- Check ActivityWatch is running and recording
-- Verify time period contains actual activity (check with `:all`)
-- Look in "No project assigned" section — time is still counted even if not tracked to a task
+### "No activity found"
+- **Check:** Is ActivityWatch running? (`ps aux | grep aw`)
+- **Check:** Do you have window events for that period?
+- **Try:** `tw-report :all` to see if any data exists
 
-### Tasks show minimal duration (much less than expected)
-- **Normal behavior**: Duration = window focus time only
-- Only time when you actively had the app/window focused is counted
-- Gaps between focus periods (thinking, coffee breaks) are excluded
-- **Solution for offline work**: Tag task with `+offline` to use full task duration
+### Tasks show very little time
+- **Normal behavior:** Only time with focused window is counted
+- **Solution:** Tag task with `+offline` if work doesn't generate window events
+- **Check:** Run with `--detail-level 5` to see if window events exist for that time
 
-### Tasks not appearing in report at all
-- Verify aw-watcher-taskwarrior is running and connected to ActivityWatch
-- Check task was active during the period (use `tws` to verify)
-- Ensure task event overlaps with window activity (or use `+offline` tag)
-- Try `--by-project` view to see if task appears there with different formatting
-
-### OFFLINE task showing zero or wrong duration
-- Ensure task has `+offline` tag (case-sensitive in ActivityWatch)
-- Verify task event exists in ActivityWatch bucket
-- Check task event timestamps in ActivityWatch match expected times
-- Confirm `--exclude-offline` flag is NOT set (unless you want to hide OFFLINE tasks)
+### Task doesn't appear at all
+- **Check:** Is aw-watcher-taskwarrior running? (`ps aux | grep taskwarrior`)
+- **Check:** Does task have window activity during that period?
+- **Try:** `tw-report --by-project` to see if it groups differently
 
 ### Wrong productivity percentage
-- Check category score is correct in settings.json (should be positive for productive work)
-- Remember: `[prod XX%]` = productive time / total time
-- Verify category regex matches your window titles (use `--detail-level 5` to see actual titles)
-- Negative scores count as distracting time and reduce productivity percentage
+- **Check:** Category regex matches your window titles (`--detail-level 5`)
+- **Check:** Category scores in settings.json are correct
+- **Remember:** `[prod XX%]` = (productive time / total time) × 100
 
-### Categories not matching
-- Verify regex rules are correct in settings.json
-- Test regex patterns separately with your actual window titles
-- Window title might not match expected pattern (check `--detail-level 5` to see exact titles)
-- Remember: matching is case-insensitive by default (unless `ignore_case: false` in config)
+---
 
-### Report formatting looks wrong
-- Check terminal width — right-aligned lines require minimum width
-- Verify output is not piped/redirected (pipes affect width calculation)
-- Try wider terminal if summary line appears truncated
+## Architecture (Advanced)
 
-## Running Tests
+<details>
+<summary><b>Click to expand: How it works internally</b></summary>
 
-### Setup
-```bash
-# Install with dev dependencies
-pip install -e .[dev]
+### Data Flow
+
+```
+ActivityWatch buckets
+    ├─ aw-watcher-window      → window events (app, title)
+    ├─ aw-watcher-afk         → keyboard/mouse idle periods
+    └─ aw-watcher-taskwarrior → task events (project, task, duration)
+                        ↓
+          build_timeslot_timeline()  → merge into non-overlapping slots
+                        ↓
+        consolidate_by_period()      → group by date/week/month/year
+                        ↓
+    ┌───────────────────┴───────────────────┐
+    ↓                                        ↓
+aggregate_hierarchy()              print_timeline_report()
+(project tree view)                (detailed timeline view)
 ```
 
-### Run tests
-```bash
-# All tests (excludes live-server tests if no AW instance is running)
-pytest
+### How It Correlates Data
 
-# Only unit tests (fast, no external dependencies)
-pytest tests/unit/ -v
+Window events are matched to tasks via **temporal overlap**:
+- If window event time overlaps with task event time, attribute the window to that task
+- Multiple tasks = uses first task in list
+- No task = shows as "No project assigned"
 
-# With coverage report
-pytest --cov=tw_report --cov-report=term-missing
+### Duration Calculation
 
-# Specific test file
-pytest tests/unit/test_filtering.py -v
+**Default (window-based):**
+- Task duration = sum of window event durations that overlap
+- Only counts time when you actively had an app/window focused
+- Gaps (thinking, breaks) not counted
 
-# Specific test class/function
-pytest tests/unit/test_filtering.py::TestEventFilterBasics::test_basic_filtering -v
-```
+**For OFFLINE tasks:**
+- Uses full task duration (from task event start to end)
+- Useful for work that doesn't generate window events
 
-### Test organization
-- **`tests/unit/`** — Fast, isolated unit tests (690 tests collected, 690 pass)
-  - Core logic: filtering, consolidation, OFFLINE processing
-  - CLI argument parsing
-  - Config loading and settings resolution
-  - Formatting utilities
-  - Pipeline processors
+### Module Structure
 
-- **`tests/integration/`** — Full-pipeline tests (marked with `@pytest.mark.live_server`)
-  - Requires running ActivityWatch instance
-  - Run with: `pytest -m live_server` (or just `pytest` if AW is running)
-  - Skipped automatically if no AW server found
+- **cli/main.py** — Entry point, argument parsing
+- **core/timeslot_builder.py** — Merges events into non-overlapping slots
+- **core/report_slot.py** — Time slot data structures
+- **pipeline/timeline_render.py** — Timeline report rendering
+- **pipeline/report_render.py** — Hierarchical report rendering
 
-### Pre-commit
-```bash
-# Check code style
-ruff check src/ tests/
+</details>
 
-# Auto-format code
-ruff format src/ tests/
-
-# Type checking
-mypy src/
-
-# All at once
-ruff check . && ruff format . --check && mypy src/ && pytest
-```
+---
 
 ## Performance
 
-### Execution Time
-
-Recent optimizations have significantly improved performance:
-
 | Command | Duration | Notes |
 |---------|----------|-------|
-| `tw-report :today` | <1s | Single-day report (cached data) |
+| `tw-report :today` | <1s | Single day |
 | `tw-report :week` | 1-2s | Week aggregation |
 | `tw-report :month` | 2-5s | Month aggregation |
 | `tw-report :year` | 5-15s | Full year (depends on event density) |
-| `tw-report --task <uuid> --by-project :all` | ~10s | Task-specific with 56-year period (10x speedup via window time-range optimization) |
+| `tw-report :all` | Variable | All recorded history |
 
-### Performance Optimizations
+---
 
-#### 1. AFK-Based Optimization (detail_level ≤ 2)
-- Skips expensive window bucket fetch entirely
-- Uses AFK events for OFFLINE task reconciliation instead
-- **Impact:** 6-5x faster for timesheet reports with default detail level
+## Testing
 
-#### 2. Window Event Time-Range Filtering
-- When filtering by task UUID or specific time periods, fetches window events only for time windows where task events exist
-- Dramatically reduces data volume for sparse task data
-- **Example:** Fetching windows for :year with sparse task data:
-  - Without optimization: 100K+ events, 120+ seconds
-  - With optimization: 2K events, 15-20 seconds
+### Run Tests
 
-#### 3. OFFLINE Task Window Reconciliation (2026-07-22)
-- When reconciling window events with OFFLINE tasks, reuses task time-range optimization
-- Prevents full-period window fetch (e.g., 186K events for 56 years)
-- **Impact:** 10x speedup for `--task <uuid> --by-project :all` queries (95s → 10s)
-
-### Profiling
-
-To profile a slow command:
 ```bash
-python -m cProfile -s cumtime -m tw_report.cli.main --by-project :all 2>&1 | head -50
+# All tests
+pytest
+
+# Only unit tests (fast)
+pytest tests/unit/ -v
+
+# With coverage
+pytest --cov=tw_report --cov-report=term-missing
+
+# Specific test
+pytest tests/unit/test_filtering.py::TestEventFilterBasics -v
 ```
 
-Or use the built-in debug scripts:
-```bash
-python tw-report --help  # Profile time/memory for a command
-python debug_full_pipeline.py  # Trace the full event pipeline
-```
+### Test Status
 
-## Recent Work & Status (Session 2026-09-02)
+- **690 unit tests** passing
+- **1 pre-existing failure** (not a regression)
+- **0 regressions** from cleanup
 
-### CRITICAL FIX: Unified Pipeline Architecture ✅ COMPLETE
-
-**The Problem**: Two independent slot-building paths caused metrics divergence
-- Timeline report: Built slots → filtered → calculated metrics
-- Hierarchical report: Pre-filtered events → built slots → consolidated → aggregated
-- **Result**: Identical data showed different totals (86-second discrepancies observed in production)
-- **Example**: Mercado laboral showed 00:08:00 in `--by-project` but 00:06:34 in timeline view
-
-**The Solution**: Single unified pipeline (Commit 07ed47d)
-1. Build slots once from unfiltered events (builder needs complete data for correct classification)
-2. Filter slots once at output point
-3. Feed both report modes (timeline & hierarchical) from identical filtered data
-4. No pre-filtering or separate consolidation needed
-
-**Verification**: ✅ Production-ready
-- 3/3 convergence tests pass (both paths produce identical totals)
-- 690/691 unit tests pass (1 pre-existing failure: test_consolidate_consecutive_excludes_bare_offline_gaps)
-- CLI manual verification: `:today` and `:yesterday` show identical metrics between timeline and `--by-project` reports
-- Example: Both show Active Time 01:12:31 + AFK time 00:03:10 + Online 01:15:41 + Total Time 01:15:41
-
-**Impact**: Eliminated silent divergence risk — both report types now guaranteed to show identical metrics
-
-### Previous Session Work (Session 2026-09-01)
-
-**Phase 2: Builder Consolidation & Code Cleanup** ✅ COMPLETE
-- Eliminated 5 independent slot generators (4253 LOC deleted)
-- Unified all slot construction into single sweep-line builder: `build_timeslot_timeline()`
-- Guaranteed non-overlapping slots at construction time
-- Fixed overlapping slots bug that was causing reported time > wall-clock time
-- Cleaned up: removed `OfflineTaskProcessor`, `partition_task_duration()`, legacy test files
-- Result: Codebase is cleaner, more maintainable, guaranteed correctness
-
-**Phase 3: Breaks Column Feature** ✅ COMPLETE
-- Added visual display of break durations between work sessions
-- TDD approach: 21 comprehensive tests created before implementation
-- Breaks Column displays gap durations (HH:MM:SS format) in leftmost column
-- Updated DisplayColumns structure and header rendering
-- Integrated break detection logic with gap separator rendering
-- Test suite: 690 unit tests + 1 integration tests passing (690 pass, 1 pre-existing failure)
-
-**Test Suite Health** ✅ PERFECT
-- **Total**: 690 unit tests passing, 1 pre-existing failure
-- **Regressions**: 0
-- **Test coverage**: Timeline rendering, consolidation, filtering, breaks detection, metrics calculation, convergence validation
-
-### Known Limitations
-
-1. **Performance** — `--by-month` with detail_level >= 3 and large datasets may be slower due to category merging overhead.
-
-2. **UTC assumption** — All time handling assumes UTC; local time zones not supported (by design, to match ActivityWatch behavior).
+---
 
 ## Contributing
 
-### Code style
-- **Formatter:** `ruff format` (Black-compatible)
-- **Linter:** `ruff check` (E, F, I, UP, B, SIM rules)
-- **Type checker:** `mypy` (permissive to start, ratcheting up over time)
-- **Line length:** 100 characters (per `pyproject.toml`)
+### Code Style
 
-### Adding features
-1. Create a feature branch
-2. Add tests first (TDD-style preferred)
-3. Implement the feature
-4. Run `ruff format .` and `ruff check .`
-5. Run `pytest` (all tests must pass)
-6. Update docs if user-facing
-7. Submit PR with clear description
+```bash
+# Format code
+ruff format .
 
-### Module boundaries
-- **`cli/`** — Argument parsing, entry point
-- **`core/`** — Business logic (filtering, consolidation, task matching)
-- **`pipeline/`** — Data transformation and aggregation
-- **`utils/`** — Pure helper functions (formatting, logging)
-- **`exceptions.py`** — Custom exception hierarchy
-- **`config.py`** — Configuration loading
+# Check linting
+ruff check .
 
-## Future Enhancements
+# Type checking
+mypy src/
+```
 
-- [x] Modular package structure (Phases 0-12)
-- [x] Config file support (TOML, XDG paths) (Phase 11)
-- [x] Comprehensive test coverage (262+ unit tests) (Phases 4-9)
-- [x] CI/CD pipeline (GitHub Actions) (Phase 3)
-- [ ] Multi-project filtering consolidation (merge results)
-- [ ] Export to CSV/JSON for external analysis
-- [ ] Comparison reports (week-over-week)
-- [ ] Activity trends (productivity over time)
-- [ ] Integration with other time trackers (Toggl, RescueTime)
-- [ ] Web UI for interactive exploration
+### Adding Features
+
+1. Create feature branch
+2. Write tests first (TDD-style)
+3. Implement feature
+4. Run tests: `pytest`
+5. Update docs if user-facing
+6. Submit PR
+
+---
 
 ## License
 
